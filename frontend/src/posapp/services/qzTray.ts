@@ -419,9 +419,9 @@ export async function printHtmlViaQz(html: string, options: QzPrintHtmlOptions =
 
 	let printer =
 		options.printerName ||
-		selectedQzPrinter.value ||
 		getSavedPrinterName() ||
-		getProfileDefaultPrinterName();
+		getProfileDefaultPrinterName() ||
+		selectedQzPrinter.value;
 	if (!printer) {
 		const printers = await findQzPrinters();
 		const firstPrinter = printers[0];
@@ -460,40 +460,44 @@ export async function printHtmlViaQz(html: string, options: QzPrintHtmlOptions =
 }
 
 export async function sendRawToQz(data: string, printerName?: string) {
-  if (!qz.websocket.isActive()) {
-    const connected = await connectQzTray();
-    if (!connected) {
-      if (qzReconnectPaused.value) {
-        throw new Error("QZ Tray is manually disconnected. Press Connect to enable it again.");
-      }
-      throw new Error("QZ Tray is not available.");
-    }
-  }
+	if (!qz.websocket.isActive()) {
+		const connected = await connectQzTray();
+		if (!connected) {
+			if (qzReconnectPaused.value) {
+				throw new Error("QZ Tray is manually disconnected. Press Connect to enable it again.");
+			}
+			throw new Error("QZ Tray is not available.");
+		}
+	}
 
-  let printer = printerName || selectedQzPrinter.value || getSavedPrinterName() || getProfileDefaultPrinterName();
-  if (!printer) {
-    const printers = await findQzPrinters();
-    if (printers[0]) {
-      printer = printers[0];
-      setResolvedQzPrinter(printers[0]);
-    }
-  }
+	let printer =
+		printerName ||
+		getSavedPrinterName() ||
+		getProfileDefaultPrinterName() ||
+		selectedQzPrinter.value;
+	if (!printer) {
+		const printers = await findQzPrinters();
+		if (printers[0]) {
+			printer = printers[0];
+			setResolvedQzPrinter(printers[0]);
+		}
+	}
 
-  if (!printer) {
-    throw new Error("No QZ printer selected.");
-  }
+	if (!printer) {
+		throw new Error("No QZ printer selected.");
+	}
 
-  const config = qz.configs.create(printer);
-  const printData = [
-    {
-      type: "raw",
-      format: "plain",
-      flavor: "command",
-      data: data,
-    },
-  ];
+	const config = qz.configs.create(printer);
+	const printData = [
+		{
+			type: "raw",
+			format: "plain",
+			flavor: "command",
+			data: data,
+		},
+	];
 
-  await qz.print(config, printData);
+	await qz.print(config, printData);
 }
 
 export async function printDocumentViaQz(options: QzPrintDocumentOptions) {
