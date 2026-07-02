@@ -85,8 +85,8 @@
 								{{ purchaseItems.length }} {{ __("items") }} &middot; {{ formatNumber(totalQty) }} {{ __("qty") }}
 							</span>
 						</div>
-						<div class="purchase-action-bar__buttons">
-							<div class="purchase-action-bar__secondary">
+						<v-row dense class="purchase-action-bar__buttons">
+							<v-col cols="12" sm="6">
 								<v-btn
 									block
 									color="accent"
@@ -99,6 +99,8 @@
 								>
 									{{ __("Save & Clear") }}
 								</v-btn>
+							</v-col>
+							<v-col cols="12" sm="6">
 								<v-btn
 									block
 									color="warning"
@@ -110,6 +112,8 @@
 								>
 									{{ __("Drafts") }}
 								</v-btn>
+							</v-col>
+							<v-col cols="12">
 								<v-btn
 									block
 									color="deep-purple"
@@ -121,21 +125,23 @@
 								>
 									{{ __("Purchase Mgmt") }}
 								</v-btn>
-							</div>
-							<v-btn
-								block
-								color="success"
-								theme="dark"
-								size="large"
-								prepend-icon="mdi-credit-card"
-								class="purchase-summary-btn purchase-pay-btn"
-								:loading="submitLoading"
-								:disabled="submitLoading || !purchaseItems.length"
-								@click="openPaymentDialog"
-							>
-								{{ __("PAY") }}
-							</v-btn>
-						</div>
+							</v-col>
+							<v-col cols="12">
+								<v-btn
+									block
+									color="success"
+									theme="dark"
+									size="large"
+									prepend-icon="mdi-credit-card"
+									class="purchase-summary-btn purchase-pay-btn"
+									:loading="submitLoading"
+									:disabled="submitLoading || !purchaseItems.length"
+									@click="openPaymentDialog"
+								>
+									{{ __("PAY") }}
+								</v-btn>
+							</v-col>
+						</v-row>
 					</v-card-actions>
 				</v-card>
 			</v-col>
@@ -738,17 +744,13 @@ export default {
 }
 
 .purchase-action-bar__buttons {
-	display: grid;
-	grid-template-columns: minmax(260px, 360px);
-	gap: 10px;
-	justify-content: end;
-	flex: 1 1 auto;
+	flex: 0 1 442px;
+	margin: 0;
 }
 
-.purchase-action-bar__secondary {
-	display: grid;
-	grid-template-columns: repeat(3, minmax(0, 1fr));
-	gap: 10px;
+.purchase-action-bar__buttons :deep(.v-col) {
+	padding-top: 4px;
+	padding-bottom: 4px;
 }
 
 .purchase-summary-btn {
@@ -804,12 +806,8 @@ export default {
 	}
 
 	.purchase-action-bar__buttons {
-		display: grid;
-		grid-template-columns: 1fr;
-	}
-
-	.purchase-action-bar__secondary {
-		grid-template-columns: 1fr;
+		flex: 1 1 auto;
+		width: 100%;
 	}
 
 	.purchase-summary-btn {
