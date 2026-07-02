@@ -74,7 +74,7 @@
 						</v-alert>
 					</v-card-text>
 
-					<v-card-actions class="purchase-action-bar">
+					<div class="purchase-action-bar">
 						<div class="purchase-action-bar__totals">
 							<span class="purchase-action-bar__label">{{ __("Total") }}</span>
 							<strong>
@@ -89,10 +89,10 @@
 							<v-col cols="12" sm="6">
 								<v-btn
 									block
-									color="accent"
 									theme="dark"
+									variant="flat"
 									prepend-icon="mdi-content-save"
-									class="purchase-summary-btn"
+									class="purchase-summary-btn purchase-action-btn--save"
 									@click="saveDraft"
 									:loading="draftSaveLoading"
 									:disabled="saveAndClearDisabled"
@@ -103,10 +103,10 @@
 							<v-col cols="12" sm="6">
 								<v-btn
 									block
-									color="warning"
 									theme="dark"
+									variant="flat"
 									prepend-icon="mdi-tray-full"
-									class="purchase-summary-btn purchase-white-text-btn"
+									class="purchase-summary-btn purchase-action-btn--drafts"
 									@click="draftDialog = true"
 									:disabled="submitLoading || draftSaveLoading"
 								>
@@ -116,10 +116,10 @@
 							<v-col cols="12">
 								<v-btn
 									block
-									color="deep-purple"
 									theme="dark"
+									variant="flat"
 									prepend-icon="mdi-folder-search-outline"
-									class="purchase-summary-btn"
+									class="purchase-summary-btn purchase-action-btn--management"
 									@click="managementDialog = true"
 									:disabled="submitLoading || draftSaveLoading"
 								>
@@ -129,11 +129,11 @@
 							<v-col cols="12">
 								<v-btn
 									block
-									color="success"
 									theme="dark"
+									variant="flat"
 									size="large"
 									prepend-icon="mdi-credit-card"
-									class="purchase-summary-btn purchase-pay-btn"
+									class="purchase-summary-btn purchase-action-btn--pay purchase-pay-btn"
 									:loading="submitLoading"
 									:disabled="submitLoading || !purchaseItems.length"
 									@click="openPaymentDialog"
@@ -142,7 +142,7 @@
 								</v-btn>
 							</v-col>
 						</v-row>
-					</v-card-actions>
+					</div>
 				</v-card>
 			</v-col>
 		</v-row>
@@ -720,7 +720,7 @@ export default {
 	align-items: center;
 	justify-content: space-between;
 	gap: 16px;
-	padding: 14px 16px;
+	padding: 16px;
 	border-top: 1px solid var(--pos-border);
 	background: color-mix(in srgb, var(--pos-surface-raised) 94%, rgb(var(--v-theme-primary)) 6%);
 }
@@ -744,8 +744,9 @@ export default {
 }
 
 .purchase-action-bar__buttons {
-	flex: 0 1 442px;
+	flex: 0 0 min(442px, 42vw);
 	margin: 0;
+	margin-left: auto;
 }
 
 .purchase-action-bar__buttons :deep(.v-col) {
@@ -759,11 +760,50 @@ export default {
 	transition: all 0.2s ease !important;
 	position: relative;
 	overflow: hidden;
+	border-radius: 4px !important;
+	color: #fff !important;
+	letter-spacing: 0 !important;
 }
 
 .purchase-summary-btn :deep(.v-btn__content) {
 	white-space: normal !important;
 	transition: all 0.2s ease;
+	color: #fff !important;
+	font-weight: 700;
+	opacity: 1 !important;
+}
+
+.purchase-summary-btn :deep(.v-btn__prepend) {
+	color: #fff !important;
+	opacity: 1 !important;
+}
+
+.purchase-action-btn--save {
+	background: #ff6333 !important;
+	box-shadow: 0 2px 8px rgba(255, 99, 51, 0.28) !important;
+}
+
+.purchase-action-btn--drafts {
+	background: #ffc107 !important;
+	box-shadow: 0 2px 8px rgba(255, 193, 7, 0.25) !important;
+}
+
+.purchase-action-btn--management {
+	background: #673ab7 !important;
+	box-shadow: 0 2px 8px rgba(103, 58, 183, 0.25) !important;
+}
+
+.purchase-action-btn--pay {
+	background: linear-gradient(135deg, #4caf50, #45a049) !important;
+	box-shadow: 0 4px 12px rgba(76, 175, 80, 0.3) !important;
+}
+
+.purchase-summary-btn.v-btn--disabled {
+	opacity: 0.72 !important;
+}
+
+.purchase-summary-btn.v-btn--disabled :deep(.v-btn__overlay) {
+	opacity: 0 !important;
 }
 
 .purchase-summary-btn:hover {
@@ -775,17 +815,10 @@ export default {
 	transform: translateY(0);
 }
 
-.purchase-white-text-btn,
-.purchase-white-text-btn :deep(.v-btn__content) {
-	color: var(--pos-text-primary) !important;
-}
-
 .purchase-pay-btn {
 	min-height: 58px !important;
 	font-weight: 600 !important;
 	font-size: 1.1rem !important;
-	background: linear-gradient(135deg, #4caf50, #45a049) !important;
-	box-shadow: 0 4px 12px rgba(76, 175, 80, 0.3) !important;
 }
 
 .purchase-pay-btn:hover {
@@ -808,6 +841,7 @@ export default {
 	.purchase-action-bar__buttons {
 		flex: 1 1 auto;
 		width: 100%;
+		margin-left: 0;
 	}
 
 	.purchase-summary-btn {
