@@ -7,6 +7,7 @@ import {
 	watchPrintWindow,
 } from "../../../plugins/print";
 import {
+	confirmDocumentPrintFallback,
 	printDocumentViaConfiguredQz,
 	shouldUseConfiguredQzDocumentPrinting,
 	shouldUseRawDocumentPrinting,
@@ -57,21 +58,6 @@ export function usePaymentPrinting(options: PaymentPrintingOptions) {
 			print_format,
 			letter_head,
 		};
-	};
-
-	const notifyRawPrintFailure = (error: unknown) => {
-		const message =
-			error instanceof Error && error.message
-				? error.message
-				: "Raw printing failed. Check QZ Tray connection, certificate, and printer name.";
-		console.warn("QZ Tray raw print failed", error);
-		frappe?.show_alert?.(
-			{
-				message,
-				indicator: "red",
-			},
-			7,
-		);
 	};
 
 	const openOfflineInvoicePreview = async (
@@ -200,17 +186,18 @@ export function usePaymentPrinting(options: PaymentPrintingOptions) {
 					});
 					return;
 				} catch (error) {
-					if (useRawPrint) {
-						notifyRawPrintFailure(error);
-						return;
+					console.warn("QZ Tray print failed", error);
+					if (confirmDocumentPrintFallback(error, { raw: useRawPrint })) {
+						silentPrint(url, printOptions);
 					}
-					console.warn("QZ Tray print failed, falling back to browser print", error);
+					return;
 				}
 			}
 			if (useRawPrint) {
-				notifyRawPrintFailure(
-					new Error("Raw printing is not available while the POS is offline."),
-				);
+				const offlineError = new Error("Raw printing is not available while the POS is offline.");
+				if (confirmDocumentPrintFallback(offlineError, { raw: true, offline: true })) {
+					silentPrint(url, printOptions);
+				}
 				return;
 			}
 			silentPrint(url, printOptions);

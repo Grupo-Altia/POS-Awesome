@@ -34,3 +34,27 @@ export async function printDocumentViaConfiguredQz(options: ConfiguredQzDocument
 export function shouldUseConfiguredQzDocumentPrinting(profile?: Record<string, any> | null) {
 	return shouldUseRawDocumentPrinting(profile) || parseBooleanSetting(profile?.posa_silent_print);
 }
+
+export function getQzPrintErrorMessage(error: unknown) {
+	if (error instanceof Error && error.message) {
+		return error.message;
+	}
+	if (typeof error === "string" && error.trim()) {
+		return error.trim();
+	}
+	return "Unknown QZ Tray printing error.";
+}
+
+export function confirmDocumentPrintFallback(
+	error: unknown,
+	options: { raw?: boolean; offline?: boolean } = {},
+) {
+	const reason = getQzPrintErrorMessage(error);
+	const title = options.offline
+		? "Raw/QZ printing is not available while the POS is offline."
+		: options.raw
+			? "Raw/QZ printing failed."
+			: "QZ Tray printing failed.";
+	const message = `${title}\n\nReason: ${reason}\n\nDo you want to print using the browser fallback instead?`;
+	return window.confirm(message);
+}

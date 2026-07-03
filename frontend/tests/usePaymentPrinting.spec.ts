@@ -15,6 +15,7 @@ vi.mock("../src/posapp/plugins/print", () => ({
 }));
 
 vi.mock("../src/posapp/services/documentPrint", () => ({
+	confirmDocumentPrintFallback: vi.fn(() => false),
 	printDocumentViaConfiguredQz: vi.fn(),
 	shouldUseRawDocumentPrinting: (profile: Record<string, any> | null | undefined) =>
 		profile?.posa_raw_printing === 1 || profile?.posa_raw_printing === true,
@@ -31,7 +32,10 @@ vi.mock("../src/offline_print_template", () => ({
 
 import { usePaymentPrinting } from "../src/posapp/composables/pos/payments/usePaymentPrinting";
 import { silentPrint, watchPrintWindow } from "../src/posapp/plugins/print";
-import { printDocumentViaConfiguredQz } from "../src/posapp/services/documentPrint";
+import {
+	confirmDocumentPrintFallback,
+	printDocumentViaConfiguredQz,
+} from "../src/posapp/services/documentPrint";
 import { isOffline } from "../src/offline/index";
 
 describe("usePaymentPrinting", () => {
@@ -319,7 +323,44 @@ describe("usePaymentPrinting", () => {
 		await loadPrintPage();
 
 		expect(printDocumentViaConfiguredQz).toHaveBeenCalled();
+		expect(confirmDocumentPrintFallback).toHaveBeenCalledWith(
+			expect.any(Error),
+			expect.objectContaining({ raw: true }),
+		);
 		expect(openSpy).not.toHaveBeenCalled();
 		expect(silentPrint).not.toHaveBeenCalled();
+	});
+
+	it("falls back to browser print after raw QZ failure only when confirmed", async () => {
+		vi.mocked(printDocumentViaConfiguredQz).mockRejectedValueOnce(
+			new Error("QZ Tray is not available."),
+		);
+		vi.mocked(confirmDocumentPrintFallback).mockReturnValueOnce(true);
+
+		const { loadPrintPage } = usePaymentPrinting({
+			invoiceDoc: ref({ name: "ACC-SINV-0007", doctype: "Sales Invoice" }),
+			posProfile: ref({
+				print_format_for_online: "Standard",
+				print_format: "Standard",
+				letter_head: 0,
+				posa_open_print_in_new_tab: false,
+				posa_silent_print: true,
+				posa_raw_printing: 1,
+				create_pos_invoice_instead_of_sales_invoice: 0,
+			}),
+			invoiceType: ref("Invoice"),
+			printFormat: ref("Standard"),
+		});
+
+		await loadPrintPage();
+
+		expect(confirmDocumentPrintFallback).toHaveBeenCalledWith(
+			expect.any(Error),
+			expect.objectContaining({ raw: true }),
+		);
+		expect(silentPrint).toHaveBeenCalledWith(
+			expect.stringContaining("trigger_print=0"),
+			expect.objectContaining({ triggerPrint: "1" }),
+		);
 	});
 });

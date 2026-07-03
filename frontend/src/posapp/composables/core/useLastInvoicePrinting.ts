@@ -6,6 +6,7 @@ import {
 	watchPrintWindow,
 } from "../../plugins/print";
 import {
+	confirmDocumentPrintFallback,
 	printDocumentViaConfiguredQz,
 	shouldUseConfiguredQzDocumentPrinting,
 	shouldUseRawDocumentPrinting,
@@ -24,21 +25,6 @@ export function useLastInvoicePrinting() {
 		}
 		if (typeof value === "number") return value === 1;
 		return Boolean(value);
-	}
-
-	function notifyRawPrintFailure(error: unknown) {
-		const message =
-			error instanceof Error && error.message
-				? error.message
-				: "Raw printing failed. Check QZ Tray connection, certificate, and printer name.";
-		console.warn("QZ Tray raw print failed", error);
-		frappe?.show_alert?.(
-			{
-				message,
-				indicator: "red",
-			},
-			7,
-		);
 	}
 
 	async function printLastInvoice() {
@@ -160,14 +146,12 @@ export function useLastInvoicePrinting() {
 				});
 				return;
 			} catch (error) {
-				if (useRawPrint) {
-					notifyRawPrintFailure(error);
-					return;
+				console.warn("QZ Tray print failed", error);
+				if (confirmDocumentPrintFallback(error, { raw: useRawPrint })) {
+					silentPrint(url, printOptions);
 				}
-				console.warn("QZ Tray print failed, falling back to browser print", error);
+				return;
 			}
-			silentPrint(url, printOptions);
-			return;
 		}
 
 		const printWindow = window.open(url, "Print");

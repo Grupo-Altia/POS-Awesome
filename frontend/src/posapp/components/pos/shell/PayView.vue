@@ -227,6 +227,7 @@ import {
 	watchPrintWindow,
 } from "../../../plugins/print";
 import {
+	confirmDocumentPrintFallback,
 	printDocumentViaConfiguredQz,
 	shouldUseConfiguredQzDocumentPrinting,
 	shouldUseRawDocumentPrinting,
@@ -436,29 +437,18 @@ export default {
 						});
 						return;
 					} catch (error) {
-						if (useRawPrint) {
-							frappe?.show_alert?.(
-								{
-									message:
-										error?.message ||
-										"Raw printing failed. Check QZ Tray connection, certificate, and printer name.",
-									indicator: "red",
-								},
-								7,
-							);
-							return;
+						console.warn("QZ Tray print failed", error);
+						if (confirmDocumentPrintFallback(error, { raw: useRawPrint })) {
+							silentPrint(url, printOptions);
 						}
-						console.warn("QZ Tray print failed, falling back to browser print", error);
+						return;
 					}
 				}
 				if (useRawPrint) {
-					frappe?.show_alert?.(
-						{
-							message: "Raw printing is not available while the POS is offline.",
-							indicator: "red",
-						},
-						7,
-					);
+					const offlineError = new Error("Raw printing is not available while the POS is offline.");
+					if (confirmDocumentPrintFallback(offlineError, { raw: true, offline: true })) {
+						silentPrint(url, printOptions);
+					}
 					return;
 				}
 				silentPrint(url, printOptions);

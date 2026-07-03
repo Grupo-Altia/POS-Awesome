@@ -1445,6 +1445,7 @@ import {
 	watchPrintWindow,
 } from "../../../plugins/print";
 import {
+	confirmDocumentPrintFallback,
 	printDocumentViaConfiguredQz,
 	shouldUseConfiguredQzDocumentPrinting,
 	shouldUseRawDocumentPrinting,
@@ -2697,23 +2698,18 @@ export default {
 					});
 					return;
 				} catch (error) {
-					if (useRawPrint) {
-						this.toastStore.show({
-							title:
-								error?.message ||
-								__("Raw printing failed. Check QZ Tray connection, certificate, and printer name."),
-							color: "error",
-						});
-						return;
+					console.warn("QZ Tray print failed", error);
+					if (confirmDocumentPrintFallback(error, { raw: useRawPrint })) {
+						silentPrint(url, printOptions);
 					}
-					console.warn("QZ Tray print failed, falling back to browser print", error);
+					return;
 				}
 			}
 			if (useRawPrint) {
-				this.toastStore.show({
-					title: __("Raw printing is not available while the POS is offline."),
-					color: "error",
-				});
+				const offlineError = new Error(__("Raw printing is not available while the POS is offline."));
+				if (confirmDocumentPrintFallback(offlineError, { raw: true, offline: true })) {
+					silentPrint(url, printOptions);
+				}
 				return;
 			}
 			if (useConfiguredQzPrint) {
