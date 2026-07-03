@@ -165,4 +165,25 @@ describe("qzTray service", () => {
 
 		expect(qzTray.selectedQzPrinter.value).toBe("Printer A");
 	});
+
+	it("sends raw printer commands using QZ command format", async () => {
+		qzMock.setActive(true);
+		qzMock.findPrinters.mockResolvedValue(["Receipt Printer"]);
+
+		const qzTray = await import("../src/posapp/services/qzTray");
+
+		await qzTray.sendRawToQz("\x1B@Hello\n");
+
+		expect(qzMock.print).toHaveBeenCalledWith(
+			expect.objectContaining({ printer: "Receipt Printer" }),
+			[
+				{
+					type: "raw",
+					format: "command",
+					flavor: "plain",
+					data: "\x1B@Hello\n",
+				},
+			],
+		);
+	});
 });
