@@ -6196,6 +6196,28 @@
 	{
 		"doctype": "Custom Field",
 		"dt": "POS Profile",
+		"fieldname": "posa_raw_printing",
+		"fieldtype": "Check",
+		"insert_after": "posa_qz_printer_name",
+		"label": "Use Raw Receipt Printing",
+		"description": "Send invoices, orders, and payment receipts to QZ Tray as ESC/POS raw commands instead of HTML. Barcode and label raw ZPL/EPL printing is controlled from the barcode printing screen.",
+		"default": "0",
+		"name": "POS Profile-posa_raw_printing"
+	},
+	{
+		"doctype": "Custom Field",
+		"dt": "POS Profile",
+		"fieldname": "posa_raw_print_width",
+		"fieldtype": "Int",
+		"insert_after": "posa_raw_printing",
+		"label": "Raw Receipt Width",
+		"description": "Receipt width in ESC/POS text characters. Common values are 42 for 80mm and 32 for 58mm printers.",
+		"default": "42",
+		"name": "POS Profile-posa_raw_print_width"
+	},
+	{
+		"doctype": "Custom Field",
+		"dt": "POS Profile",
 		"fieldname": "posa_language",
 		"fieldtype": "Select",
 		"insert_after": "posa_default_country",

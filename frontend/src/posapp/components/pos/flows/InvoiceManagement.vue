@@ -1444,7 +1444,7 @@ import {
 	silentPrint,
 	watchPrintWindow,
 } from "../../../plugins/print";
-import { printDocumentViaQz } from "../../../services/qzTray";
+import { printDocumentViaConfiguredQz } from "../../../services/documentPrint";
 import { isOffline } from "../../../../offline/index";
 import { buildInvoicePdfUrl, shouldDownloadPdfForShareError } from "../../../utils/invoiceSharing";
 import DocumentSourceSelector from "../shared/DocumentSourceSelector.vue";
@@ -2681,9 +2681,11 @@ export default {
 			const printOptions = { allowOfflineFallback: isOffline(), triggerPrint: "1", debugPrint };
 			if (useSilentPrint && !isOffline()) {
 				try {
-					await printDocumentViaQz({
+					await printDocumentViaConfiguredQz({
 						doctype,
 						name: invoice.name,
+						doc: invoice,
+						profile,
 						printFormat,
 						letterhead: letterHead || null,
 						noLetterhead: letterHead ? "0" : "1",

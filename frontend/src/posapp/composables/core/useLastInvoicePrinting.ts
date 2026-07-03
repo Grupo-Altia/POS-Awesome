@@ -5,7 +5,7 @@ import {
 	silentPrint,
 	watchPrintWindow,
 } from "../../plugins/print";
-import { printDocumentViaQz } from "../../services/qzTray";
+import { printDocumentViaConfiguredQz } from "../../services/documentPrint";
 
 declare const frappe: any;
 
@@ -130,9 +130,10 @@ export function useLastInvoicePrinting() {
 
 		if (useSilentPrint) {
 			try {
-				await printDocumentViaQz({
+				await printDocumentViaConfiguredQz({
 					doctype,
 					name: lastInvoiceId,
+					profile: posProfile,
 					printFormat: pf || "Standard",
 					letterhead: letter_head || null,
 					noLetterhead: letter_head ? "0" : "1",

@@ -1,0 +1,98 @@
+// @vitest-environment jsdom
+
+import { beforeEach, describe, expect, it, vi } from "vitest";
+
+vi.mock("../src/posapp/services/qzTray", () => ({
+	sendRawToQz: vi.fn(),
+}));
+
+import {
+	buildEscPosDocument,
+	printRawDocumentViaQz,
+	shouldUseRawDocumentPrinting,
+} from "../src/posapp/services/rawDocumentPrint";
+import { sendRawToQz } from "../src/posapp/services/qzTray";
+
+describe("rawDocumentPrint", () => {
+	beforeEach(() => {
+		vi.clearAllMocks();
+		(globalThis as any).frappe = {
+			call: vi.fn(),
+		};
+	});
+
+	it("builds an ESC/POS receipt from final invoice values", () => {
+		const raw = buildEscPosDocument(
+			{
+				doctype: "Sales Invoice",
+				name: "SINV-0001",
+				company: "Demo Company",
+				customer_name: "Walk In Customer",
+				currency: "USD",
+				items: [
+					{
+						item_name: "Coffee Beans",
+						qty: 2,
+						uom: "Nos",
+						rate: 12.5,
+						amount: 25,
+					},
+				],
+				total_taxes_and_charges: 2.5,
+				grand_total: 27.5,
+				paid_amount: 27.5,
+			},
+			{
+				doctype: "Sales Invoice",
+				name: "SINV-0001",
+				profile: { posa_raw_print_width: 42 },
+			},
+		);
+
+		expect(raw.startsWith("\x1B@")).toBe(true);
+		expect(raw).toContain("Demo Company");
+		expect(raw).toContain("SALES INVOICE");
+		expect(raw).toContain("Coffee Beans");
+		expect(raw).toContain("Grand Total");
+		expect(raw).toContain("USD 27.50");
+		expect(raw.endsWith("\x1DV\x00")).toBe(true);
+	});
+
+	it("uses POS Profile raw printing toggle only when enabled", () => {
+		expect(shouldUseRawDocumentPrinting({ posa_raw_printing: 1 })).toBe(true);
+		expect(shouldUseRawDocumentPrinting({ posa_raw_printing: "0" })).toBe(false);
+		expect(shouldUseRawDocumentPrinting({})).toBe(false);
+	});
+
+	it("fetches the saved document before sending raw data to QZ", async () => {
+		(globalThis as any).frappe.call.mockResolvedValue({
+			message: {
+				doctype: "Sales Order",
+				name: "SO-0001",
+				company: "Demo Company",
+				customer: "Customer A",
+				currency: "USD",
+				items: [],
+				grand_total: 10,
+			},
+		});
+
+		await printRawDocumentViaQz({
+			doctype: "Sales Order",
+			name: "SO-0001",
+			profile: { posa_raw_printing: 1 },
+		});
+
+		expect((globalThis as any).frappe.call).toHaveBeenCalledWith({
+			method: "frappe.client.get",
+			args: {
+				doctype: "Sales Order",
+				name: "SO-0001",
+			},
+		});
+		expect(sendRawToQz).toHaveBeenCalledWith(
+			expect.stringContaining("SALES ORDER"),
+			undefined,
+		);
+	});
+});

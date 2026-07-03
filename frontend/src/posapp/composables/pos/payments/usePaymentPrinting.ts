@@ -6,7 +6,7 @@ import {
 	silentPrint,
 	watchPrintWindow,
 } from "../../../plugins/print";
-import { printDocumentViaQz } from "../../../services/qzTray";
+import { printDocumentViaConfiguredQz } from "../../../services/documentPrint";
 import { isOffline } from "../../../../offline/index";
 import { resolvePaymentPrintDoctype } from "../../../utils/paymentPrintDoctype";
 
@@ -167,9 +167,11 @@ export function usePaymentPrinting(options: PaymentPrintingOptions) {
 		if (profile.posa_silent_print) {
 			if (!offline) {
 				try {
-					await printDocumentViaQz({
+					await printDocumentViaConfiguredQz({
 						doctype,
 						name: docname,
+						doc,
+						profile,
 						printFormat: print_format || "Standard",
 						letterhead: profile.letter_head || null,
 						noLetterhead: letter_head,

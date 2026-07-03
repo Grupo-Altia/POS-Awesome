@@ -226,7 +226,7 @@ import {
 	silentPrint,
 	watchPrintWindow,
 } from "../../../plugins/print";
-import { printDocumentViaQz } from "../../../services/qzTray";
+import { printDocumentViaConfiguredQz } from "../../../services/documentPrint";
 
 import { useRtl } from "../../../composables/core/useRtl";
 import { useCustomersStore } from "../../../stores/customersStore.js";
@@ -422,9 +422,10 @@ export default {
 			if (pos_profile.value?.posa_silent_print) {
 				if (!isOffline()) {
 					try {
-						await printDocumentViaQz({
+						await printDocumentViaConfiguredQz({
 							doctype: "Payment Entry",
 							name: payment_name,
+							profile: pos_profile.value,
 							printFormat: DEFAULT_PAYMENT_ENTRY_PRINT_FORMAT,
 							noLetterhead: 1,
 						});
