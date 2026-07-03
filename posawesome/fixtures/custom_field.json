@@ -6113,7 +6113,7 @@
 		"dt": "POS Profile",
 		"fieldname": "posa_display_discount_percentage",
 		"fieldtype": "Check",
-		"insert_after": "posa_display_discount_amount",
+		"insert_after": "posa_max_discount_allowed",
 		"label": "Display Discount %",
 		"default": "1",
 		"name": "POS Profile-posa_display_discount_percentage"
@@ -6123,7 +6123,7 @@
 		"dt": "POS Profile",
 		"fieldname": "posa_display_discount_amount",
 		"fieldtype": "Check",
-		"insert_after": "posa_silent_print",
+		"insert_after": "posa_display_discount_percentage",
 		"label": "Display Discount Amount",
 		"default": "1",
 		"name": "POS Profile-posa_display_discount_amount"
@@ -6133,9 +6133,9 @@
 		"dt": "POS Profile",
 		"fieldname": "posa_silent_print",
 		"fieldtype": "Check",
-		"insert_after": "posa_allow_duplicate_customer_names",
-		"label": "Enable Silent Print",
-		"description": "Setup: Launch Chrome/Edge with --kiosk --kiosk-printing, set the default system printer, then open POS Awesome in the same browser profile. Use: Enable this option and keep 'Open Print in New Tab' disabled for direct printing.",
+		"insert_after": "posa_open_print_in_new_tab",
+		"label": "Use QZ Tray for Silent Print",
+		"description": "Use QZ Tray for direct invoice, order, and payment receipt printing. Keep 'Open Print in New Tab' disabled when using direct QZ printing.",
 		"default": "0",
 		"name": "POS Profile-posa_silent_print"
 	},
@@ -8102,7 +8102,7 @@
 		"in_list_view": 0,
 		"in_preview": 0,
 		"in_standard_filter": 0,
-		"insert_after": "posa_silent_print",
+		"insert_after": "posa_allow_print_draft_invoices",
 		"is_system_generated": 0,
 		"is_virtual": 0,
 		"label": "Open Print in New Tab",
@@ -8136,7 +8136,7 @@
 		"fieldtype": "Table",
 		"label": "Print Format Rules",
 		"options": "POS Awesome Print Format Rule",
-		"insert_after": "posa_open_print_in_new_tab",
+		"insert_after": "posa_raw_print_width",
 		"name": "POS Profile-posa_print_format_rules"
 	},
 	{
