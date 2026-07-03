@@ -226,7 +226,10 @@ import {
 	silentPrint,
 	watchPrintWindow,
 } from "../../../plugins/print";
-import { printDocumentViaConfiguredQz } from "../../../services/documentPrint";
+import {
+	printDocumentViaConfiguredQz,
+	shouldUseConfiguredQzDocumentPrinting,
+} from "../../../services/documentPrint";
 
 import { useRtl } from "../../../composables/core/useRtl";
 import { useCustomersStore } from "../../../stores/customersStore.js";
@@ -419,7 +422,7 @@ export default {
 				"&trigger_print=1";
 			url = appendDebugPrintParam(url, debugPrint);
 			const printOptions = { allowOfflineFallback: isOffline(), triggerPrint: "1", debugPrint };
-			if (pos_profile.value?.posa_silent_print) {
+			if (shouldUseConfiguredQzDocumentPrinting(pos_profile.value)) {
 				if (!isOffline()) {
 					try {
 						await printDocumentViaConfiguredQz({

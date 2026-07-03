@@ -16,6 +16,13 @@ vi.mock("../src/posapp/plugins/print", () => ({
 
 vi.mock("../src/posapp/services/documentPrint", () => ({
 	printDocumentViaConfiguredQz: vi.fn(),
+	shouldUseRawDocumentPrinting: (profile: Record<string, any> | null | undefined) =>
+		profile?.posa_raw_printing === 1 || profile?.posa_raw_printing === true,
+	shouldUseConfiguredQzDocumentPrinting: (profile: Record<string, any> | null | undefined) =>
+		profile?.posa_silent_print === true ||
+		profile?.posa_silent_print === 1 ||
+		profile?.posa_raw_printing === true ||
+		profile?.posa_raw_printing === 1,
 }));
 
 vi.mock("../src/offline_print_template", () => ({
@@ -251,6 +258,38 @@ describe("usePaymentPrinting", () => {
 				profile: expect.objectContaining({ posa_raw_printing: 1 }),
 			}),
 		);
+		expect(silentPrint).not.toHaveBeenCalled();
+	});
+
+	it("uses raw QZ printing without opening a print dialog when silent print is disabled", async () => {
+		const openSpy = vi
+			.spyOn(window, "open")
+			.mockReturnValue({ closed: false } as any);
+		const { loadPrintPage } = usePaymentPrinting({
+			invoiceDoc: ref({ name: "ACC-SINV-0005", doctype: "Sales Invoice" }),
+			posProfile: ref({
+				print_format_for_online: "Standard",
+				print_format: "Standard",
+				letter_head: 0,
+				posa_open_print_in_new_tab: true,
+				posa_silent_print: false,
+				posa_raw_printing: 1,
+				create_pos_invoice_instead_of_sales_invoice: 0,
+			}),
+			invoiceType: ref("Invoice"),
+			printFormat: ref("Standard"),
+		});
+
+		await loadPrintPage();
+
+		expect(printDocumentViaConfiguredQz).toHaveBeenCalledWith(
+			expect.objectContaining({
+				doctype: "Sales Invoice",
+				name: "ACC-SINV-0005",
+				profile: expect.objectContaining({ posa_raw_printing: 1 }),
+			}),
+		);
+		expect(openSpy).not.toHaveBeenCalled();
 		expect(silentPrint).not.toHaveBeenCalled();
 	});
 });

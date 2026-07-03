@@ -212,14 +212,14 @@ Supported raw print paths:
 3. Generate/download the QZ certificate from POS Awesome, trust it in QZ Tray, then restart QZ Tray.
 4. Select the receipt printer and save it as the POS Profile default if this terminal should always use it.
 5. Open **POS Profile** and configure:
-    - `Enable Silent Print`: enabled
+    - `Enable Silent Print`: optional for HTML QZ printing; raw receipt printing can use QZ directly without this option
     - `QZ Tray Printer Name`: exact printer name detected by QZ Tray
     - `Use Raw Receipt Printing`: enabled
     - `Raw Receipt Width`: `42` for most 80mm printers, `32` for most 58mm printers
 
 #### How To Use
 
-- For invoices/orders/payment receipts, submit and print normally from POS. When `Use Raw Receipt Printing` is enabled, POS Awesome sends ESC/POS raw commands through QZ Tray.
+- For invoices/orders/payment receipts, submit and print normally from POS. When `Use Raw Receipt Printing` is enabled, POS Awesome sends ESC/POS raw commands through QZ Tray without opening the browser print dialog.
 - For barcode and item labels, open **Barcode Printing**, choose the label output format, and use raw ZPL/EPL for compatible thermal label printers.
 - If raw receipt printing is disabled, POS Awesome keeps using the existing QZ HTML/browser print flow and POS Profile print format behavior.
 - If QZ Tray is unavailable, document printing falls back to the existing browser/silent print path where applicable.

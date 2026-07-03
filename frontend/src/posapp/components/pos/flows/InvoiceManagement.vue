@@ -1444,7 +1444,10 @@ import {
 	silentPrint,
 	watchPrintWindow,
 } from "../../../plugins/print";
-import { printDocumentViaConfiguredQz } from "../../../services/documentPrint";
+import {
+	printDocumentViaConfiguredQz,
+	shouldUseConfiguredQzDocumentPrinting,
+} from "../../../services/documentPrint";
 import { isOffline } from "../../../../offline/index";
 import { buildInvoicePdfUrl, shouldDownloadPdfForShareError } from "../../../utils/invoiceSharing";
 import DocumentSourceSelector from "../shared/DocumentSourceSelector.vue";
@@ -2665,7 +2668,7 @@ export default {
 			const printFormat = profile.print_format_for_online || profile.print_format || "Standard";
 			const letterHead = profile.letter_head || 0;
 			const debugPrint = isDebugPrintEnabled();
-			const useSilentPrint = !!profile.posa_silent_print;
+			const useConfiguredQzPrint = shouldUseConfiguredQzDocumentPrinting(profile);
 			let url =
 				frappe.urllib.get_base_url() +
 				"/printview?doctype=" +
@@ -2679,7 +2682,7 @@ export default {
 			if (letterHead) url += "&letterhead=" + encodeURIComponent(letterHead);
 			url = appendDebugPrintParam(url, debugPrint);
 			const printOptions = { allowOfflineFallback: isOffline(), triggerPrint: "1", debugPrint };
-			if (useSilentPrint && !isOffline()) {
+			if (useConfiguredQzPrint && !isOffline()) {
 				try {
 					await printDocumentViaConfiguredQz({
 						doctype,
@@ -2695,7 +2698,7 @@ export default {
 					console.warn("QZ Tray print failed, falling back to browser print", error);
 				}
 			}
-			if (useSilentPrint) {
+			if (useConfiguredQzPrint) {
 				silentPrint(url, printOptions);
 				return;
 			}
