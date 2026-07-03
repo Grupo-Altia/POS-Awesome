@@ -292,4 +292,34 @@ describe("usePaymentPrinting", () => {
 		expect(openSpy).not.toHaveBeenCalled();
 		expect(silentPrint).not.toHaveBeenCalled();
 	});
+
+	it("does not fall back to browser print when raw QZ printing fails", async () => {
+		const openSpy = vi
+			.spyOn(window, "open")
+			.mockReturnValue({ closed: false } as any);
+		vi.mocked(printDocumentViaConfiguredQz).mockRejectedValueOnce(
+			new Error("QZ Tray is not available."),
+		);
+
+		const { loadPrintPage } = usePaymentPrinting({
+			invoiceDoc: ref({ name: "ACC-SINV-0006", doctype: "Sales Invoice" }),
+			posProfile: ref({
+				print_format_for_online: "Standard",
+				print_format: "Standard",
+				letter_head: 0,
+				posa_open_print_in_new_tab: false,
+				posa_silent_print: true,
+				posa_raw_printing: 1,
+				create_pos_invoice_instead_of_sales_invoice: 0,
+			}),
+			invoiceType: ref("Invoice"),
+			printFormat: ref("Standard"),
+		});
+
+		await loadPrintPage();
+
+		expect(printDocumentViaConfiguredQz).toHaveBeenCalled();
+		expect(openSpy).not.toHaveBeenCalled();
+		expect(silentPrint).not.toHaveBeenCalled();
+	});
 });

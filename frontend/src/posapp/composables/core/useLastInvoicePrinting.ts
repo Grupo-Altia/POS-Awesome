@@ -26,6 +26,21 @@ export function useLastInvoicePrinting() {
 		return Boolean(value);
 	}
 
+	function notifyRawPrintFailure(error: unknown) {
+		const message =
+			error instanceof Error && error.message
+				? error.message
+				: "Raw printing failed. Check QZ Tray connection, certificate, and printer name.";
+		console.warn("QZ Tray raw print failed", error);
+		frappe?.show_alert?.(
+			{
+				message,
+				indicator: "red",
+			},
+			7,
+		);
+	}
+
 	async function printLastInvoice() {
 		const lastInvoiceId = uiStore.lastInvoiceId;
 		const posProfile = uiStore.posProfile;
@@ -145,6 +160,10 @@ export function useLastInvoicePrinting() {
 				});
 				return;
 			} catch (error) {
+				if (useRawPrint) {
+					notifyRawPrintFailure(error);
+					return;
+				}
 				console.warn("QZ Tray print failed, falling back to browser print", error);
 			}
 			silentPrint(url, printOptions);

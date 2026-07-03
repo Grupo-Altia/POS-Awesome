@@ -59,6 +59,21 @@ export function usePaymentPrinting(options: PaymentPrintingOptions) {
 		};
 	};
 
+	const notifyRawPrintFailure = (error: unknown) => {
+		const message =
+			error instanceof Error && error.message
+				? error.message
+				: "Raw printing failed. Check QZ Tray connection, certificate, and printer name.";
+		console.warn("QZ Tray raw print failed", error);
+		frappe?.show_alert?.(
+			{
+				message,
+				indicator: "red",
+			},
+			7,
+		);
+	};
+
 	const openOfflineInvoicePreview = async (
 		invoice: any,
 		{ debugPrint = false, printFormatStr = "" } = {},
@@ -185,8 +200,18 @@ export function usePaymentPrinting(options: PaymentPrintingOptions) {
 					});
 					return;
 				} catch (error) {
+					if (useRawPrint) {
+						notifyRawPrintFailure(error);
+						return;
+					}
 					console.warn("QZ Tray print failed, falling back to browser print", error);
 				}
+			}
+			if (useRawPrint) {
+				notifyRawPrintFailure(
+					new Error("Raw printing is not available while the POS is offline."),
+				);
+				return;
 			}
 			silentPrint(url, printOptions);
 		} else {

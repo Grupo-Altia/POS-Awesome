@@ -1447,6 +1447,7 @@ import {
 import {
 	printDocumentViaConfiguredQz,
 	shouldUseConfiguredQzDocumentPrinting,
+	shouldUseRawDocumentPrinting,
 } from "../../../services/documentPrint";
 import { isOffline } from "../../../../offline/index";
 import { buildInvoicePdfUrl, shouldDownloadPdfForShareError } from "../../../utils/invoiceSharing";
@@ -2669,6 +2670,7 @@ export default {
 			const letterHead = profile.letter_head || 0;
 			const debugPrint = isDebugPrintEnabled();
 			const useConfiguredQzPrint = shouldUseConfiguredQzDocumentPrinting(profile);
+			const useRawPrint = shouldUseRawDocumentPrinting(profile);
 			let url =
 				frappe.urllib.get_base_url() +
 				"/printview?doctype=" +
@@ -2695,8 +2697,24 @@ export default {
 					});
 					return;
 				} catch (error) {
+					if (useRawPrint) {
+						this.toastStore.show({
+							title:
+								error?.message ||
+								__("Raw printing failed. Check QZ Tray connection, certificate, and printer name."),
+							color: "error",
+						});
+						return;
+					}
 					console.warn("QZ Tray print failed, falling back to browser print", error);
 				}
+			}
+			if (useRawPrint) {
+				this.toastStore.show({
+					title: __("Raw printing is not available while the POS is offline."),
+					color: "error",
+				});
+				return;
 			}
 			if (useConfiguredQzPrint) {
 				silentPrint(url, printOptions);
