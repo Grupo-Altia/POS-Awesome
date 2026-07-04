@@ -1,4 +1,5 @@
 import frappe
+from frappe.custom.doctype.custom_field.custom_field import create_custom_field
 
 
 FIELD_UPDATES = {
@@ -6,10 +7,31 @@ FIELD_UPDATES = {
         "label": "Printing and Delivery",
         "fieldtype": "Section Break",
         "collapsible": 1,
-        "insert_after": "posa_new_line",
+        "insert_after": "select_print_heading",
+    },
+    "posa_use_delivery_charges": {
+        "insert_after": "posa_section_print_delivery",
+    },
+    "posa_auto_set_delivery_charges": {
+        "insert_after": "posa_use_delivery_charges",
+    },
+    "posa_display_additional_notes": {
+        "insert_after": "posa_auto_set_delivery_charges",
+    },
+    "posa_display_authorization_code": {
+        "insert_after": "posa_display_additional_notes",
+    },
+    "posa_allow_print_last_invoice": {
+        "insert_after": "posa_display_authorization_code",
+    },
+    "posa_allow_print_draft_invoices": {
+        "insert_after": "posa_allow_print_last_invoice",
+    },
+    "posa_allow_select_print_format_in_payments": {
+        "insert_after": "posa_allow_print_draft_invoices",
     },
     "posa_open_print_in_new_tab": {
-        "insert_after": "posa_allow_print_draft_invoices",
+        "insert_after": "posa_allow_select_print_format_in_payments",
     },
     "posa_silent_print": {
         "label": "Use QZ Tray for Silent Print",
@@ -47,6 +69,14 @@ def execute():
                 custom_field_name,
                 updates,
                 update_modified=False,
+            )
+        elif fieldname == "posa_section_print_delivery":
+            create_custom_field(
+                "POS Profile",
+                {
+                    "fieldname": fieldname,
+                    **updates,
+                },
             )
 
     frappe.clear_cache(doctype="POS Profile")

@@ -230,6 +230,10 @@ def _reanchor_fields():
         cf_name = f"POS Profile-{fieldname}"
         if not frappe.db.exists("Custom Field", cf_name):
             continue
+        if fieldname == "posa_section_print_delivery":
+            _set_insert_after(fieldname, "select_print_heading")
+            previous = fieldname
+            continue
         if previous and previous != fieldname:
             _set_insert_after(fieldname, previous)
         previous = fieldname
