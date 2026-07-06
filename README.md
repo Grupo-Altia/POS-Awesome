@@ -370,7 +370,7 @@ Notes:
 - **Employee Payments**: Pay employees through the POS payments workflow.
 - **Payment Auto Allocation**: Automatically allocate newly created payment amounts against selected invoices when enabled.
 - **Payment Reference Tracking**: Capture reference number/date for POS-created payments.
-- **Smart Tender**: "Quick Cash" suggestions based on currency denominations for faster checkout.
+- **Smart Tender / Quick Cash**: "Quick Cash" suggestions based on currency denominations for faster checkout. Entering `0` in the Alt+X / Alt+P quick cash prompt submits a credit sale when `Allow Credit Sale` is enabled on the POS Profile.
 - **Split Payments**: Accept multiple payment modes for a single transaction.
 - **M-Pesa**: Integrated M-Pesa mobile payment support.
 - **Gift Cards**: Check gift-card balances, redeem gift cards at checkout, and allow supervisors to issue or top up cards.
@@ -441,6 +441,7 @@ Notes:
 - `Alt + D` open payments panel.
 - `Alt + X` on invoice it open payments, then submit automatically (prompts if payments are closed). on payments it submit directly.
 - `Alt + P` on invoice it open payments, then submit & print automatically (prompts if payments are closed). on payments it submit directly.
+- In the Alt+X / Alt+P quick cash prompt, entering `0` creates a credit sale only when `Allow Credit Sale` is enabled on the POS Profile; otherwise an error is shown.
 
 ---
 
