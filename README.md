@@ -49,6 +49,16 @@ Follow these steps to install and start using POS Awesome:
 
 For more details, see the [POS Awesome Wiki](https://github.com/yrestom/POS-Awesome/wiki).
 
+### Docker Deployment
+
+POS Awesome is Docker-ready as a Frappe custom-image app. Use
+[`docker/apps.json`](docker/apps.json) for ERPNext/Frappe 16 or
+[`docker/apps.version-15.json`](docker/apps.version-15.json) for ERPNext/Frappe
+15 with Frappe Docker to build an image that contains ERPNext and POS Awesome,
+then install `posawesome` on each site and run migrations. See
+[`docs/DOCKER_DEPLOYMENT.md`](docs/DOCKER_DEPLOYMENT.md) for the full build,
+install, and verification checklist.
+
 ---
 
 ### Update Instructions
