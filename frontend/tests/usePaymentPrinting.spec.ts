@@ -14,8 +14,16 @@ vi.mock("../src/posapp/plugins/print", () => ({
 	watchPrintWindow: vi.fn(),
 }));
 
-vi.mock("../src/posapp/services/qzTray", () => ({
-	printDocumentViaQz: vi.fn(),
+vi.mock("../src/posapp/services/documentPrint", () => ({
+	confirmDocumentPrintFallback: vi.fn(() => false),
+	printDocumentViaConfiguredQz: vi.fn(),
+	shouldUseRawDocumentPrinting: (profile: Record<string, any> | null | undefined) =>
+		profile?.posa_raw_printing === 1 || profile?.posa_raw_printing === true,
+	shouldUseConfiguredQzDocumentPrinting: (profile: Record<string, any> | null | undefined) =>
+		profile?.posa_silent_print === true ||
+		profile?.posa_silent_print === 1 ||
+		profile?.posa_raw_printing === true ||
+		profile?.posa_raw_printing === 1,
 }));
 
 vi.mock("../src/offline_print_template", () => ({
@@ -24,6 +32,10 @@ vi.mock("../src/offline_print_template", () => ({
 
 import { usePaymentPrinting } from "../src/posapp/composables/pos/payments/usePaymentPrinting";
 import { silentPrint, watchPrintWindow } from "../src/posapp/plugins/print";
+import {
+	confirmDocumentPrintFallback,
+	printDocumentViaConfiguredQz,
+} from "../src/posapp/services/documentPrint";
 import { isOffline } from "../src/offline/index";
 
 describe("usePaymentPrinting", () => {
@@ -222,6 +234,133 @@ describe("usePaymentPrinting", () => {
 		expect(watchPrintWindow).toHaveBeenCalledWith(
 			expect.anything(),
 			expect.objectContaining({ triggerPrint: "0", shouldPrint: false }),
+		);
+	});
+
+	it("routes silent printing through configured QZ document printing", async () => {
+		const { loadPrintPage } = usePaymentPrinting({
+			invoiceDoc: ref({ name: "ACC-SINV-0004", doctype: "Sales Invoice" }),
+			posProfile: ref({
+				print_format_for_online: "Standard",
+				print_format: "Standard",
+				letter_head: 0,
+				posa_open_print_in_new_tab: false,
+				posa_silent_print: true,
+				posa_raw_printing: 1,
+				create_pos_invoice_instead_of_sales_invoice: 0,
+			}),
+			invoiceType: ref("Invoice"),
+			printFormat: ref("Standard"),
+		});
+
+		await loadPrintPage();
+
+		expect(printDocumentViaConfiguredQz).toHaveBeenCalledWith(
+			expect.objectContaining({
+				doctype: "Sales Invoice",
+				name: "ACC-SINV-0004",
+				profile: expect.objectContaining({ posa_raw_printing: 1 }),
+			}),
+		);
+		expect(silentPrint).not.toHaveBeenCalled();
+	});
+
+	it("uses raw QZ printing without opening a print dialog when silent print is disabled", async () => {
+		const openSpy = vi
+			.spyOn(window, "open")
+			.mockReturnValue({ closed: false } as any);
+		const { loadPrintPage } = usePaymentPrinting({
+			invoiceDoc: ref({ name: "ACC-SINV-0005", doctype: "Sales Invoice" }),
+			posProfile: ref({
+				print_format_for_online: "Standard",
+				print_format: "Standard",
+				letter_head: 0,
+				posa_open_print_in_new_tab: true,
+				posa_silent_print: false,
+				posa_raw_printing: 1,
+				create_pos_invoice_instead_of_sales_invoice: 0,
+			}),
+			invoiceType: ref("Invoice"),
+			printFormat: ref("Standard"),
+		});
+
+		await loadPrintPage();
+
+		expect(printDocumentViaConfiguredQz).toHaveBeenCalledWith(
+			expect.objectContaining({
+				doctype: "Sales Invoice",
+				name: "ACC-SINV-0005",
+				profile: expect.objectContaining({ posa_raw_printing: 1 }),
+			}),
+		);
+		expect(openSpy).not.toHaveBeenCalled();
+		expect(silentPrint).not.toHaveBeenCalled();
+	});
+
+	it("does not fall back to browser print when raw QZ printing fails", async () => {
+		const openSpy = vi
+			.spyOn(window, "open")
+			.mockReturnValue({ closed: false } as any);
+		vi.mocked(printDocumentViaConfiguredQz).mockRejectedValueOnce(
+			new Error("QZ Tray is not available."),
+		);
+
+		const { loadPrintPage } = usePaymentPrinting({
+			invoiceDoc: ref({ name: "ACC-SINV-0006", doctype: "Sales Invoice" }),
+			posProfile: ref({
+				print_format_for_online: "Standard",
+				print_format: "Standard",
+				letter_head: 0,
+				posa_open_print_in_new_tab: false,
+				posa_silent_print: true,
+				posa_raw_printing: 1,
+				create_pos_invoice_instead_of_sales_invoice: 0,
+			}),
+			invoiceType: ref("Invoice"),
+			printFormat: ref("Standard"),
+		});
+
+		await loadPrintPage();
+
+		expect(printDocumentViaConfiguredQz).toHaveBeenCalled();
+		expect(confirmDocumentPrintFallback).toHaveBeenCalledWith(
+			expect.any(Error),
+			expect.objectContaining({ raw: true }),
+		);
+		expect(openSpy).not.toHaveBeenCalled();
+		expect(silentPrint).not.toHaveBeenCalled();
+	});
+
+	it("falls back to browser print after raw QZ failure only when confirmed", async () => {
+		vi.mocked(printDocumentViaConfiguredQz).mockRejectedValueOnce(
+			new Error("QZ Tray is not available."),
+		);
+		vi.mocked(confirmDocumentPrintFallback).mockReturnValueOnce(true);
+
+		const { loadPrintPage } = usePaymentPrinting({
+			invoiceDoc: ref({ name: "ACC-SINV-0007", doctype: "Sales Invoice" }),
+			posProfile: ref({
+				print_format_for_online: "Standard",
+				print_format: "Standard",
+				letter_head: 0,
+				posa_open_print_in_new_tab: false,
+				posa_silent_print: true,
+				posa_raw_printing: 1,
+				create_pos_invoice_instead_of_sales_invoice: 0,
+			}),
+			invoiceType: ref("Invoice"),
+			printFormat: ref("Standard"),
+		});
+
+		await loadPrintPage();
+
+		expect(confirmDocumentPrintFallback).toHaveBeenCalledWith(
+			expect.any(Error),
+			expect.objectContaining({ raw: true }),
+		);
+		expect(silentPrint).toHaveBeenCalledWith(
+			expect.stringContaining("trigger_print=0"),
+			expect.objectContaining({ triggerPrint: "1" }),
 		);
 	});
 });

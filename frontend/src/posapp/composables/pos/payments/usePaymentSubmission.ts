@@ -496,6 +496,7 @@ export function usePaymentSubmission(options: PaymentSubmissionOptions) {
 			Boolean(unref(options.is_write_off_change)) &&
 			writeOffLimit !== null &&
 			diff > writeOffLimit + 0.001;
+		const isCreditSale = Boolean(unref(options.is_credit_sale));
 		const hasAnySettlement =
 			effective_total_payments > 0 ||
 			(Array.isArray(doc.payments)
@@ -506,6 +507,14 @@ export function usePaymentSubmission(options: PaymentSubmissionOptions) {
 				: false);
 
 		// 2. Validate total payments
+		if (
+			isCreditSale &&
+			!doc.is_return &&
+			!parseBooleanSetting(profile?.posa_allow_credit_sale)
+		) {
+			throw new Error(__("Credit Sale is not enabled in POS Profile"));
+		}
+
 		if (
 			writeOffCappedByLimit &&
 			!profile.posa_allow_partial_payment &&
@@ -520,7 +529,7 @@ export function usePaymentSubmission(options: PaymentSubmissionOptions) {
 		}
 
 		if (
-			!unref(options.is_credit_sale) &&
+			!isCreditSale &&
 			!doc.is_return &&
 			!hasAnySettlement &&
 			invoice_total > 0
@@ -529,7 +538,7 @@ export function usePaymentSubmission(options: PaymentSubmissionOptions) {
 		}
 
 		// 3. Validate partial payments / cash payments
-		if (!unref(options.is_credit_sale) && !doc.is_return) {
+		if (!isCreditSale && !doc.is_return) {
 			let has_cash_payment = false;
 			let cash_amount = 0;
 			if (doc.payments) {

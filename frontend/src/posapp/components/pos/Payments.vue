@@ -704,6 +704,10 @@ const visiblePaymentMethods = computed(() =>
 	),
 );
 
+const creditSaleAllowed = computed(() =>
+	parseBooleanSetting(pos_profile.value?.posa_allow_credit_sale),
+);
+
 const giftCardAppliedAmount = computed(() =>
 	(Array.isArray(giftCardRedemptions.value) ? giftCardRedemptions.value : []).reduce(
 		(sum, row) => sum + flt(row?.amount || 0, currency_precision.value),
@@ -1266,6 +1270,38 @@ const restorePaymentLinesAfterFailedSubmit = () => {
 	is_credit_sale.value = false;
 };
 
+const clearPaymentAmounts = (doc = invoice_doc.value) => {
+	if (!doc || !Array.isArray(doc.payments)) {
+		return;
+	}
+
+	doc.payments.forEach((payment) => {
+		payment.amount = 0;
+		if (payment.base_amount !== undefined) {
+			payment.base_amount = 0;
+		}
+	});
+};
+
+const enableShortcutCreditSale = () => {
+	if (invoice_doc.value?.is_return) {
+		return false;
+	}
+
+	if (!creditSaleAllowed.value) {
+		toastStore.show({
+			title: __("Credit Sale is not enabled in POS Profile"),
+			color: "error",
+		});
+		frappe.utils.play_sound("error");
+		return false;
+	}
+
+	clearPaymentAmounts();
+	is_credit_sale.value = true;
+	return true;
+};
+
 const handleShowPayment = () => {
 	paymentVisible.value = true;
 	nextTick(() => {
@@ -1688,17 +1724,46 @@ const handlePaymentShortcut = (event) => {
 
 const handleSubmitPaymentShortcut = ({ print = false, amount = null } = {}) => {
 	if (!paymentVisible.value || submissionInFlight.value || loading.value) return;
+	const submitShortcut = () => {
+		nextTick(() => {
+			submit(null, false, print);
+		});
+	};
+
 	if (amount !== null) {
-		applyPreferredPaymentAmount(
-			invoice_doc.value,
-			Number(amount),
-			currency_precision.value,
-			isCashLikePayment,
-		);
+		const shortcutAmount = Number(amount);
+		if (
+			!invoice_doc.value?.is_return &&
+			Number.isFinite(shortcutAmount) &&
+			shortcutAmount === 0
+		) {
+			if (!enableShortcutCreditSale()) {
+				return;
+			}
+			submitShortcut();
+			return;
+		}
+
+		const applyShortcutAmount = () => {
+			applyPreferredPaymentAmount(
+				invoice_doc.value,
+				shortcutAmount,
+				currency_precision.value,
+				isCashLikePayment,
+			);
+			submitShortcut();
+		};
+
+		if (is_credit_sale.value) {
+			is_credit_sale.value = false;
+			nextTick(applyShortcutAmount);
+		} else {
+			applyShortcutAmount();
+		}
+		return;
 	}
-	nextTick(() => {
-		submit(null, false, print);
-	});
+
+	submitShortcut();
 };
 
 const queueShortcutSubmit = (payload = {}) => {
@@ -1864,12 +1929,7 @@ watch(is_credit_sale, (newVal) => {
 	const doc = invoice_doc.value;
 
 	// Always clear all payment methods first to prevent stale paid amounts.
-	doc.payments.forEach((payment) => {
-		payment.amount = 0;
-		if (payment.base_amount !== undefined) {
-			payment.base_amount = 0;
-		}
-	});
+	clearPaymentAmounts(doc);
 
 	if (!newVal && doc.payments.length) {
 		const amount = flt(doc.rounded_total || doc.grand_total, currency_precision.value);
