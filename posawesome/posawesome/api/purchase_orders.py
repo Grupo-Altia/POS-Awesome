@@ -376,7 +376,7 @@ def _get_purchase_order_management_row(row, receipt_summary, invoice_summary, ad
     return row
 
 
-def _get_payment_reference_for_purchase_order(po_doc):
+def _get_payment_references_for_purchase_order(po_doc):
     rows = frappe.db.sql(
         """
         select distinct pi.name, pi.outstanding_amount, pi.posting_date
@@ -386,14 +386,17 @@ def _get_payment_reference_for_purchase_order(po_doc):
           and pi.outstanding_amount > 0
           and pii.purchase_order = %s
         order by pi.posting_date desc, pi.modified desc
-        limit 1
         """,
         (po_doc.name,),
         as_dict=True,
     )
     if rows:
-        return frappe.get_doc("Purchase Invoice", rows[0].get("name"))
-    return po_doc
+        return [frappe.get_doc("Purchase Invoice", row.get("name")) for row in rows]
+    return [po_doc]
+
+
+def _get_payment_reference_for_purchase_order(po_doc):
+    return _get_payment_references_for_purchase_order(po_doc)[0]
 
 
 def _create_purchase_receipt(po_doc, payload, default_warehouse, transaction_date):
@@ -421,6 +424,7 @@ def _create_purchase_receipt(po_doc, payload, default_warehouse, transaction_dat
         payload_row = _resolve_po_input_row(items_by_detail, items_by_code, po_item)
         if has_explicit_items and not payload_row:
             continue
+        payload_row_dict = payload_row or {}
 
         remaining_qty = max(flt(po_item.qty) - flt(po_item.get("received_qty")), 0)
         if remaining_qty <= 0:
@@ -428,15 +432,15 @@ def _create_purchase_receipt(po_doc, payload, default_warehouse, transaction_dat
 
         if (
             payload.get("receive")
-            and not payload_row.get("received_qty")
-            and not payload_row.get("receive_qty")
+            and not payload_row_dict.get("received_qty")
+            and not payload_row_dict.get("receive_qty")
         ):
-            payload_row["receive_qty"] = remaining_qty
-            payload_row["received_qty"] = remaining_qty
+            payload_row_dict["receive_qty"] = remaining_qty
+            payload_row_dict["received_qty"] = remaining_qty
         received_qty = flt(
-            payload_row.get("received_qty")
-            or payload_row.get("receive_qty")
-            or payload_row.get("qty")
+            payload_row_dict.get("received_qty")
+            or payload_row_dict.get("receive_qty")
+            or payload_row_dict.get("qty")
             or remaining_qty
         )
         received_qty = min(received_qty, remaining_qty)
@@ -755,19 +759,28 @@ def _create_payment_entry(reference_doc, payments, company, transaction_date):
         return []
 
     created_payments = []
+    reference_docs = list(reference_doc) if isinstance(reference_doc, (list, tuple)) else [reference_doc]
+    reference_docs = [doc for doc in reference_docs if doc]
+    if not reference_docs:
+        return []
 
-    # Check if reference is PO or PI
-    ref_doctype = reference_doc.doctype
-    ref_name = reference_doc.name
-
-    # Determine outstanding amount
-    outstanding_amount = 0
-    if ref_doctype == "Purchase Invoice":
-        outstanding_amount = reference_doc.outstanding_amount
-    else:
-        # For Purchase Order, use grand_total (assuming advance payment for new PO)
-        # Or calculate if some advance was already made, but here it's new.
-        outstanding_amount = reference_doc.grand_total
+    party_doc = reference_docs[0]
+    payable_references = []
+    for doc in reference_docs:
+        ref_doctype = doc.doctype
+        if ref_doctype == "Purchase Invoice":
+            outstanding_amount = flt(doc.get("outstanding_amount"))
+        else:
+            outstanding_amount = flt(doc.get("grand_total"))
+        if outstanding_amount <= 0:
+            continue
+        payable_references.append(
+            {
+                "doctype": ref_doctype,
+                "name": doc.name,
+                "outstanding_amount": outstanding_amount,
+            }
+        )
 
     for pay in payments:
         amount = flt(pay.get("amount"))
@@ -784,12 +797,12 @@ def _create_payment_entry(reference_doc, payments, company, transaction_date):
         pe.posting_date = transaction_date
         pe.mode_of_payment = mode
         pe.party_type = "Supplier"
-        pe.party = reference_doc.supplier
+        pe.party = party_doc.supplier
 
         pe.paid_from = paid_from_account
 
         # Fetch party account
-        pe.paid_to = get_party_account("Supplier", reference_doc.supplier, company)
+        pe.paid_to = get_party_account("Supplier", party_doc.supplier, company)
         if not pe.paid_to:
             frappe.throw(_("Please set Default Payable Account in Company {0}").format(company))
 
@@ -798,19 +811,20 @@ def _create_payment_entry(reference_doc, payments, company, transaction_date):
         # Note: If currencies differ, conversion handling is needed.
         # Assuming base currency for simplified POS flow or that user enters converted amount.
 
-        # References
-        # Allocate only up to outstanding amount
-        allocated_amount = 0
-        if outstanding_amount > 0:
-            allocated_amount = min(amount, outstanding_amount)
-            outstanding_amount -= allocated_amount
-
-        if allocated_amount > 0:
+        remaining_amount = amount
+        for reference in payable_references:
+            if remaining_amount <= 0:
+                break
+            if reference["outstanding_amount"] <= 0:
+                continue
+            allocated_amount = min(remaining_amount, reference["outstanding_amount"])
+            reference["outstanding_amount"] -= allocated_amount
+            remaining_amount -= allocated_amount
             pe.append(
                 "references",
                 {
-                    "reference_doctype": ref_doctype,
-                    "reference_name": ref_name,
+                    "reference_doctype": reference["doctype"],
+                    "reference_name": reference["name"],
                     "allocated_amount": allocated_amount,
                 },
             )
@@ -1395,9 +1409,9 @@ def process_purchase_management_action(data):
             payments = payload.get("payments") or []
             if not payments:
                 frappe.throw(_("Please enter at least one payment amount."))
-            ref_doc = _get_payment_reference_for_purchase_order(po_doc)
-            if ref_doc.doctype == "Purchase Invoice":
-                payable_amount = flt(ref_doc.get("outstanding_amount"))
+            ref_docs = _get_payment_references_for_purchase_order(po_doc)
+            if ref_docs[0].doctype == "Purchase Invoice":
+                payable_amount = sum(flt(ref_doc.get("outstanding_amount")) for ref_doc in ref_docs)
             else:
                 advance_paid = flt(_get_purchase_order_advance_paid_by_names([po_doc.name]).get(po_doc.name))
                 payable_amount = max(flt(po_doc.get("grand_total")) - advance_paid, 0)
@@ -1417,12 +1431,17 @@ def process_purchase_management_action(data):
                     }
                 )
                 remaining_payable -= amount
-            payment_entries = _create_payment_entry(ref_doc, capped_payments, company, transaction_date)
+            payment_entries = _create_payment_entry(ref_docs, capped_payments, company, transaction_date)
+            payment_references = [
+                {"doctype": ref_doc.doctype, "name": ref_doc.name}
+                for ref_doc in ref_docs
+            ]
             return {
                 "purchase_order": po_doc.name,
                 "payment_entries": payment_entries,
-                "payment_reference_doctype": ref_doc.doctype,
-                "payment_reference": ref_doc.name,
+                "payment_reference_doctype": ref_docs[0].doctype,
+                "payment_reference": ref_docs[0].name,
+                "payment_references": payment_references,
             }
 
         followup_payload = dict(payload)
@@ -1524,11 +1543,17 @@ def _create_purchase_invoice(po_doc, payload, default_warehouse, transaction_dat
         payload_row = _resolve_po_input_row(items_by_detail, items_by_code, po_item)
         if has_explicit_items and not payload_row:
             continue
+        payload_row_dict = payload_row or {}
 
         remaining_bill_qty = max(flt(po_item.qty) - flt(billed_qty_map.get(po_item.name)), 0)
         if remaining_bill_qty <= 0:
             continue
-        qty = flt(payload_row.get("invoice_qty") or payload_row.get("bill_qty") or payload_row.get("qty") or remaining_bill_qty)
+        qty = flt(
+            payload_row_dict.get("invoice_qty")
+            or payload_row_dict.get("bill_qty")
+            or payload_row_dict.get("qty")
+            or remaining_bill_qty
+        )
         qty = min(qty, remaining_bill_qty)
         if qty <= 0:
             continue

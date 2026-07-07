@@ -18,6 +18,11 @@ const DEFAULT_WIDTH = 42;
 const MIN_WIDTH = 32;
 const MAX_WIDTH = 64;
 
+function translate(text: string) {
+	const translator = (globalThis as any).__ || (globalThis as any).frappe?._;
+	return typeof translator === "function" ? translator(text) : text;
+}
+
 function extractMessage<T>(value: any): T {
 	if (value && typeof value === "object" && "message" in value) {
 		return value.message as T;
@@ -25,10 +30,17 @@ function extractMessage<T>(value: any): T {
 	return value as T;
 }
 
+function replaceControlCharacters(value: string) {
+	return Array.from(value)
+		.map((char) => {
+			const code = char.charCodeAt(0);
+			return code < 32 || code === 127 ? " " : char;
+		})
+		.join("");
+}
+
 function cleanText(value: unknown) {
-	return String(value ?? "")
-		.normalize("NFKD")
-		.replace(/[^\x20-\x7E]/g, "")
+	return replaceControlCharacters(String(value ?? "").normalize("NFC"))
 		.replace(/\s+/g, " ")
 		.trim();
 }
@@ -98,8 +110,8 @@ function formatAmount(value: unknown, currency?: string) {
 
 function docTitle(doctype: string) {
 	const clean = cleanText(doctype);
-	if (!clean) return "DOCUMENT";
-	return clean.toUpperCase();
+	if (!clean) return translate("DOCUMENT");
+	return translate(clean).toUpperCase();
 }
 
 function docDate(doc: Record<string, any>) {
@@ -150,12 +162,12 @@ function addHeader(lines: string[], doc: Record<string, any>, options: RawDocume
 	if (company) lines.push(center(company, width));
 	lines.push(center(docTitle(options.doctype), width));
 	lines.push(line(width, "="));
-	lines.push(leftRight("No", options.name || doc.name, width));
+	lines.push(leftRight(translate("No"), options.name || doc.name, width));
 	const date = [docDate(doc), docTime(doc)].filter(Boolean).join(" ");
-	if (date) lines.push(leftRight("Date", date, width));
-	if (partyLabel(doc)) lines.push(leftRight("Party", partyLabel(doc), width));
-	if (doc.pos_profile || options.profile?.name) lines.push(leftRight("POS Profile", doc.pos_profile || options.profile?.name, width));
-	if (doc.po_no) lines.push(leftRight("Customer PO", doc.po_no, width));
+	if (date) lines.push(leftRight(translate("Date"), date, width));
+	if (partyLabel(doc)) lines.push(leftRight(translate("Party"), partyLabel(doc), width));
+	if (doc.pos_profile || options.profile?.name) lines.push(leftRight(translate("POS Profile"), doc.pos_profile || options.profile?.name, width));
+	if (doc.po_no) lines.push(leftRight(translate("Customer PO"), doc.po_no, width));
 }
 
 function addItems(lines: string[], doc: Record<string, any>, width: number) {
@@ -163,11 +175,11 @@ function addItems(lines: string[], doc: Record<string, any>, width: number) {
 	if (!items.length) return;
 
 	lines.push(line(width));
-	lines.push(leftRight("Item", "Amount", width));
+	lines.push(leftRight(translate("Item"), translate("Amount"), width));
 	lines.push(line(width));
 
 	for (const item of items) {
-		const name = item.item_name || item.item_code || item.description || "Item";
+		const name = item.item_name || item.item_code || item.description || translate("Item");
 		for (const row of wrap(name, width)) {
 			lines.push(row);
 		}
@@ -181,18 +193,18 @@ function addItems(lines: string[], doc: Record<string, any>, width: number) {
 function addPaymentEntryDetails(lines: string[], doc: Record<string, any>, width: number) {
 	if (doc.doctype !== "Payment Entry") return;
 	lines.push(line(width));
-	if (doc.payment_type) lines.push(leftRight("Type", doc.payment_type, width));
-	if (doc.mode_of_payment) lines.push(leftRight("Mode", doc.mode_of_payment, width));
-	if (doc.paid_from) lines.push(leftRight("From", doc.paid_from, width));
-	if (doc.paid_to) lines.push(leftRight("To", doc.paid_to, width));
-	if (doc.reference_no) lines.push(leftRight("Reference", doc.reference_no, width));
-	if (doc.paid_amount !== undefined) lines.push(leftRight("Paid", formatAmount(doc.paid_amount, doc.paid_from_account_currency || doc.currency), width));
-	if (doc.received_amount !== undefined) lines.push(leftRight("Received", formatAmount(doc.received_amount, doc.paid_to_account_currency || doc.currency), width));
+	if (doc.payment_type) lines.push(leftRight(translate("Type"), doc.payment_type, width));
+	if (doc.mode_of_payment) lines.push(leftRight(translate("Mode"), doc.mode_of_payment, width));
+	if (doc.paid_from) lines.push(leftRight(translate("From"), doc.paid_from, width));
+	if (doc.paid_to) lines.push(leftRight(translate("To"), doc.paid_to, width));
+	if (doc.reference_no) lines.push(leftRight(translate("Reference"), doc.reference_no, width));
+	if (doc.paid_amount !== undefined) lines.push(leftRight(translate("Paid"), formatAmount(doc.paid_amount, doc.paid_from_account_currency || doc.currency), width));
+	if (doc.received_amount !== undefined) lines.push(leftRight(translate("Received"), formatAmount(doc.received_amount, doc.paid_to_account_currency || doc.currency), width));
 
 	const references = Array.isArray(doc.references) ? doc.references : [];
 	if (!references.length) return;
 	lines.push(line(width));
-	lines.push("References");
+	lines.push(translate("References"));
 	for (const reference of references) {
 		const label = [reference.reference_doctype, reference.reference_name].filter(Boolean).join(" ");
 		lines.push(leftRight(label, formatAmount(reference.allocated_amount, doc.currency), width));
@@ -204,43 +216,43 @@ function addTotals(lines: string[], doc: Record<string, any>, width: number) {
 	lines.push(line(width));
 
 	if (doc.net_total !== undefined || doc.total !== undefined) {
-		lines.push(leftRight("Net Total", formatAmount(doc.net_total ?? doc.total, currency), width));
+		lines.push(leftRight(translate("Net Total"), formatAmount(doc.net_total ?? doc.total, currency), width));
 	}
 	if (toNumber(doc.discount_amount) !== 0) {
-		lines.push(leftRight("Discount", formatAmount(doc.discount_amount, currency), width));
+		lines.push(leftRight(translate("Discount"), formatAmount(doc.discount_amount, currency), width));
 	}
 	if (toNumber(doc.total_taxes_and_charges) !== 0) {
-		lines.push(leftRight("Taxes", formatAmount(doc.total_taxes_and_charges, currency), width));
+		lines.push(leftRight(translate("Taxes"), formatAmount(doc.total_taxes_and_charges, currency), width));
 	}
 
 	const taxes = Array.isArray(doc.taxes) ? doc.taxes : [];
 	for (const tax of taxes) {
 		const amount = toNumber(taxAmount(tax));
 		if (amount === 0) continue;
-		lines.push(leftRight(`  ${tax.description || tax.account_head || "Tax"}`, formatAmount(amount, currency), width));
+		lines.push(leftRight(`  ${tax.description || tax.account_head || translate("Tax")}`, formatAmount(amount, currency), width));
 	}
 
 	const grandTotal = doc.rounded_total ?? doc.grand_total ?? doc.base_rounded_total ?? doc.base_grand_total;
 	if (grandTotal !== undefined) {
 		lines.push(line(width, "="));
-		lines.push(leftRight("Grand Total", formatAmount(grandTotal, currency), width));
+		lines.push(leftRight(translate("Grand Total"), formatAmount(grandTotal, currency), width));
 	}
 	if (doc.paid_amount !== undefined && doc.doctype !== "Payment Entry") {
-		lines.push(leftRight("Paid", formatAmount(doc.paid_amount, currency), width));
+		lines.push(leftRight(translate("Paid"), formatAmount(doc.paid_amount, currency), width));
 	}
 	if (doc.outstanding_amount !== undefined) {
-		lines.push(leftRight("Outstanding", formatAmount(doc.outstanding_amount, currency), width));
+		lines.push(leftRight(translate("Outstanding"), formatAmount(doc.outstanding_amount, currency), width));
 	}
 	if (doc.change_amount !== undefined && toNumber(doc.change_amount) !== 0) {
-		lines.push(leftRight("Change", formatAmount(doc.change_amount, currency), width));
+		lines.push(leftRight(translate("Change"), formatAmount(doc.change_amount, currency), width));
 	}
 
 	const payments = Array.isArray(doc.payments) ? doc.payments : [];
 	if (!payments.length) return;
 	lines.push(line(width));
-	lines.push("Payments");
+	lines.push(translate("Payments"));
 	for (const payment of payments) {
-		lines.push(leftRight(payment.mode_of_payment || payment.account || "Payment", formatAmount(paymentAmount(payment), currency), width));
+		lines.push(leftRight(payment.mode_of_payment || payment.account || translate("Payment"), formatAmount(paymentAmount(payment), currency), width));
 	}
 }
 
@@ -252,7 +264,7 @@ function addFooter(lines: string[], doc: Record<string, any>, width: number) {
 		}
 	}
 	lines.push(line(width));
-	lines.push(center("Thank you", width));
+	lines.push(center(translate("Thank you"), width));
 }
 
 export function shouldUseRawDocumentPrinting(profile?: Record<string, any> | null) {
@@ -304,12 +316,12 @@ async function loadDocument(options: RawDocumentPrintOptions) {
 
 export async function printRawDocumentViaQz(options: RawDocumentPrintOptions) {
 	if (!options?.doctype || !options?.name) {
-		throw new Error("Invalid raw print document details.");
+		throw new Error(translate("Invalid raw print document details."));
 	}
 
 	const doc = await loadDocument(options);
 	if (!doc) {
-		throw new Error("Unable to load document for raw printing.");
+		throw new Error(translate("Unable to load document for raw printing."));
 	}
 
 	const rawData = buildEscPosDocument(

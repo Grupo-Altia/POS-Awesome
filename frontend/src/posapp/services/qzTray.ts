@@ -40,6 +40,11 @@ let certificateProvided = false;
 let connectPromise: Promise<boolean> | null = null;
 let certificateChecked = false;
 
+function translate(text: string) {
+	const translator = (globalThis as any).__ || (globalThis as any).frappe?._;
+	return typeof translator === "function" ? translator(text) : text;
+}
+
 function extractMessage<T>(value: any): T {
 	if (value && typeof value === "object" && "message" in value) {
 		return value.message as T;
@@ -390,7 +395,7 @@ export async function getQzCertificateDownload() {
 		"posawesome.posawesome.api.qz.get_certificate_download",
 	);
 	if (!result?.pem) {
-		throw new Error("QZ certificate is not available.");
+		throw new Error(translate("QZ certificate is not available."));
 	}
 	qzCertReady.value = true;
 	saveCertReady(true);
@@ -404,16 +409,16 @@ export function getQzCertificateFilename(company?: string | null) {
 
 export async function printHtmlViaQz(html: string, options: QzPrintHtmlOptions = {}) {
 	if (!html) {
-		throw new Error("Nothing to print.");
+		throw new Error(translate("Nothing to print."));
 	}
 
 	if (!qz.websocket.isActive()) {
 		const connected = await connectQzTray();
 		if (!connected) {
 			if (qzReconnectPaused.value) {
-				throw new Error("QZ Tray is manually disconnected. Press Connect to enable it again.");
+				throw new Error(translate("QZ Tray is manually disconnected. Press Connect to enable it again."));
 			}
-			throw new Error("QZ Tray is not available.");
+			throw new Error(translate("QZ Tray is not available."));
 		}
 	}
 
@@ -432,7 +437,7 @@ export async function printHtmlViaQz(html: string, options: QzPrintHtmlOptions =
 	}
 
 	if (!printer) {
-		throw new Error("No QZ printer selected.");
+		throw new Error(translate("No QZ printer selected."));
 	}
 
 	const config = qz.configs.create(printer, {
@@ -464,9 +469,9 @@ export async function sendRawToQz(data: string, printerName?: string) {
 		const connected = await connectQzTray();
 		if (!connected) {
 			if (qzReconnectPaused.value) {
-				throw new Error("QZ Tray is manually disconnected. Press Connect to enable it again.");
+				throw new Error(translate("QZ Tray is manually disconnected. Press Connect to enable it again."));
 			}
-			throw new Error("QZ Tray is not available.");
+			throw new Error(translate("QZ Tray is not available."));
 		}
 	}
 
@@ -484,7 +489,7 @@ export async function sendRawToQz(data: string, printerName?: string) {
 	}
 
 	if (!printer) {
-		throw new Error("No QZ printer selected.");
+		throw new Error(translate("No QZ printer selected."));
 	}
 
 	const config = qz.configs.create(printer);
@@ -502,7 +507,7 @@ export async function sendRawToQz(data: string, printerName?: string) {
 
 export async function printDocumentViaQz(options: QzPrintDocumentOptions) {
 	if (!options?.doctype || !options?.name) {
-		throw new Error("Invalid print document details.");
+		throw new Error(translate("Invalid print document details."));
 	}
 
 	const printFormat = options.printFormat || DEFAULT_PRINT_FORMAT;
@@ -524,7 +529,7 @@ export async function printDocumentViaQz(options: QzPrintDocumentOptions) {
 	const style = response?.style || response?.message?.style || "";
 
 	if (!html) {
-		throw new Error("Unable to load print HTML from server.");
+		throw new Error(translate("Unable to load print HTML from server."));
 	}
 
 	await printHtmlViaQz(buildPrintHtml(html, style), options);

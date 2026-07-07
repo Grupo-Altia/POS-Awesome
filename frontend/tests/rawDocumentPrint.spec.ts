@@ -16,6 +16,7 @@ import { sendRawToQz } from "../src/posapp/services/qzTray";
 describe("rawDocumentPrint", () => {
 	beforeEach(() => {
 		vi.clearAllMocks();
+		delete (globalThis as any).__;
 		(globalThis as any).frappe = {
 			call: vi.fn(),
 		};
@@ -56,6 +57,47 @@ describe("rawDocumentPrint", () => {
 		expect(raw).toContain("Grand Total");
 		expect(raw).toContain("USD 27.50");
 		expect(raw.endsWith("\x1DV\x00")).toBe(true);
+	});
+
+	it("preserves localized receipt text and translates raw receipt labels", () => {
+		(globalThis as any).__ = vi.fn((text: string) => {
+			if (text === "Grand Total") return "Total général";
+			if (text === "Thank you") return "Merci";
+			return text;
+		});
+
+		const raw = buildEscPosDocument(
+			{
+				doctype: "Sales Invoice",
+				name: "SINV-0002",
+				company: "Café Démo",
+				customer_name: "عميل",
+				currency: "€",
+				items: [
+					{
+						item_name: "Crème brûlée",
+						qty: 1,
+						uom: "Nos",
+						rate: 8,
+						amount: 8,
+					},
+				],
+				grand_total: 8,
+				paid_amount: 8,
+			},
+			{
+				doctype: "Sales Invoice",
+				name: "SINV-0002",
+				profile: { posa_raw_print_width: 42 },
+			},
+		);
+
+		expect(raw).toContain("Café Démo");
+		expect(raw).toContain("عميل");
+		expect(raw).toContain("Crème brûlée");
+		expect(raw).toContain("€ 8.00");
+		expect(raw).toContain("Total général");
+		expect(raw).toContain("Merci");
 	});
 
 	it("uses POS Profile raw printing toggle only when enabled", () => {
