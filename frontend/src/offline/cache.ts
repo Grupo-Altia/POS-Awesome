@@ -88,44 +88,67 @@ type SearchableItem = Record<string, any> & {
 	item_name?: string | null;
 	item_barcode?: string | ItemBarcodeEntry[] | null;
 	barcodes?: unknown[];
+	barcodes_lc?: unknown[];
 	name_keywords?: unknown[];
+	name_keywords_lc?: unknown[];
 	serial_no_data?: ItemSerialEntry[] | null;
 	serials?: unknown[];
 	batch_no_data?: ItemBatchEntry[] | null;
 	batches?: unknown[];
 };
 
+const normalizeSearchValue = (value: unknown): string =>
+	String(value || "")
+		.normalize("NFKD")
+		.replace(/[\u0300-\u036f]/g, "")
+		.toLowerCase()
+		.trim();
+
+const uniqueStrings = (values: unknown[]): string[] =>
+	Array.from(
+		new Set(
+			values
+				.map((value) => String(value || "").trim())
+				.filter(Boolean),
+		),
+	);
+
 const deriveItemSearchFields = (item: SearchableItem | null | undefined) => {
 	const safeItem: SearchableItem = item || {};
 
 	const getBarcodes = (): string[] => {
+		const values: unknown[] = [];
 		if (Array.isArray(safeItem.item_barcode)) {
-			return safeItem.item_barcode
-				.map((barcodeEntry) => barcodeEntry?.barcode)
-				.filter((barcode): barcode is string => Boolean(barcode));
-		}
-		if (safeItem.item_barcode) {
-			return [String(safeItem.item_barcode)];
+			values.push(
+				...safeItem.item_barcode
+					.map((barcodeEntry) => barcodeEntry?.barcode)
+					.filter((barcode): barcode is string => Boolean(barcode)),
+			);
+		} else if (safeItem.item_barcode) {
+			values.push(String(safeItem.item_barcode));
 		}
 		if (Array.isArray(safeItem.barcodes)) {
-			return safeItem.barcodes
-				.map((barcode) => String(barcode))
-				.filter(Boolean);
+			values.push(
+				...safeItem.barcodes
+					.map((entry: any) =>
+						entry && typeof entry === "object"
+							? entry.barcode
+							: entry,
+					)
+					.filter(Boolean),
+			);
 		}
-		return [];
+		return uniqueStrings(values);
 	};
 
 	const getNameKeywords = (): string[] => {
 		if (safeItem.item_name) {
-			return String(safeItem.item_name)
-				.toLowerCase()
-				.split(/\s+/)
-				.filter(Boolean);
+			return uniqueStrings(
+				normalizeSearchValue(safeItem.item_name).split(/\s+/),
+			);
 		}
 		if (Array.isArray(safeItem.name_keywords)) {
-			return safeItem.name_keywords
-				.map((keyword) => String(keyword))
-				.filter(Boolean);
+			return uniqueStrings(safeItem.name_keywords);
 		}
 		return [];
 	};
@@ -158,13 +181,89 @@ const deriveItemSearchFields = (item: SearchableItem | null | undefined) => {
 		return [];
 	};
 
+	const barcodes = getBarcodes();
+	const nameKeywords = getNameKeywords();
+	const itemCodeLc = normalizeSearchValue(safeItem.item_code);
+	const itemNameLc = normalizeSearchValue(safeItem.item_name);
+	const barcodesLc = barcodes.map(normalizeSearchValue).filter(Boolean);
+	const nameKeywordsLc = nameKeywords.map(normalizeSearchValue).filter(Boolean);
+
 	return {
 		...safeItem,
-		barcodes: getBarcodes(),
-		name_keywords: getNameKeywords(),
+		item_code_lc: itemCodeLc,
+		item_name_lc: itemNameLc,
+		barcodes,
+		barcodes_lc: barcodesLc,
+		name_keywords: nameKeywords,
+		name_keywords_lc: nameKeywordsLc,
 		serials: getSerials(),
 		batches: getBatches(),
+		search_text: [
+			itemCodeLc,
+			itemNameLc,
+			...barcodesLc,
+			...nameKeywordsLc,
+		]
+			.filter(Boolean)
+			.join(" "),
 	};
+};
+
+const itemMatchesStoredSearch = (
+	item: Record<string, any>,
+	term: string,
+	terms: string[],
+) => {
+	const itemName = item.item_name_lc || normalizeSearchValue(item.item_name);
+	const itemCode = item.item_code_lc || normalizeSearchValue(item.item_code);
+	const searchText = item.search_text || "";
+	const barcodes = Array.isArray(item.barcodes_lc)
+		? item.barcodes_lc
+		: Array.isArray(item.barcodes)
+			? item.barcodes.map(normalizeSearchValue)
+			: [];
+
+	const nameMatch =
+		itemName && terms.every((token) => itemName.includes(token));
+	const codeMatch = itemCode && itemCode.includes(term);
+	const barcodeMatch = barcodes.some((barcode) => barcode.includes(term));
+	const textMatch =
+		searchText && terms.every((token) => searchText.includes(token));
+
+	return Boolean(nameMatch || codeMatch || barcodeMatch || textMatch);
+};
+
+const scoreStoredItemSearch = (
+	item: Record<string, any>,
+	term: string,
+	terms: string[],
+) => {
+	const itemName = item.item_name_lc || normalizeSearchValue(item.item_name);
+	const itemCode = item.item_code_lc || normalizeSearchValue(item.item_code);
+	const barcodes = Array.isArray(item.barcodes_lc)
+		? item.barcodes_lc
+		: Array.isArray(item.barcodes)
+			? item.barcodes.map(normalizeSearchValue)
+			: [];
+	const nameKeywords = Array.isArray(item.name_keywords_lc)
+		? item.name_keywords_lc
+		: Array.isArray(item.name_keywords)
+			? item.name_keywords.map(normalizeSearchValue)
+			: [];
+
+	if (itemCode === term) return 1000;
+	if (barcodes.includes(term)) return 950;
+	if (itemCode.startsWith(term)) return 800;
+	if (itemName.startsWith(term)) return 700;
+	if (
+		terms.length &&
+		terms.every((token) =>
+			nameKeywords.some((keyword) => keyword.startsWith(token)),
+		)
+	) {
+		return 650;
+	}
+	return 100;
 };
 
 const toCloneSafeValue = <T>(input: T): T | null => {
@@ -282,24 +381,25 @@ export async function searchStoredItems({
 		const normalizedSearch =
 			typeof search === "string" ? search.trim() : "";
 		if (normalizedSearch) {
-			const term = normalizedSearch.toLowerCase();
+			const term = normalizeSearchValue(normalizedSearch);
 			const terms = term.split(/\s+/).filter(Boolean);
 
-			collection = collection.filter((it) => {
-				const nameMatch =
-					it.item_name &&
-					terms.every((t) => it.item_name.toLowerCase().includes(t));
-				const codeMatch =
-					it.item_code && it.item_code.toLowerCase().includes(term);
-				const barcodeMatch = Array.isArray(it.item_barcode)
-					? it.item_barcode.some(
-							(b) =>
-								b.barcode && b.barcode.toLowerCase() === term,
-						)
-					: it.item_barcode &&
-						String(it.item_barcode).toLowerCase().includes(term);
-				return nameMatch || codeMatch || barcodeMatch;
-			});
+			const matchedItems = await collection
+				.filter((it) => itemMatchesStoredSearch(it, term, terms))
+				.toArray();
+			return matchedItems
+				.map((item, originalIndex) => ({
+					item,
+					originalIndex,
+					score: scoreStoredItemSearch(item, term, terms),
+				}))
+				.sort(
+					(left, right) =>
+						right.score - left.score ||
+						left.originalIndex - right.originalIndex,
+				)
+				.slice(offset, offset + limit)
+				.map(({ item }) => item);
 		}
 
 		const res = await collection.offset(offset).limit(limit).toArray();

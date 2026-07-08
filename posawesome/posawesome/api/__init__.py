@@ -46,6 +46,7 @@ _EXPORTS = {
     "get_items_details": ".items",
     "get_items_from_barcode": ".items",
     "get_items_groups": ".items",
+    "get_hot_items": ".items",
     "get_label_template_detail": ".label_templates",
     "get_label_templates": ".label_templates",
     "get_language_options": ".utilities",

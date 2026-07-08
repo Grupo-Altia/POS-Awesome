@@ -167,6 +167,8 @@ ORDERED_CHAIN = [
     "posa_force_server_items",
     "posa_use_server_cache",
     "posa_server_cache_duration",
+    "posa_fast_counter_mode",
+    "posa_hot_catalog_limit",
     "posa_force_reload_items",
     "posa_smart_reload_mode",
     "column_break_anyol",
