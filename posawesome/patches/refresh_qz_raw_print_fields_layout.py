@@ -1,10 +1,11 @@
 import frappe
+from frappe import _
 from frappe.custom.doctype.custom_field.custom_field import create_custom_field
 
 
 FIELD_UPDATES = {
     "posa_section_print_delivery": {
-        "label": "Printing and Delivery",
+        "label": _("Printing and Delivery"),
         "fieldtype": "Section Break",
         "collapsible": 1,
         "insert_after": "select_print_heading",
@@ -34,8 +35,8 @@ FIELD_UPDATES = {
         "insert_after": "posa_allow_select_print_format_in_payments",
     },
     "posa_silent_print": {
-        "label": "Use QZ Tray for Silent Print",
-        "description": (
+        "label": _("Use QZ Tray for Silent Print"),
+        "description": _(
             "Use QZ Tray for direct invoice, order, and payment receipt printing. "
             "Keep 'Open Print in New Tab' disabled when using direct QZ printing."
         ),

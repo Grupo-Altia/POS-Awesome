@@ -7,9 +7,6 @@ def _get_value(doc, fieldname, default=None):
         return default
     if isinstance(doc, dict):
         return doc.get(fieldname, default)
-    getter = getattr(doc, "get", None)
-    if callable(getter):
-        return getter(fieldname, default)
     return getattr(doc, fieldname, default)
 
 

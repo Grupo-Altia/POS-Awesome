@@ -71,6 +71,7 @@ const props = defineProps<{
 	modelValue: boolean;
 	amount?: number;
 	currencySymbol?: string;
+	formatCurrency?: (amount: number) => string;
 	tenderSuggestions?: number[];
 }>();
 
@@ -122,7 +123,12 @@ const focus = () => {
 	});
 };
 
-const formatTenderAmount = (amount: number) => `${props.currencySymbol || ""}${Number(amount)}`;
+const formatTenderAmount = (amount: number) => {
+	if (typeof props.formatCurrency === "function") {
+		return props.formatCurrency(Number(amount));
+	}
+	return `${props.currencySymbol || ""}${Number(amount)}`;
+};
 
 const setTenderAmount = (amount: number) => {
 	amountInput.value = String(Number(amount));

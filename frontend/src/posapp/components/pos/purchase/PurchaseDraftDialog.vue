@@ -250,6 +250,11 @@
 <script setup>
 import { computed, reactive, ref, watch } from "vue";
 import { normalizeDateForBackend } from "../../../format";
+import {
+	formatPurchaseAmount,
+	formatPurchaseDate,
+	purchaseCurrencySymbol,
+} from "./purchaseFormatting";
 
 const __ = window.__ || ((text) => text);
 
@@ -415,27 +420,15 @@ function clearFilters() {
 }
 
 function formatDate(value) {
-	if (!value) return "";
-	if (typeof frappe?.datetime?.str_to_user === "function") {
-		return frappe.datetime.str_to_user(value);
-	}
-	return value;
+	return formatPurchaseDate(value);
 }
 
 function formatAmount(value) {
-	const amount = Number(value || 0);
-	return amount.toLocaleString(undefined, {
-		minimumFractionDigits: 2,
-		maximumFractionDigits: 2,
-	});
+	return formatPurchaseAmount(value);
 }
 
 function currencySymbol(currency) {
-	if (!currency) return "";
-	if (typeof get_currency_symbol === "function") {
-		return get_currency_symbol(currency);
-	}
-	return currency;
+	return purchaseCurrencySymbol(currency);
 }
 </script>
 

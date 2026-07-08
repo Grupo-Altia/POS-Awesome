@@ -59,6 +59,36 @@ describe("rawDocumentPrint", () => {
 		expect(raw.endsWith("\x1DV\x00")).toBe(true);
 	});
 
+	it("hard-wraps long item names without dropping characters", () => {
+		const longName = "Supercalifragilisticexpialidocious";
+		const raw = buildEscPosDocument(
+			{
+				doctype: "Sales Invoice",
+				name: "SINV-0003",
+				company: "Demo Company",
+				currency: "USD",
+				items: [
+					{
+						item_name: longName,
+						qty: 1,
+						uom: "Nos",
+						rate: 1,
+						amount: 1,
+					},
+				],
+				grand_total: 1,
+			},
+			{
+				doctype: "Sales Invoice",
+				name: "SINV-0003",
+				profile: { posa_raw_print_width: 32 },
+			},
+		);
+
+		expect(raw).toContain(longName.slice(0, 32));
+		expect(raw).toContain(longName.slice(32));
+	});
+
 	it("preserves localized receipt text and translates raw receipt labels", () => {
 		(globalThis as any).__ = vi.fn((text: string) => {
 			if (text === "Grand Total") return "Total général";
@@ -136,5 +166,58 @@ describe("rawDocumentPrint", () => {
 			expect.stringContaining("SALES ORDER"),
 			undefined,
 		);
+	});
+
+	it("forwards the POS Profile raw printer name to QZ", async () => {
+		(globalThis as any).frappe.call.mockResolvedValue({
+			message: {
+				doctype: "Sales Invoice",
+				name: "SINV-0004",
+				company: "Demo Company",
+				currency: "USD",
+				items: [],
+				grand_total: 10,
+			},
+		});
+
+		await printRawDocumentViaQz({
+			doctype: "Sales Invoice",
+			name: "SINV-0004",
+			profile: {
+				posa_raw_printing: 1,
+				posa_qz_printer_name: "Counter Printer",
+			},
+		});
+
+		expect(sendRawToQz).toHaveBeenCalledWith(
+			expect.stringContaining("SALES INVOICE"),
+			"Counter Printer",
+		);
+	});
+
+	it("rejects when the saved document cannot be fetched and no fallback doc is provided", async () => {
+		(globalThis as any).frappe.call.mockRejectedValue(new Error("Network down"));
+
+		await expect(
+			printRawDocumentViaQz({
+				doctype: "Sales Invoice",
+				name: "SINV-0005",
+				profile: { posa_raw_printing: 1 },
+			}),
+		).rejects.toThrow("Network down");
+		expect(sendRawToQz).not.toHaveBeenCalled();
+	});
+
+	it("rejects when the saved document response is empty", async () => {
+		(globalThis as any).frappe.call.mockResolvedValue({});
+
+		await expect(
+			printRawDocumentViaQz({
+				doctype: "Sales Invoice",
+				name: "SINV-0006",
+				profile: { posa_raw_printing: 1 },
+			}),
+		).rejects.toThrow("Unable to load document for raw printing.");
+		expect(sendRawToQz).not.toHaveBeenCalled();
 	});
 });

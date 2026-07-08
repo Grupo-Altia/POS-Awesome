@@ -571,6 +571,7 @@ const {
 	set_mpesa_payment,
 	set_full_amount,
 	set_rest_amount,
+	clear_all_amounts,
 	request_payment,
 	getVisibleDenominations,
 	isCashLikePayment,
@@ -1270,19 +1271,6 @@ const restorePaymentLinesAfterFailedSubmit = () => {
 	is_credit_sale.value = false;
 };
 
-const clearPaymentAmounts = (doc = invoice_doc.value) => {
-	if (!doc || !Array.isArray(doc.payments)) {
-		return;
-	}
-
-	doc.payments.forEach((payment) => {
-		payment.amount = 0;
-		if (payment.base_amount !== undefined) {
-			payment.base_amount = 0;
-		}
-	});
-};
-
 const enableShortcutCreditSale = () => {
 	if (invoice_doc.value?.is_return) {
 		return false;
@@ -1297,7 +1285,7 @@ const enableShortcutCreditSale = () => {
 		return false;
 	}
 
-	clearPaymentAmounts();
+	clear_all_amounts();
 	is_credit_sale.value = true;
 	return true;
 };
@@ -1929,7 +1917,7 @@ watch(is_credit_sale, (newVal) => {
 	const doc = invoice_doc.value;
 
 	// Always clear all payment methods first to prevent stale paid amounts.
-	clearPaymentAmounts(doc);
+	clear_all_amounts();
 
 	if (!newVal && doc.payments.length) {
 		const amount = flt(doc.rounded_total || doc.grand_total, currency_precision.value);

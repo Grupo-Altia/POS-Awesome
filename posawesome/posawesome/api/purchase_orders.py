@@ -76,6 +76,57 @@ def _normalize_date_for_backend(value, fallback=None):
         return fallback
 
 
+def _build_po_search_filters(
+    company=None,
+    search_text=None,
+    supplier=None,
+    warehouse=None,
+    from_date=None,
+    to_date=None,
+    limit=50,
+    base_filters=None,
+):
+    filters = dict(base_filters or {})
+    if company:
+        filters["company"] = company
+
+    if warehouse:
+        filters["set_warehouse"] = warehouse
+
+    resolved_supplier = _resolve_supplier(supplier) if supplier else None
+    if resolved_supplier:
+        filters["supplier"] = resolved_supplier
+
+    start_date = _normalize_date_for_backend(from_date)
+    end_date = _normalize_date_for_backend(to_date)
+    if start_date and end_date:
+        filters["transaction_date"] = ["between", [start_date, end_date]]
+    elif start_date:
+        filters["transaction_date"] = [">=", start_date]
+    elif end_date:
+        filters["transaction_date"] = ["<=", end_date]
+
+    effective_search_text = search_text
+    if supplier and not resolved_supplier and not effective_search_text:
+        effective_search_text = supplier
+
+    or_filters = None
+    if effective_search_text:
+        like_value = f"%{str(effective_search_text).strip()}%"
+        or_filters = {
+            "name": ["like", like_value],
+            "supplier": ["like", like_value],
+            "supplier_name": ["like", like_value],
+        }
+
+    try:
+        limit_page_length = max(1, min(cint(limit or 50), 200))
+    except Exception:
+        limit_page_length = 50
+
+    return filters, or_filters, limit_page_length
+
+
 def _resolve_supplier(supplier_value):
     if isinstance(supplier_value, dict):
         supplier_value = (
@@ -1079,43 +1130,16 @@ def search_draft_purchase_orders(
     _assert_pos_write_allowed(profile, company=company)
     _ensure_allowed(profile, "posa_allow_purchase_order", _("Purchase orders"))
 
-    filters = {"docstatus": 0}
-    if company:
-        filters["company"] = company
-
-    if warehouse:
-        filters["set_warehouse"] = warehouse
-
-    resolved_supplier = _resolve_supplier(supplier) if supplier else None
-    if resolved_supplier:
-        filters["supplier"] = resolved_supplier
-
-    start_date = _normalize_date_for_backend(from_date)
-    end_date = _normalize_date_for_backend(to_date)
-    if start_date and end_date:
-        filters["transaction_date"] = ["between", [start_date, end_date]]
-    elif start_date:
-        filters["transaction_date"] = [">=", start_date]
-    elif end_date:
-        filters["transaction_date"] = ["<=", end_date]
-
-    effective_search_text = search_text
-    if supplier and not resolved_supplier and not effective_search_text:
-        effective_search_text = supplier
-
-    or_filters = None
-    if effective_search_text:
-        like_value = f"%{str(effective_search_text).strip()}%"
-        or_filters = {
-            "name": ["like", like_value],
-            "supplier": ["like", like_value],
-            "supplier_name": ["like", like_value],
-        }
-
-    try:
-        limit_page_length = max(1, min(cint(limit or 50), 200))
-    except Exception:
-        limit_page_length = 50
+    filters, or_filters, limit_page_length = _build_po_search_filters(
+        company=company,
+        search_text=search_text,
+        supplier=supplier,
+        warehouse=warehouse,
+        from_date=from_date,
+        to_date=to_date,
+        limit=limit,
+        base_filters={"docstatus": 0},
+    )
 
     return frappe.get_all(
         "Purchase Order",
@@ -1157,45 +1181,19 @@ def search_purchase_management_orders(
     _assert_pos_write_allowed(profile, company=company)
     _ensure_allowed(profile, "posa_allow_purchase_order", _("Purchase orders"))
 
-    filters = {
-        "docstatus": 1,
-        "status": ["not in", ["Closed", "Cancelled"]],
-    }
-    if company:
-        filters["company"] = company
-    if warehouse:
-        filters["set_warehouse"] = warehouse
-
-    resolved_supplier = _resolve_supplier(supplier) if supplier else None
-    if resolved_supplier:
-        filters["supplier"] = resolved_supplier
-
-    start_date = _normalize_date_for_backend(from_date)
-    end_date = _normalize_date_for_backend(to_date)
-    if start_date and end_date:
-        filters["transaction_date"] = ["between", [start_date, end_date]]
-    elif start_date:
-        filters["transaction_date"] = [">=", start_date]
-    elif end_date:
-        filters["transaction_date"] = ["<=", end_date]
-
-    effective_search_text = search_text
-    if supplier and not resolved_supplier and not effective_search_text:
-        effective_search_text = supplier
-
-    or_filters = None
-    if effective_search_text:
-        like_value = f"%{str(effective_search_text).strip()}%"
-        or_filters = {
-            "name": ["like", like_value],
-            "supplier": ["like", like_value],
-            "supplier_name": ["like", like_value],
-        }
-
-    try:
-        limit_page_length = max(1, min(cint(limit or 50), 200))
-    except Exception:
-        limit_page_length = 50
+    filters, or_filters, limit_page_length = _build_po_search_filters(
+        company=company,
+        search_text=search_text,
+        supplier=supplier,
+        warehouse=warehouse,
+        from_date=from_date,
+        to_date=to_date,
+        limit=limit,
+        base_filters={
+            "docstatus": 1,
+            "status": ["not in", ["Closed", "Cancelled"]],
+        },
+    )
 
     orders = frappe.get_all(
         "Purchase Order",
@@ -1431,6 +1429,12 @@ def process_purchase_management_action(data):
                     }
                 )
                 remaining_payable -= amount
+            if not capped_payments:
+                frappe.throw(
+                    _("Please enter at least one valid payment amount up to {0}.").format(
+                        frappe.format_value(payable_amount, {"fieldtype": "Currency"})
+                    )
+                )
             payment_entries = _create_payment_entry(ref_docs, capped_payments, company, transaction_date)
             payment_references = [
                 {"doctype": ref_doc.doctype, "name": ref_doc.name}

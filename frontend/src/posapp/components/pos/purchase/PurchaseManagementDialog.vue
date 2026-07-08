@@ -367,6 +367,12 @@ import { computed, reactive, ref, watch } from "vue";
 import { normalizeDateForBackend } from "../../../format";
 import { useToastStore } from "../../../stores/toastStore";
 import PurchasePaymentDialog from "./PurchasePaymentDialog.vue";
+import {
+	extractPurchaseServerError,
+	formatPurchaseAmount,
+	formatPurchaseDate,
+	purchaseCurrencySymbol,
+} from "./purchaseFormatting";
 
 const __ = window.__ || ((text) => text);
 
@@ -721,53 +727,19 @@ function todayDate() {
 }
 
 function formatDate(value) {
-	if (!value) return "";
-	if (typeof frappe?.datetime?.str_to_user === "function") {
-		return frappe.datetime.str_to_user(value);
-	}
-	return value;
+	return formatPurchaseDate(value);
 }
 
 function formatAmount(value) {
-	const amount = Number(value || 0);
-	return amount.toLocaleString(undefined, {
-		minimumFractionDigits: 2,
-		maximumFractionDigits: 2,
-	});
+	return formatPurchaseAmount(value);
 }
 
 function currencySymbol(currency) {
-	if (!currency) return "";
-	if (typeof get_currency_symbol === "function") {
-		return get_currency_symbol(currency);
-	}
-	return currency;
+	return purchaseCurrencySymbol(currency);
 }
 
 function extractServerError(error) {
-	const parseServerMessages = (raw) => {
-		if (!raw) return "";
-		try {
-			const parsed = JSON.parse(raw);
-			if (Array.isArray(parsed) && parsed.length) {
-				const first = parsed[0];
-				if (typeof first === "string") {
-					return first.replace(/<[^>]*>/g, "").trim();
-				}
-			}
-		} catch {
-			return String(raw);
-		}
-		return "";
-	};
-
-	return (
-		parseServerMessages(error?._server_messages) ||
-		parseServerMessages(error?.responseJSON?._server_messages) ||
-		error?.message ||
-		error?.responseJSON?.message ||
-		__("Unable to complete purchase action")
-	);
+	return extractPurchaseServerError(error, __("Unable to complete purchase action"));
 }
 </script>
 

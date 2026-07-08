@@ -35,6 +35,11 @@ export function shouldUseConfiguredQzDocumentPrinting(profile?: Record<string, a
 	return shouldUseRawDocumentPrinting(profile) || parseBooleanSetting(profile?.posa_silent_print);
 }
 
+function translate(text: string) {
+	const translator = (globalThis as any).__ || (globalThis as any).frappe?._;
+	return typeof translator === "function" ? translator(text) : text;
+}
+
 export function getQzPrintErrorMessage(error: unknown) {
 	if (error instanceof Error && error.message) {
 		return error.message;
@@ -42,7 +47,7 @@ export function getQzPrintErrorMessage(error: unknown) {
 	if (typeof error === "string" && error.trim()) {
 		return error.trim();
 	}
-	return "Unknown QZ Tray printing error.";
+	return translate("Unknown QZ Tray printing error.");
 }
 
 export function confirmDocumentPrintFallback(
@@ -51,10 +56,10 @@ export function confirmDocumentPrintFallback(
 ) {
 	const reason = getQzPrintErrorMessage(error);
 	const title = options.offline
-		? "Raw/QZ printing is not available while the POS is offline."
+		? translate("Raw/QZ printing is not available while the POS is offline.")
 		: options.raw
-			? "Raw/QZ printing failed."
-			: "QZ Tray printing failed.";
-	const message = `${title}\n\nReason: ${reason}\n\nDo you want to print using the browser fallback instead?`;
+			? translate("Raw/QZ printing failed.")
+			: translate("QZ Tray printing failed.");
+	const message = `${title}\n\n${translate("Reason")}: ${reason}\n\n${translate("Do you want to print using the browser fallback instead?")}`;
 	return window.confirm(message);
 }

@@ -309,9 +309,14 @@ def get_closing_shift_overview(pos_opening_shift):
 
         customer_credit_amount = flt(invoice.get("posa_redeemed_customer_credit") or 0)
         if customer_credit_amount > 0:
-            customer_credit_base_amount = customer_credit_amount
-            if invoice_currency != company_currency:
-                customer_credit_base_amount = customer_credit_amount * flt(conversion_rate or 1)
+            customer_credit_base_amount = flt(
+                get_base_value(
+                    invoice,
+                    "posa_redeemed_customer_credit",
+                    "base_posa_redeemed_customer_credit",
+                    conversion_rate,
+                )
+            )
 
             customer_credit_redeemed_company_currency_total += customer_credit_base_amount
             customer_credit_redeemed_invoice_count += 1

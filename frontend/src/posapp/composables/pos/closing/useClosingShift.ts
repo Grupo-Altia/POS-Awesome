@@ -108,15 +108,6 @@ export function useClosingShift(eventBus: any) {
 			})),
 		});
 
-		const normalizeCustomerCreditRedemption = (credit: any = {}) => ({
-			count: toNumber(credit?.count),
-			company_currency_total: toNumber(credit?.company_currency_total),
-			by_currency: normalizeCurrencyRows(credit?.by_currency, {
-				includeCount: true,
-				includeExchangeRates: true,
-			}),
-		});
-
 		const normalizeChangeReturned = (change: any = {}) => {
 			const normalizeBranch = (branch: any = {}) => ({
 				company_currency_total: toNumber(
@@ -223,9 +214,7 @@ export function useClosingShift(eventBus: any) {
 			loyalty_redemption: normalizeLoyaltyRedemption(
 				payload.loyalty_redemption,
 			),
-			customer_credit_redeemed: normalizeCustomerCreditRedemption(
-				payload.customer_credit_redeemed,
-			),
+			customer_credit_redeemed: normalizeCredit(payload.customer_credit_redeemed),
 			cash_expected: {
 				mode_of_payment: payload.cash_expected?.mode_of_payment || "",
 				company_currency_total: toNumber(

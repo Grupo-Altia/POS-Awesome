@@ -412,33 +412,7 @@ export async function printHtmlViaQz(html: string, options: QzPrintHtmlOptions =
 		throw new Error(translate("Nothing to print."));
 	}
 
-	if (!qz.websocket.isActive()) {
-		const connected = await connectQzTray();
-		if (!connected) {
-			if (qzReconnectPaused.value) {
-				throw new Error(translate("QZ Tray is manually disconnected. Press Connect to enable it again."));
-			}
-			throw new Error(translate("QZ Tray is not available."));
-		}
-	}
-
-	let printer =
-		options.printerName ||
-		getSavedPrinterName() ||
-		getProfileDefaultPrinterName() ||
-		selectedQzPrinter.value;
-	if (!printer) {
-		const printers = await findQzPrinters();
-		const firstPrinter = printers[0];
-		if (firstPrinter) {
-			printer = firstPrinter;
-			setResolvedQzPrinter(firstPrinter);
-		}
-	}
-
-	if (!printer) {
-		throw new Error(translate("No QZ printer selected."));
-	}
+	const printer = await ensureQzPrinterReady(options.printerName);
 
 	const config = qz.configs.create(printer, {
 		size: {
@@ -465,6 +439,22 @@ export async function printHtmlViaQz(html: string, options: QzPrintHtmlOptions =
 }
 
 export async function sendRawToQz(data: string, printerName?: string) {
+	const printer = await ensureQzPrinterReady(printerName);
+
+	const config = qz.configs.create(printer);
+	const printData = [
+		{
+			type: "raw",
+			format: "command",
+			flavor: "plain",
+			data: data,
+		},
+	];
+
+	await qz.print(config, printData);
+}
+
+async function ensureQzPrinterReady(printerName?: string) {
 	if (!qz.websocket.isActive()) {
 		const connected = await connectQzTray();
 		if (!connected) {
@@ -492,17 +482,7 @@ export async function sendRawToQz(data: string, printerName?: string) {
 		throw new Error(translate("No QZ printer selected."));
 	}
 
-	const config = qz.configs.create(printer);
-	const printData = [
-		{
-			type: "raw",
-			format: "command",
-			flavor: "plain",
-			data: data,
-		},
-	];
-
-	await qz.print(config, printData);
+	return printer;
 }
 
 export async function printDocumentViaQz(options: QzPrintDocumentOptions) {

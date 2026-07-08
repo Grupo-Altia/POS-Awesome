@@ -5,61 +5,11 @@ import {
 } from "../../../../offline/index";
 import { useDiscounts } from "../../../composables/pos/shared/useDiscounts";
 import { resolvePosDocumentDoctype } from "../../../utils/posDocumentMode";
+import { resolvePricingRuleName } from "./pricing_rule_names";
 
 declare const __: (_text: string, _args?: any[]) => string;
 declare const flt: (_value: unknown, _precision?: number) => number;
 declare const frappe: any;
-
-function resolvePricingRuleName(line: any): string {
-	const preferString = (value: any): string => {
-		if (!value) {
-			return "";
-		}
-		if (typeof value === "string") {
-			const trimmed = value.trim();
-			if (!trimmed) {
-				return "";
-			}
-			if (
-				(trimmed.startsWith("[") && trimmed.endsWith("]")) ||
-				(trimmed.startsWith("{") && trimmed.endsWith("}"))
-			) {
-				try {
-					return preferString(JSON.parse(trimmed));
-				} catch {
-					return trimmed;
-				}
-			}
-			if (trimmed.includes(",")) {
-				return (trimmed.split(",")[0] || "").trim();
-			}
-			return trimmed;
-		}
-		if (Array.isArray(value)) {
-			for (const entry of value) {
-				const resolved = preferString(entry);
-				if (resolved) {
-					return resolved;
-				}
-			}
-			return "";
-		}
-		if (typeof value === "object") {
-			return (
-				value.name ||
-				value.rule ||
-				value.pricing_rule ||
-				value.pricingRule ||
-				""
-			);
-		}
-		return "";
-	};
-
-	return preferString(
-		line?.source_rule || line?.pricing_rule || line?.pricing_rules,
-	);
-}
 
 function markPricingRuleFreeLines(items: any[] = []) {
 	items.forEach((item) => {

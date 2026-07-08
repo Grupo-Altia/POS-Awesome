@@ -196,6 +196,10 @@ import SupplierDialog from "../dialogs/purchase/SupplierDialog.vue";
 import PurchaseHeader from "./PurchaseHeader.vue";
 import PurchaseItemsTable from "./PurchaseItemsTable.vue";
 import { computed, ref, watch, onMounted, onBeforeUnmount, inject } from "vue";
+import {
+	extractPurchaseServerError,
+	purchaseCurrencySymbol,
+} from "./purchaseFormatting";
 
 export default {
 	mixins: [format],
@@ -376,31 +380,8 @@ export default {
 			submitPurchaseOrder(print, print_format, print_invoice);
 		};
 
-		const extractServerError = (error) => {
-			const parseServerMessages = (raw) => {
-				if (!raw) return "";
-				try {
-					const parsed = JSON.parse(raw);
-					if (Array.isArray(parsed) && parsed.length) {
-						const first = parsed[0];
-						if (typeof first === "string") {
-							return first.replace(/<[^>]*>/g, "").trim();
-						}
-					}
-				} catch {
-					return String(raw);
-				}
-				return "";
-			};
-
-			return (
-				parseServerMessages(error?._server_messages) ||
-				parseServerMessages(error?.responseJSON?._server_messages) ||
-				error?.message ||
-				error?.responseJSON?.message ||
-				__("Unable to create purchase order")
-			);
-		};
+		const extractServerError = (error) =>
+			extractPurchaseServerError(error, __("Unable to create purchase order"));
 
 		const buildPurchaseOrderPayload = ({ submit = true } = {}) => {
 			const resolvedSupplier =
@@ -704,7 +685,7 @@ export default {
 			return this.formatFloat(v, 2);
 		},
 		currencySymbol(c) {
-			return get_currency_symbol(c || this.pos_profile.currency);
+			return purchaseCurrencySymbol(c || this.pos_profile.currency);
 		},
 	},
 };
@@ -746,7 +727,7 @@ export default {
 .purchase-action-bar__buttons {
 	flex: 0 0 min(442px, 42vw);
 	margin: 0;
-	margin-left: auto;
+	margin-inline-start: auto;
 }
 
 .purchase-action-bar__buttons :deep(.v-col) {
@@ -841,7 +822,7 @@ export default {
 	.purchase-action-bar__buttons {
 		flex: 1 1 auto;
 		width: 100%;
-		margin-left: 0;
+		margin-inline-start: 0;
 	}
 
 	.purchase-summary-btn {

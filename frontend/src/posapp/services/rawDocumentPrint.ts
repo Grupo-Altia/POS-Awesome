@@ -87,15 +87,25 @@ function wrap(text: unknown, width: number) {
 	const rows: string[] = [];
 	let current = "";
 	for (const word of words) {
-		if (!current) {
-			current = word.slice(0, width);
+		let remaining = word;
+		while (remaining.length > width) {
+			if (current) {
+				rows.push(current);
+				current = "";
+			}
+			rows.push(remaining.slice(0, width));
+			remaining = remaining.slice(width);
+		}
+		if (!remaining) {
 			continue;
 		}
-		if (`${current} ${word}`.length <= width) {
-			current = `${current} ${word}`;
+		if (!current) {
+			current = remaining;
+		} else if (`${current} ${remaining}`.length <= width) {
+			current = `${current} ${remaining}`;
 		} else {
 			rows.push(current);
-			current = word.slice(0, width);
+			current = remaining;
 		}
 	}
 	if (current) rows.push(current);
@@ -304,7 +314,7 @@ async function loadDocument(options: RawDocumentPrintOptions) {
 				},
 			});
 			const doc = extractMessage<Record<string, any>>(response);
-			if (doc) return doc;
+			if (doc && (doc.name || doc.doctype || Array.isArray(doc.items))) return doc;
 		} catch (error) {
 			if (!options.doc) throw error;
 			console.warn("Unable to load saved document for raw printing, using provided document", error);
@@ -332,5 +342,5 @@ export async function printRawDocumentViaQz(options: RawDocumentPrintOptions) {
 		},
 		options,
 	);
-	await sendRawToQz(rawData, options.printerName);
+	await sendRawToQz(rawData, options.printerName || options.profile?.posa_qz_printer_name);
 }

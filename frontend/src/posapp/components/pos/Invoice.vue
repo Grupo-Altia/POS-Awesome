@@ -222,6 +222,7 @@
 			v-model="confirm_payment_dialog"
 			:amount="payment_confirmation_amount"
 			:currency-symbol="currencySymbol(displayCurrency)"
+			:format-currency="(value) => formatCurrency(value, displayCurrency)"
 			:tender-suggestions="payment_confirmation_tender_suggestions"
 			@confirm="resolvePaymentConfirmation($event)"
 			@cancel="resolvePaymentConfirmation(null)"
