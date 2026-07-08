@@ -183,7 +183,7 @@ const instance = getCurrentInstance();
 const $theme = instance?.proxy?.$theme || { toggle: () => {}, isDark: false }; // Fallback
 const __ = instance?.proxy?.__ || ((value) => value);
 const BUILD_VERSION = typeof __BUILD_VERSION__ !== "undefined" ? __BUILD_VERSION__ : null;
-const OFFLINE_SYNC_SCHEMA_VERSION = "2026-04-09";
+const OFFLINE_SYNC_SCHEMA_VERSION = "2026-07-08";
 const OFFLINE_SYNC_TIMER_INTERVAL_MS = 60_000;
 
 // Utils

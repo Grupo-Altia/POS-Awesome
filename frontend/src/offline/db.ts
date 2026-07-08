@@ -84,6 +84,12 @@ const SCHEMA_V15 = {
 		"++outbox_id,&client_request_id,status,resource,created_at,updated_at,acknowledged_at,next_retry_at,nextAttemptAt,retry_count,[status+next_retry_at],[resource+status],[status+nextAttemptAt],[status+acknowledged_at],[status+updated_at],[status+created_at]",
 };
 
+const SCHEMA_V16 = {
+	...SCHEMA_V15,
+	items:
+		"&item_code,item_name,item_group,profile_scope,item_code_lc,item_name_lc,*barcodes,*barcodes_lc,*name_keywords,*name_keywords_lc,*serials,*batches",
+};
+
 export const KEY_TABLE_MAP: Record<string, string> = {
 	offline_invoices: "queue",
 	offline_customers: "queue",
@@ -269,6 +275,7 @@ db.version(12).stores(BASE_SCHEMA);
 db.version(13).stores(BASE_SCHEMA);
 db.version(14).stores(SCHEMA_V14);
 db.version(15).stores(SCHEMA_V15);
+db.version(16).stores(SCHEMA_V16);
 
 let persistWorker: Worker | null = null;
 if (typeof Worker !== "undefined") {

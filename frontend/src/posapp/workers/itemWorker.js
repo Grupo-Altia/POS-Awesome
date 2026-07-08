@@ -42,7 +42,68 @@ const SCHEMA_V15 = {
 		"++outbox_id,&client_request_id,status,resource,created_at,updated_at,acknowledged_at,next_retry_at,nextAttemptAt,retry_count,[status+next_retry_at],[resource+status],[status+nextAttemptAt],[status+acknowledged_at],[status+updated_at],[status+created_at]",
 };
 
-const SCHEMA_SIGNATURE = JSON.stringify(SCHEMA_V15);
+const SCHEMA_V16 = {
+	...SCHEMA_V15,
+	items:
+		"&item_code,item_name,item_group,profile_scope,item_code_lc,item_name_lc,*barcodes,*barcodes_lc,*name_keywords,*name_keywords_lc,*serials,*batches",
+};
+
+const SCHEMA_SIGNATURE = JSON.stringify(SCHEMA_V16);
+
+const normalizeSearchValue = (value) =>
+	String(value || "")
+		.normalize("NFKD")
+		.replace(/[\u0300-\u036f]/g, "")
+		.toLowerCase()
+		.trim();
+
+const uniqueStrings = (values) =>
+	Array.from(
+		new Set(
+			values
+				.map((value) => String(value || "").trim())
+				.filter(Boolean),
+		),
+	);
+
+const deriveItemSearchFields = (it) => {
+	const barcodes = uniqueStrings([
+		...(Array.isArray(it.item_barcode)
+			? it.item_barcode.map((b) => b && b.barcode)
+			: it.item_barcode
+				? [String(it.item_barcode)]
+				: []),
+		...(Array.isArray(it.barcodes)
+			? it.barcodes.map((entry) =>
+					entry && typeof entry === "object" ? entry.barcode : entry,
+				)
+			: []),
+	]);
+	const nameKeywords = uniqueStrings(
+		it.item_name ? normalizeSearchValue(it.item_name).split(/\s+/) : [],
+	);
+	const itemCodeLc = normalizeSearchValue(it.item_code);
+	const itemNameLc = normalizeSearchValue(it.item_name);
+	const barcodesLc = barcodes.map(normalizeSearchValue).filter(Boolean);
+	const nameKeywordsLc = nameKeywords.map(normalizeSearchValue).filter(Boolean);
+
+	return {
+		barcodes,
+		name_keywords: nameKeywords,
+		item_code_lc: itemCodeLc,
+		item_name_lc: itemNameLc,
+		barcodes_lc: barcodesLc,
+		name_keywords_lc: nameKeywordsLc,
+		search_text: [
+			itemCodeLc,
+			itemNameLc,
+			...barcodesLc,
+			...nameKeywordsLc,
+		]
+			.filter(Boolean)
+			.join(" "),
+	};
+};
 
 const dbReady = (async () => {
 	let DexieLib;
@@ -179,6 +240,7 @@ const dbReady = (async () => {
 	db.version(13).stores(BASE_SCHEMA);
 	db.version(14).stores(SCHEMA_V14);
 	db.version(15).stores(SCHEMA_V15);
+	db.version(16).stores(SCHEMA_V16);
 	try {
 		await db.open();
 	} catch (err) {
@@ -364,12 +426,7 @@ self.onmessage = async (event) => {
 				has_batch_no: it.has_batch_no,
 				has_serial_no: it.has_serial_no,
 				has_variants: !!it.has_variants,
-				barcodes: Array.isArray(it.item_barcode)
-					? it.item_barcode.map((b) => b.barcode).filter(Boolean)
-					: it.item_barcode
-						? [String(it.item_barcode)]
-						: [],
-				name_keywords: it.item_name ? it.item_name.toLowerCase().split(/\s+/).filter(Boolean) : [],
+				...deriveItemSearchFields(it),
 				serials: Array.isArray(it.serial_no_data)
 					? it.serial_no_data.map((s) => s.serial_no).filter(Boolean)
 					: [],
