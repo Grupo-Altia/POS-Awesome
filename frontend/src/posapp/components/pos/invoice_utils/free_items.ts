@@ -283,6 +283,7 @@ export function _syncAutoFreeLines(context: any, freebiesMap: Map<string, any> =
 			legacyEntry.line.parent_row_id = data.parentRowId;
 			applyFreeLineState(legacyEntry.line, data);
 			existing.set(key, { line: legacyEntry.line, index: legacyEntry.index });
+			consumedExistingLines.add(legacyEntry.line);
 			continue;
 		}
 
