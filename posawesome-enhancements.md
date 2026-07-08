@@ -8,6 +8,13 @@ Optimize POSAwesome for fast pharmacy counter sales on a local network while pre
 
 ## Implemented Changes
 
+- Added saved-drafts drawer keyboard control:
+  - `Option+L` / `Alt+L` opens the saved invoice pane immediately.
+  - Focus moves into the saved invoice list after records load.
+  - `ArrowUp` / `ArrowDown` changes the selected invoice.
+  - `Enter` opens the selected invoice and closes the right pane.
+  - `Esc` closes the right pane without loading an invoice.
+  - The pane now shows a loading state while drafts are fetched so opening feels immediate.
 - Added POS Profile settings:
   - `posa_fast_counter_mode`: enables the fast in-memory hot catalog.
   - `posa_hot_catalog_limit`: controls the hot catalog size, default `5000`, bounded to `100`-`10000`.
@@ -72,7 +79,7 @@ POS terminals:
 
 ## Build Status
 
-Production build and Docker build were intentionally not run yet, per request.
+Production frontend build has been run for the local POSAwesome assets. Docker build was not run.
 
 ## Verification
 
@@ -81,14 +88,15 @@ Completed in this working session:
 - `node -e "JSON.parse(...custom_field.json...)"`
 - `/Users/mac/anaconda3/bin/conda run -n frappe python -m unittest posawesome.posawesome.api.test_item_search_serialization posawesome.posawesome.api.test_api_imports posawesome.posawesome.api.test_offline_sync_delta_indexes_patch posawesome.posawesome.api.test_fast_pos_performance_indexes_patch`
 - `yarn vitest run tests/itemService.spec.ts tests/itemsStoreLoadItems.spec.ts tests/useItemsSearchStore.spec.ts tests/offlineItemsCache.spec.ts`
+- `yarn vitest run tests/parkedOrdersListKeyboard.spec.ts tests/invoiceSummaryDrafts.spec.ts tests/invoiceShortcuts.spec.ts`
 - `yarn type-check`
 - `yarn lint`
+- `yarn build`
 - Runtime import check for Frappe query-builder functions and the modified POSAwesome item API modules.
 - `git diff --check`
 
 Not run:
 
-- Production frontend build.
 - Bench build.
 - Docker build.
 
