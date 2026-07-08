@@ -460,6 +460,188 @@ describe("invoiceItemMethods._syncAutoFreeLines", () => {
 		expect(freeLine.base_amount).toBeCloseTo(25);
 		expect(freeLine.is_free_item).toBe(1);
 	});
+
+	it("reuses an existing reward line when server and local keys differ only by parent row", () => {
+		const existingFreeLine = {
+			item_code: "FREE-ITEM",
+			qty: 1,
+			posa_row_id: "FREE-1",
+			is_free_item: 1,
+			auto_free_source: "RULE-1::FREE-ITEM",
+			source_rule: "RULE-1",
+		};
+		const context = {
+			...createContext(),
+			items: [
+				{
+					item_code: "ITEM-BASE",
+					qty: 2,
+					posa_row_id: "ROW-PARENT",
+				},
+				existingFreeLine,
+			],
+			calc_stock_qty: vi.fn(),
+			remove_item: vi.fn(),
+		};
+		context._getItemsStore = () => ({ getItemByCode: vi.fn(() => null) });
+		context._fromBaseCurrency = (value) => value;
+
+		const freebiesMap = new Map();
+		freebiesMap.set("RULE-1::FREE-ITEM::ROW-PARENT", {
+			rule: "RULE-1",
+			item_code: "FREE-ITEM",
+			qty: 1,
+			parentRowId: "ROW-PARENT",
+			rate: 0,
+			base_rate: 0,
+		});
+
+		invoiceItemMethods._syncAutoFreeLines.call(context, freebiesMap);
+
+		const freeLines = context.items.filter((line) => line?.is_free_item);
+		expect(freeLines).toHaveLength(1);
+		expect(freeLines[0]).toBe(existingFreeLine);
+		expect(existingFreeLine.auto_free_source).toBe(
+			"RULE-1::FREE-ITEM::ROW-PARENT",
+		);
+		expect(context.remove_item).not.toHaveBeenCalled();
+	});
+
+	it("does not reuse the same fallback reward line for multiple parent rows", () => {
+		const existingFreeLine = {
+			item_code: "FREE-ITEM",
+			qty: 1,
+			posa_row_id: "FREE-1",
+			is_free_item: 1,
+			auto_free_source: "RULE-1::FREE-ITEM",
+			source_rule: "RULE-1",
+		};
+		const context = {
+			...createContext(),
+			items: [
+				{
+					item_code: "ITEM-BASE",
+					qty: 2,
+					posa_row_id: "ROW-PARENT-1",
+				},
+				existingFreeLine,
+				{
+					item_code: "ITEM-BASE",
+					qty: 2,
+					posa_row_id: "ROW-PARENT-2",
+				},
+			],
+			calc_stock_qty: vi.fn(),
+			remove_item: vi.fn(),
+		};
+		context._getItemsStore = () => ({ getItemByCode: vi.fn(() => null) });
+		context._fromBaseCurrency = (value) => value;
+
+		let counter = 1;
+		context.get_new_item = (template) => ({
+			posa_row_id: `FREE-${++counter}`,
+			...template,
+		});
+
+		const freebiesMap = new Map();
+		freebiesMap.set("RULE-1::FREE-ITEM::ROW-PARENT-1", {
+			rule: "RULE-1",
+			item_code: "FREE-ITEM",
+			qty: 1,
+			parentRowId: "ROW-PARENT-1",
+			rate: 0,
+			base_rate: 0,
+		});
+		freebiesMap.set("RULE-1::FREE-ITEM::ROW-PARENT-2", {
+			rule: "RULE-1",
+			item_code: "FREE-ITEM",
+			qty: 1,
+			parentRowId: "ROW-PARENT-2",
+			rate: 0,
+			base_rate: 0,
+		});
+
+		invoiceItemMethods._syncAutoFreeLines.call(context, freebiesMap);
+
+		const freeLines = context.items.filter((line) => line?.is_free_item);
+		expect(freeLines).toHaveLength(2);
+		expect(new Set(freeLines.map((line) => line.posa_row_id)).size).toBe(2);
+		expect(freeLines.map((line) => line.auto_free_source).sort()).toEqual([
+			"RULE-1::FREE-ITEM::ROW-PARENT-1",
+			"RULE-1::FREE-ITEM::ROW-PARENT-2",
+		]);
+		expect(existingFreeLine.auto_free_source).toBe(
+			"RULE-1::FREE-ITEM::ROW-PARENT-1",
+		);
+		expect(context.remove_item).not.toHaveBeenCalled();
+	});
+
+	it("does not reuse a legacy-matched reward line through later base-key fallback", () => {
+		const legacyFreeLine = {
+			item_code: "FREE-ITEM",
+			qty: 1,
+			posa_row_id: "FREE-LEGACY",
+			is_free_item: 1,
+			source_rule: "RULE-1",
+		};
+		const context = {
+			...createContext(),
+			items: [
+				{
+					item_code: "ITEM-BASE",
+					qty: 2,
+					posa_row_id: "ROW-PARENT-1",
+				},
+				legacyFreeLine,
+				{
+					item_code: "ITEM-BASE",
+					qty: 2,
+					posa_row_id: "ROW-PARENT-2",
+				},
+			],
+			calc_stock_qty: vi.fn(),
+			remove_item: vi.fn(),
+		};
+		context._getItemsStore = () => ({ getItemByCode: vi.fn(() => null) });
+		context._fromBaseCurrency = (value) => value;
+
+		let counter = 0;
+		context.get_new_item = (template) => ({
+			posa_row_id: `FREE-NEW-${++counter}`,
+			...template,
+		});
+
+		const freebiesMap = new Map();
+		freebiesMap.set("RULE-1::FREE-ITEM::ROW-PARENT-1", {
+			rule: "RULE-1",
+			item_code: "FREE-ITEM",
+			qty: 1,
+			parentRowId: "ROW-PARENT-1",
+			rate: 0,
+			base_rate: 0,
+		});
+		freebiesMap.set("RULE-1::FREE-ITEM::ROW-PARENT-2", {
+			rule: "RULE-1",
+			item_code: "FREE-ITEM",
+			qty: 1,
+			parentRowId: "ROW-PARENT-2",
+			rate: 0,
+			base_rate: 0,
+		});
+
+		invoiceItemMethods._syncAutoFreeLines.call(context, freebiesMap);
+
+		const freeLines = context.items.filter((line) => line?.is_free_item);
+		expect(freeLines).toHaveLength(2);
+		expect(legacyFreeLine.auto_free_source).toBe(
+			"RULE-1::FREE-ITEM::ROW-PARENT-1",
+		);
+		expect(freeLines.map((line) => line.auto_free_source).sort()).toEqual([
+			"RULE-1::FREE-ITEM::ROW-PARENT-1",
+			"RULE-1::FREE-ITEM::ROW-PARENT-2",
+		]);
+		expect(context.remove_item).not.toHaveBeenCalled();
+	});
 });
 
 describe("invoiceItemMethods._applyServerPricingRules", () => {

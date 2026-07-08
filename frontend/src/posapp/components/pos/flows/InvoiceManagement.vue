@@ -1444,7 +1444,12 @@ import {
 	silentPrint,
 	watchPrintWindow,
 } from "../../../plugins/print";
-import { printDocumentViaQz } from "../../../services/qzTray";
+import {
+	confirmDocumentPrintFallback,
+	printDocumentViaConfiguredQz,
+	shouldUseConfiguredQzDocumentPrinting,
+	shouldUseRawDocumentPrinting,
+} from "../../../services/documentPrint";
 import { isOffline } from "../../../../offline/index";
 import { buildInvoicePdfUrl, shouldDownloadPdfForShareError } from "../../../utils/invoiceSharing";
 import DocumentSourceSelector from "../shared/DocumentSourceSelector.vue";
@@ -2665,7 +2670,8 @@ export default {
 			const printFormat = profile.print_format_for_online || profile.print_format || "Standard";
 			const letterHead = profile.letter_head || 0;
 			const debugPrint = isDebugPrintEnabled();
-			const useSilentPrint = !!profile.posa_silent_print;
+			const useConfiguredQzPrint = shouldUseConfiguredQzDocumentPrinting(profile);
+			const useRawPrint = shouldUseRawDocumentPrinting(profile);
 			let url =
 				frappe.urllib.get_base_url() +
 				"/printview?doctype=" +
@@ -2679,21 +2685,34 @@ export default {
 			if (letterHead) url += "&letterhead=" + encodeURIComponent(letterHead);
 			url = appendDebugPrintParam(url, debugPrint);
 			const printOptions = { allowOfflineFallback: isOffline(), triggerPrint: "1", debugPrint };
-			if (useSilentPrint && !isOffline()) {
+			if (useConfiguredQzPrint && !isOffline()) {
 				try {
-					await printDocumentViaQz({
+					await printDocumentViaConfiguredQz({
 						doctype,
 						name: invoice.name,
+						doc: invoice,
+						profile,
 						printFormat,
 						letterhead: letterHead || null,
 						noLetterhead: letterHead ? "0" : "1",
 					});
 					return;
 				} catch (error) {
-					console.warn("QZ Tray print failed, falling back to browser print", error);
+					console.warn("QZ Tray print failed", error);
+					if (confirmDocumentPrintFallback(error, { raw: useRawPrint })) {
+						silentPrint(url, printOptions);
+					}
+					return;
 				}
 			}
-			if (useSilentPrint) {
+			if (useRawPrint) {
+				const offlineError = new Error(__("Raw printing is not available while the POS is offline."));
+				if (confirmDocumentPrintFallback(offlineError, { raw: true, offline: true })) {
+					silentPrint(url, printOptions);
+				}
+				return;
+			}
+			if (useConfiguredQzPrint) {
 				silentPrint(url, printOptions);
 				return;
 			}

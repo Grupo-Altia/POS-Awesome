@@ -226,7 +226,12 @@ import {
 	silentPrint,
 	watchPrintWindow,
 } from "../../../plugins/print";
-import { printDocumentViaQz } from "../../../services/qzTray";
+import {
+	confirmDocumentPrintFallback,
+	printDocumentViaConfiguredQz,
+	shouldUseConfiguredQzDocumentPrinting,
+	shouldUseRawDocumentPrinting,
+} from "../../../services/documentPrint";
 
 import { useRtl } from "../../../composables/core/useRtl";
 import { useCustomersStore } from "../../../stores/customersStore.js";
@@ -419,19 +424,32 @@ export default {
 				"&trigger_print=1";
 			url = appendDebugPrintParam(url, debugPrint);
 			const printOptions = { allowOfflineFallback: isOffline(), triggerPrint: "1", debugPrint };
-			if (pos_profile.value?.posa_silent_print) {
+			const useRawPrint = shouldUseRawDocumentPrinting(pos_profile.value);
+			if (shouldUseConfiguredQzDocumentPrinting(pos_profile.value)) {
 				if (!isOffline()) {
 					try {
-						await printDocumentViaQz({
+						await printDocumentViaConfiguredQz({
 							doctype: "Payment Entry",
 							name: payment_name,
+							profile: pos_profile.value,
 							printFormat: DEFAULT_PAYMENT_ENTRY_PRINT_FORMAT,
 							noLetterhead: 1,
 						});
 						return;
 					} catch (error) {
-						console.warn("QZ Tray print failed, falling back to browser print", error);
+						console.warn("QZ Tray print failed", error);
+						if (confirmDocumentPrintFallback(error, { raw: useRawPrint })) {
+							silentPrint(url, printOptions);
+						}
+						return;
 					}
+				}
+				if (useRawPrint) {
+					const offlineError = new Error("Raw printing is not available while the POS is offline.");
+					if (confirmDocumentPrintFallback(offlineError, { raw: true, offline: true })) {
+						silentPrint(url, printOptions);
+					}
+					return;
 				}
 				silentPrint(url, printOptions);
 			} else {

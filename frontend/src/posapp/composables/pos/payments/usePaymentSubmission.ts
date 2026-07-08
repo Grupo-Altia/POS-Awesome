@@ -33,6 +33,7 @@ export interface PaymentSubmissionOptions {
 	diff_payment?: ComputedRef<number>;
 	is_credit_sale?: Ref<boolean>;
 	loyaltyAmount?: Ref<number>;
+	customerInfo?: Ref<any>;
 	stores?: {
 		toastStore?: any;
 		syncStore?: any;
@@ -373,6 +374,49 @@ export function usePaymentSubmission(options: PaymentSubmissionOptions) {
 		}
 	};
 
+	const getLoyaltyRedemptionForSubmission = (doc: any) => {
+		const prec = unref(options.currencyPrecision) || 2;
+		const hasExplicitLoyaltyAmount = Object.prototype.hasOwnProperty.call(
+			options,
+			"loyaltyAmount",
+		);
+		const requestedAmount = formatFloat(
+			hasExplicitLoyaltyAmount ? unref(options.loyaltyAmount) : 0,
+			prec,
+		);
+		const docAmount = formatFloat(doc?.loyalty_amount || 0, prec);
+		const loyaltyAmount = hasExplicitLoyaltyAmount
+			? requestedAmount
+			: docAmount;
+		if (loyaltyAmount <= 0) {
+			return { amount: 0, points: 0 };
+		}
+
+		const existingPoints = Math.trunc(formatFloat(doc?.loyalty_points || 0, prec));
+		const explicitAmountMatchesDoc =
+			Math.abs(requestedAmount - docAmount) < 1 / 10 ** prec;
+		if (
+			existingPoints > 0 &&
+			(!hasExplicitLoyaltyAmount || explicitAmountMatchesDoc)
+		) {
+			return { amount: loyaltyAmount, points: existingPoints };
+		}
+
+		const info = unref(options.customerInfo) || {};
+		const conversionFactor = Number(info.conversion_factor || 0);
+		if (conversionFactor <= 0) {
+			return { amount: 0, points: 0 };
+		}
+
+		const baseAmount = toCompanyCurrency(currencyContext(doc), loyaltyAmount);
+		const loyaltyPoints = Math.trunc(baseAmount / conversionFactor);
+		if (loyaltyPoints <= 0) {
+			return { amount: 0, points: 0 };
+		}
+
+		return { amount: loyaltyAmount, points: loyaltyPoints };
+	};
+
 	const validateSubmission = async (payment_received = false) => {
 		const doc = unref(invoiceDoc);
 		const profile = unref(posProfile);
@@ -420,8 +464,9 @@ export function usePaymentSubmission(options: PaymentSubmissionOptions) {
 			});
 		}
 		// Add loyalty and credit
-		if (options.loyaltyAmount && unref(options.loyaltyAmount))
-			current_total_payments += unref(options.loyaltyAmount)!;
+		const loyaltyRedemption = getLoyaltyRedemptionForSubmission(doc);
+		if (loyaltyRedemption.amount > 0)
+			current_total_payments += loyaltyRedemption.amount;
 		if (
 			options.redeemedCustomerCredit &&
 			unref(options.redeemedCustomerCredit)
@@ -451,6 +496,7 @@ export function usePaymentSubmission(options: PaymentSubmissionOptions) {
 			Boolean(unref(options.is_write_off_change)) &&
 			writeOffLimit !== null &&
 			diff > writeOffLimit + 0.001;
+		const isCreditSale = Boolean(unref(options.is_credit_sale));
 		const hasAnySettlement =
 			effective_total_payments > 0 ||
 			(Array.isArray(doc.payments)
@@ -461,6 +507,14 @@ export function usePaymentSubmission(options: PaymentSubmissionOptions) {
 				: false);
 
 		// 2. Validate total payments
+		if (
+			isCreditSale &&
+			!doc.is_return &&
+			!parseBooleanSetting(profile?.posa_allow_credit_sale)
+		) {
+			throw new Error(__("Credit Sale is not enabled in POS Profile"));
+		}
+
 		if (
 			writeOffCappedByLimit &&
 			!profile.posa_allow_partial_payment &&
@@ -475,7 +529,7 @@ export function usePaymentSubmission(options: PaymentSubmissionOptions) {
 		}
 
 		if (
-			!unref(options.is_credit_sale) &&
+			!isCreditSale &&
 			!doc.is_return &&
 			!hasAnySettlement &&
 			invoice_total > 0
@@ -484,7 +538,7 @@ export function usePaymentSubmission(options: PaymentSubmissionOptions) {
 		}
 
 		// 3. Validate partial payments / cash payments
-		if (!unref(options.is_credit_sale) && !doc.is_return) {
+		if (!isCreditSale && !doc.is_return) {
 			let has_cash_payment = false;
 			let cash_amount = 0;
 			if (doc.payments) {
@@ -613,9 +667,38 @@ export function usePaymentSubmission(options: PaymentSubmissionOptions) {
 		return true;
 	};
 
+	const normalizeLoyaltyRedemptionForSubmission = (doc: any) => {
+		if (!doc) {
+			return doc;
+		}
+
+		const clearLoyaltyRedemption = () => {
+			doc.loyalty_amount = 0;
+			doc.redeem_loyalty_points = 0;
+			doc.loyalty_points = 0;
+			return doc;
+		};
+
+		const loyaltyRedemption = getLoyaltyRedemptionForSubmission(doc);
+		if (loyaltyRedemption.amount <= 0 || loyaltyRedemption.points <= 0) {
+			return clearLoyaltyRedemption();
+		}
+
+		const info = unref(options.customerInfo) || {};
+		if (!doc.loyalty_program && info.loyalty_program) {
+			doc.loyalty_program = info.loyalty_program;
+		}
+
+		doc.loyalty_amount = loyaltyRedemption.amount;
+		doc.redeem_loyalty_points = 1;
+		doc.loyalty_points = loyaltyRedemption.points;
+		return doc;
+	};
+
 	const buildSubmissionInvoiceDoc = (doc: any) => {
 		const submissionDoc = JSON.parse(JSON.stringify(doc || {}));
 		ensureInvoiceClientRequestId(submissionDoc);
+		normalizeLoyaltyRedemptionForSubmission(submissionDoc);
 		return submissionDoc;
 	};
 
@@ -798,6 +881,8 @@ export function usePaymentSubmission(options: PaymentSubmissionOptions) {
 			if (paidChange) paidChange.value = pChange;
 		}
 
+		const submissionDoc = buildSubmissionInvoiceDoc(doc);
+
 		const data = {
 			total_change: changeLimit,
 			paid_change: pChange,
@@ -829,7 +914,7 @@ export function usePaymentSubmission(options: PaymentSubmissionOptions) {
 				);
 			}
 			try {
-				await saveOfflineInvoice({ data, invoice: doc });
+				await saveOfflineInvoice({ data, invoice: submissionDoc });
 				stores?.syncStore?.updatePendingCount();
 				stores?.toastStore?.show({
 					title: __("Invoice saved offline"),
@@ -862,7 +947,6 @@ export function usePaymentSubmission(options: PaymentSubmissionOptions) {
 		// Online Submission
 		try {
 			await validateStockBeforeOnlineSubmission(doc, profile, type);
-			const submissionDoc = buildSubmissionInvoiceDoc(doc);
 			const message = unwrapApiResult(
 				await invoiceService.submitInvoice(
 					data,
@@ -914,6 +998,19 @@ export function usePaymentSubmission(options: PaymentSubmissionOptions) {
 				(profile?.create_pos_invoice_instead_of_sales_invoice
 					? "POS Invoice"
 					: "Sales Invoice");
+			const submittedDocstatus =
+				docstatus !== undefined
+					? docstatus
+					: status !== undefined
+						? status
+						: 1;
+			const submittedDocument = {
+				...doc,
+				...(typeof r.message === "object" ? r.message : {}),
+				name: responseInvoiceName,
+				doctype: submittedDoctype,
+				docstatus: submittedDocstatus,
+			};
 
 			if (!wasSubmitted && backgroundReason) {
 				const failedInfo = {
@@ -960,7 +1057,7 @@ export function usePaymentSubmission(options: PaymentSubmissionOptions) {
 				!waitForInvoiceProcessing &&
 				!hasPostSubmitPaymentWork
 			) {
-				onPrint(doc, {
+				onPrint(submittedDocument, {
 					name: responseInvoiceName,
 					doctype: submittedDoctype,
 					waitForPostSubmitPayments: hasPostSubmitPaymentWork,
@@ -971,12 +1068,14 @@ export function usePaymentSubmission(options: PaymentSubmissionOptions) {
 			// Reset local state vars
 			if (customerCreditDict) customerCreditDict.value = [];
 
-			if (stores?.invoiceStore?.invoiceDoc) {
-				stores.invoiceStore.invoiceDoc.docstatus = 1;
-			}
+			stores?.invoiceStore?.mergeInvoiceDoc?.({
+				docstatus: submittedDocstatus,
+				name: responseInvoiceName,
+				doctype: submittedDoctype,
+			});
 
 			if (stores?.uiStore) {
-				stores.uiStore.setLastInvoice(doc.name);
+				stores.uiStore.setLastInvoice(responseInvoiceName);
 			}
 
 			if (!waitForInvoiceProcessing) {
@@ -986,10 +1085,10 @@ export function usePaymentSubmission(options: PaymentSubmissionOptions) {
 				});
 				const submittedTitle =
 					submittedDocumentType === "Sales Order"
-						? __("Sales Order {0} is Submitted", [r.message.name])
+						? __("Sales Order {0} is Submitted", [responseInvoiceName])
 						: submittedDocumentType === "Quotation"
-							? __("Quotation {0} is Submitted", [r.message.name])
-							: __("Invoice {0} is Submitted", [r.message.name]);
+							? __("Quotation {0} is Submitted", [responseInvoiceName])
+							: __("Invoice {0} is Submitted", [responseInvoiceName]);
 				stores?.toastStore?.show(
 					hasPostSubmitPaymentWork
 						? {
@@ -1016,7 +1115,9 @@ export function usePaymentSubmission(options: PaymentSubmissionOptions) {
 				frappe.utils.play_sound("submit");
 			}
 
-			const submittedItems = Array.isArray(doc.items) ? doc.items : [];
+			const submittedItems = Array.isArray(submittedDocument.items)
+				? submittedDocument.items
+				: [];
 			updateLocalStock(submittedItems);
 			stockCoordinator.applyInvoiceConsumption(submittedItems, {
 				source: "invoice",

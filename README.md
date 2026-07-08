@@ -194,6 +194,45 @@ The **Barcode Printing** module prints item labels directly from POS.
 
 ---
 
+### Raw Printing With QZ Tray
+
+Raw printing sends printer commands directly to the printer through QZ Tray instead of rendering an ERPNext HTML print format in the browser. Use it for fast thermal receipt printing, paper cutting, drawer pulses, and native label-printer commands.
+
+Supported raw print paths:
+
+- **Barcodes / labels**: already supported from the Barcode Printing screen using raw ZPL/EPL output for compatible label printers.
+- **Invoices / POS Invoices**: supported through POS Profile raw receipt printing.
+- **Sales Orders**: supported through the same POS Profile raw receipt printing flow.
+- **Payment Entries / receipts**: supported through the same POS Profile raw receipt printing flow.
+
+#### Setup
+
+1. Install and run **QZ Tray** on each POS terminal.
+2. In POS Awesome, open the QZ Tray setup dialog and connect QZ Tray.
+3. Generate/download the QZ certificate from POS Awesome, trust it in QZ Tray, then restart QZ Tray.
+4. Select the receipt printer and save it as the POS Profile default if this terminal should always use it.
+5. Open **POS Profile** and configure:
+    - `Enable Silent Print`: optional for HTML QZ printing; raw receipt printing can use QZ directly without this option
+    - `QZ Tray Printer Name`: exact printer name detected by QZ Tray
+    - `Use Raw Receipt Printing`: enabled
+    - `Raw Receipt Width`: `42` for most 80mm printers, `32` for most 58mm printers
+
+#### How To Use
+
+- For invoices/orders/payment receipts, submit and print normally from POS. When `Use Raw Receipt Printing` is enabled, POS Awesome sends ESC/POS raw commands through QZ Tray without opening the browser print dialog.
+- For barcode and item labels, open **Barcode Printing**, choose the label output format, and use raw ZPL/EPL for compatible thermal label printers.
+- If raw receipt printing is disabled, POS Awesome keeps using the existing QZ HTML/browser print flow and POS Profile print format behavior.
+- If QZ Tray is unavailable, document printing falls back to the existing browser/silent print path where applicable.
+
+#### Notes
+
+- Raw receipt printing is optimized for thermal receipt printers that support **ESC/POS**.
+- Raw barcode/label printing is optimized for label printers that support **ZPL** or **EPL**.
+- Raw receipts are text-command receipts, so they will not exactly match custom ERPNext HTML/CSS print formats or letterheads.
+- Printed amounts are loaded from the submitted ERPNext document so invoice totals, taxes, discounts, payments, and outstanding amounts stay aligned with the saved invoice/order/payment.
+
+---
+
 ### POS Cash Movement (Journal Entry Based)
 
 Use this feature to post shift-level cash expenses and cash deposits from POS App without touching monolithic accounting flows.
@@ -331,7 +370,7 @@ Notes:
 - **Employee Payments**: Pay employees through the POS payments workflow.
 - **Payment Auto Allocation**: Automatically allocate newly created payment amounts against selected invoices when enabled.
 - **Payment Reference Tracking**: Capture reference number/date for POS-created payments.
-- **Smart Tender**: "Quick Cash" suggestions based on currency denominations for faster checkout.
+- **Smart Tender / Quick Cash**: "Quick Cash" suggestions based on currency denominations for faster checkout. Entering `0` in the Alt+X / Alt+P quick cash prompt submits a credit sale when `Allow Credit Sale` is enabled on the POS Profile.
 - **Split Payments**: Accept multiple payment modes for a single transaction.
 - **M-Pesa**: Integrated M-Pesa mobile payment support.
 - **Gift Cards**: Check gift-card balances, redeem gift cards at checkout, and allow supervisors to issue or top up cards.
@@ -402,6 +441,7 @@ Notes:
 - `Alt + D` open payments panel.
 - `Alt + X` on invoice it open payments, then submit automatically (prompts if payments are closed). on payments it submit directly.
 - `Alt + P` on invoice it open payments, then submit & print automatically (prompts if payments are closed). on payments it submit directly.
+- In the Alt+X / Alt+P quick cash prompt, entering `0` creates a credit sale only when `Allow Credit Sale` is enabled on the POS Profile; otherwise an error is shown.
 
 ---
 

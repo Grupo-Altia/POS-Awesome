@@ -25,6 +25,7 @@ from posawesome.posawesome.api.invoice_processing.stock import (
     _auto_set_return_batches,
     _collect_stock_errors,
 )
+from posawesome.posawesome.api.tax_contracts import apply_pos_tax_inclusion_contract
 from posawesome.posawesome.api.payment_processing.utils import get_bank_cash_account as get_bank_account
 from posawesome.posawesome.api.utilities import ensure_child_doctype, set_batch_nos_for_bundels
 from posawesome.posawesome.api.payments import redeeming_customer_credit
@@ -279,6 +280,32 @@ def _apply_invoice_gift_card_settlement(invoice_doc, data):
     )
 
 
+def _get_loyalty_detail_value(details, fieldname):
+    if hasattr(details, "get"):
+        return details.get(fieldname)
+    return getattr(details, fieldname, None)
+
+
+def _derive_loyalty_points_from_amount(invoice_doc, loyalty_amount):
+    from erpnext.accounts.doctype.loyalty_program.loyalty_program import (
+        get_loyalty_program_details_with_points,
+    )
+
+    details = get_loyalty_program_details_with_points(
+        invoice_doc.customer,
+        invoice_doc.loyalty_program,
+        invoice_doc.get("posting_date"),
+        invoice_doc.company,
+        silent=True,
+        include_expired_entry=False,
+    )
+    conversion_factor = flt(_get_loyalty_detail_value(details, "conversion_factor"))
+    if conversion_factor <= 0:
+        return 0
+    loyalty_amount_in_company_currency = flt(loyalty_amount) * (flt(invoice_doc.get("conversion_rate")) or 1)
+    return cint(loyalty_amount_in_company_currency / conversion_factor)
+
+
 def _apply_loyalty_redemption_settings(invoice_doc, pos_profile=None):
     loyalty_amount = flt(invoice_doc.get("loyalty_amount"))
     loyalty_points = flt(invoice_doc.get("loyalty_points"))
@@ -298,6 +325,19 @@ def _apply_loyalty_redemption_settings(invoice_doc, pos_profile=None):
 
     if not invoice_doc.loyalty_program:
         frappe.throw(_("Loyalty Program is required to redeem loyalty points."))
+
+    if loyalty_points <= 0 and loyalty_amount > 0:
+        invoice_doc.loyalty_points = _derive_loyalty_points_from_amount(
+            invoice_doc,
+            loyalty_amount,
+        )
+        loyalty_points = flt(invoice_doc.get("loyalty_points"))
+
+    if loyalty_points <= 0:
+        invoice_doc.redeem_loyalty_points = 0
+        invoice_doc.loyalty_amount = 0
+        invoice_doc.loyalty_points = 0
+        return
 
     if not invoice_doc.loyalty_redemption_account:
         invoice_doc.loyalty_redemption_account = frappe.db.get_value(
@@ -530,6 +570,61 @@ def _apply_write_off_settings(invoice_doc, data):
     invoice_doc.base_write_off_amount = flt(effective_write_off * conversion_rate, precision_base_write_off)
 
 
+def _validate_credit_sale_allowed(invoice_doc, data):
+    if not cint(data.get("is_credit_sale")) or invoice_doc.get("is_return"):
+        return
+
+    if not invoice_doc.pos_profile:
+        frappe.throw(_("Credit Sale is not enabled in POS Profile"))
+
+    allow_credit_sale = frappe.db.get_value(
+        "POS Profile",
+        invoice_doc.pos_profile,
+        "posa_allow_credit_sale",
+    )
+    if not cint(allow_credit_sale):
+        frappe.throw(_("Credit Sale is not enabled in POS Profile"))
+
+
+def _has_docfield(doctype, fieldname):
+    try:
+        return bool(frappe.get_meta(doctype).has_field(fieldname))
+    except Exception:
+        return False
+
+
+def _set_if_field_exists(doc, fieldname, value):
+    if _has_docfield(doc.doctype, fieldname):
+        doc.set(fieldname, value)
+
+
+def _apply_customer_credit_print_fields(invoice_doc, data):
+    redeemed_credit = flt((data or {}).get("redeemed_customer_credit"))
+    credit_rows = (data or {}).get("customer_credit_dict") or []
+
+    available_credit = 0
+    if isinstance(credit_rows, list):
+        for row in credit_rows:
+            if hasattr(row, "get"):
+                available_credit += flt(row.get("total_credit"))
+            else:
+                available_credit += flt(getattr(row, "total_credit", 0))
+
+    remaining_credit = max(flt(available_credit - redeemed_credit), 0)
+    precision = invoice_doc.precision("grand_total") or 2
+
+    _set_if_field_exists(
+        invoice_doc,
+        "posa_redeemed_customer_credit",
+        flt(redeemed_credit, precision),
+    )
+    _set_if_field_exists(
+        invoice_doc,
+        "posa_remaining_customer_credit_balance",
+        flt(remaining_credit, precision),
+    )
+
+
 def _safe_date_string(value):
     if value in (None, ""):
         return None
@@ -737,6 +832,11 @@ def _save_draft_with_latest_timestamp(invoice_doc, retries=2):
             latest_doc.update(current_state)
             latest_doc.flags.ignore_permissions = getattr(invoice_doc.flags, "ignore_permissions", False)
             invoice_doc = latest_doc
+
+
+def _apply_tax_contract_before_save(invoice_doc):
+    _merge_duplicate_taxes(invoice_doc)
+    apply_pos_tax_inclusion_contract(invoice_doc)
 
 
 def _resolve_payment_amounts(payment, conversion_rate=1):
@@ -971,8 +1071,7 @@ def update_invoice(data):
     # Reapply any custom item names after defaults are set
     _apply_item_name_overrides(invoice_doc, overrides)
 
-    # Remove duplicate taxes from item and profile templates
-    _merge_duplicate_taxes(invoice_doc)
+    _apply_tax_contract_before_save(invoice_doc)
 
     if locked_items:
         for item in invoice_doc.items:
@@ -1059,14 +1158,6 @@ def update_invoice(data):
     data["conversion_rate"] = conversion_rate
     data["plc_conversion_rate"] = plc_conversion_rate
     data["exchange_rate_date"] = exchange_rate_date
-
-    inclusive = frappe.get_cached_value("POS Profile", invoice_doc.pos_profile, "posa_tax_inclusive")
-    if invoice_doc.get("taxes"):
-        for tax in invoice_doc.taxes:
-            if tax.charge_type == "Actual":
-                tax.included_in_print_rate = 0
-            else:
-                tax.included_in_print_rate = 1 if inclusive else 0
 
     _normalize_return_payment_rows(invoice_doc, conversion_rate)
 
@@ -1184,6 +1275,7 @@ def submit_invoice(invoice, data, submit_in_background=False):
 
     # Ensure item name overrides are respected on submit
     _apply_item_name_overrides(invoice_doc)
+    _apply_tax_contract_before_save(invoice_doc)
     # Preserve explicit update_stock from client payload (e.g. Invoice generated
     # from Sales Order). Only auto-disable stock when the flag was not provided.
     if invoice.get("posa_delivery_date") and invoice.get("update_stock") is None:
@@ -1241,6 +1333,7 @@ def submit_invoice(invoice, data, submit_in_background=False):
                 is_payment_entry = 1
 
     _apply_invoice_gift_card_settlement(invoice_doc, data)
+    _apply_customer_credit_print_fields(invoice_doc, data)
     _normalize_return_payment_rows(invoice_doc, invoice_doc.get("conversion_rate") or 1)
     _apply_return_outstanding_policy(invoice_doc)
 
@@ -1258,6 +1351,7 @@ def submit_invoice(invoice, data, submit_in_background=False):
 
     _validate_stock_on_invoice(invoice_doc)
 
+    _validate_credit_sale_allowed(invoice_doc, data)
     _apply_write_off_settings(invoice_doc, data)
 
     invoice_doc.flags.ignore_permissions = True
@@ -1389,6 +1483,8 @@ def submit_in_background_job(kwargs):
             invoice_doc.validate_credit_limit()
 
         invoice_doc.remarks = _build_invoice_remarks(invoice_doc)
+
+        _apply_tax_contract_before_save(invoice_doc)
 
         _apply_write_off_settings(invoice_doc, data)
 

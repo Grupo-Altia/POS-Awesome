@@ -571,6 +571,7 @@ const {
 	set_mpesa_payment,
 	set_full_amount,
 	set_rest_amount,
+	clear_all_amounts,
 	request_payment,
 	getVisibleDenominations,
 	isCashLikePayment,
@@ -602,6 +603,7 @@ const {
 						loadPrintPage({
 							doc,
 							doctype: printOptions.doctype,
+							name: printOptions.name,
 						});
 					}
 				}
@@ -675,6 +677,7 @@ const { ensureReturnPaymentsAreNegative, restoreReturnPayments, validateSubmissi
 		diff_payment: diff_payment,
 		is_credit_sale: is_credit_sale,
 		loyaltyAmount: loyalty_amount,
+		customerInfo: customer_info,
 		formatFloat: (val, prec) => flt(val, prec),
 		stores: {
 			toastStore,
@@ -700,6 +703,10 @@ const visiblePaymentMethods = computed(() =>
 	(Array.isArray(invoice_doc.value?.payments) ? invoice_doc.value.payments : []).filter(
 		(payment) => !isGiftCardPayment(payment),
 	),
+);
+
+const creditSaleAllowed = computed(() =>
+	parseBooleanSetting(pos_profile.value?.posa_allow_credit_sale),
 );
 
 const giftCardAppliedAmount = computed(() =>
@@ -1264,6 +1271,25 @@ const restorePaymentLinesAfterFailedSubmit = () => {
 	is_credit_sale.value = false;
 };
 
+const enableShortcutCreditSale = () => {
+	if (invoice_doc.value?.is_return) {
+		return false;
+	}
+
+	if (!creditSaleAllowed.value) {
+		toastStore.show({
+			title: __("Credit Sale is not enabled in POS Profile"),
+			color: "error",
+		});
+		frappe.utils.play_sound("error");
+		return false;
+	}
+
+	clear_all_amounts();
+	is_credit_sale.value = true;
+	return true;
+};
+
 const handleShowPayment = () => {
 	paymentVisible.value = true;
 	nextTick(() => {
@@ -1623,6 +1649,7 @@ const submitInvoiceWrapper = async (print, callbackOverrides = {}, options = {})
 						loadPrintPage({
 							doc,
 							doctype: printOptions.doctype,
+							name: printOptions.name,
 						});
 					}
 				}
@@ -1685,17 +1712,46 @@ const handlePaymentShortcut = (event) => {
 
 const handleSubmitPaymentShortcut = ({ print = false, amount = null } = {}) => {
 	if (!paymentVisible.value || submissionInFlight.value || loading.value) return;
+	const submitShortcut = () => {
+		nextTick(() => {
+			submit(null, false, print);
+		});
+	};
+
 	if (amount !== null) {
-		applyPreferredPaymentAmount(
-			invoice_doc.value,
-			Number(amount),
-			currency_precision.value,
-			isCashLikePayment,
-		);
+		const shortcutAmount = Number(amount);
+		if (
+			!invoice_doc.value?.is_return &&
+			Number.isFinite(shortcutAmount) &&
+			shortcutAmount === 0
+		) {
+			if (!enableShortcutCreditSale()) {
+				return;
+			}
+			submitShortcut();
+			return;
+		}
+
+		const applyShortcutAmount = () => {
+			applyPreferredPaymentAmount(
+				invoice_doc.value,
+				shortcutAmount,
+				currency_precision.value,
+				isCashLikePayment,
+			);
+			submitShortcut();
+		};
+
+		if (is_credit_sale.value) {
+			is_credit_sale.value = false;
+			nextTick(applyShortcutAmount);
+		} else {
+			applyShortcutAmount();
+		}
+		return;
 	}
-	nextTick(() => {
-		submit(null, false, print);
-	});
+
+	submitShortcut();
 };
 
 const queueShortcutSubmit = (payload = {}) => {
@@ -1861,12 +1917,7 @@ watch(is_credit_sale, (newVal) => {
 	const doc = invoice_doc.value;
 
 	// Always clear all payment methods first to prevent stale paid amounts.
-	doc.payments.forEach((payment) => {
-		payment.amount = 0;
-		if (payment.base_amount !== undefined) {
-			payment.base_amount = 0;
-		}
-	});
+	clear_all_amounts();
 
 	if (!newVal && doc.payments.length) {
 		const amount = flt(doc.rounded_total || doc.grand_total, currency_precision.value);
