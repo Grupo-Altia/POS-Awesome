@@ -287,6 +287,7 @@ const startupOfflineWarmupKey = ref("");
 let _sidebarObserver = null;
 let _navPollTimer = null;
 let removeBootstrapSnapshotListener = null;
+let cacheCapacityWarningShown = false;
 
 // Event Bus
 const eventBus = instance?.proxy?.eventBus;
@@ -896,6 +897,31 @@ const pollForFrappeNav = (maxAttempts = 50, interval = 100) => {
 	checkAndRemove();
 };
 
+const notifyCacheCapacityIfActionable = (usage = {}) => {
+	const pendingInvoices = getPendingOfflineInvoiceCount();
+	const pendingCashMovements = getPendingOfflineCashMovementCount();
+	const pendingTotal = pendingInvoices + pendingCashMovements;
+	if (cacheCapacityWarningShown || pendingTotal <= 0) {
+		return;
+	}
+
+	cacheCapacityWarningShown = true;
+	const offlineNow = isOffline();
+	toastStore.show({
+		title: __("Local cache usage is high"),
+		detail: offlineNow
+			? __(
+					"Reconnect online to sync {0} pending local record(s). Cache usage is {1}%.",
+					[pendingTotal, Math.round(usage.percentage || 0)],
+				)
+			: __(
+					"Sync {0} pending local record(s). Cache usage is {1}%.",
+					[pendingTotal, Math.round(usage.percentage || 0)],
+				),
+		color: "warning",
+	});
+};
+
 const initializeData = async () => {
 	await initPromise;
 	await ensureOfflineQueueReady();
@@ -920,9 +946,7 @@ const initializeData = async () => {
 	await syncStore.updatePendingCount();
 	syncTotals.value = getLastSyncTotals();
 
-	void checkCacheCapacity(90, () => {
-		alert("Local cache nearing capacity. Consider going online to sync.");
-	});
+	void checkCacheCapacity(90, notifyCacheCapacityIfActionable);
 
 	// Check if running on IP host
 	isIpHost.value = /^\d+\.\d+\.\d+\.\d+/.test(window.location.hostname);
