@@ -1335,6 +1335,111 @@ class TestManualPostingDatePreservation(unittest.TestCase):
         self.assertEqual(invoice_doc.set_posting_time, 1)
         self.assertEqual(result["status"], 1)
 
+    def test_submit_invoice_recalculates_existing_draft_with_non_inclusive_pos_tax(self):
+        tax_row = {
+            "charge_type": "On Net Total",
+            "account_head": "VAT - TC",
+            "description": "VAT 5%",
+            "rate": 5,
+            "included_in_print_rate": 1,
+            "tax_amount": 2.59,
+            "total": 54.41,
+        }
+        invoice_doc = self._build_invoice_doc(
+            name="ACC-SINV-VAT-0001",
+            total=54.41,
+            net_total=51.82,
+            grand_total=54.41,
+            rounded_total=54.41,
+            total_taxes_and_charges=2.59,
+            items=[
+                FakeDoc(
+                    item_code="VAT-ITEM",
+                    qty=1,
+                    rate=54.41,
+                    amount=54.41,
+                    price_list_rate=68.01,
+                    discount_percentage=20,
+                    discount_amount=13.60,
+                )
+            ],
+            taxes=[tax_row],
+        )
+        calculate_calls = []
+        original_calculate_taxes_and_totals = FakeDoc.calculate_taxes_and_totals
+
+        def calculate_taxes_and_totals(_doc):
+            current_tax = invoice_doc.taxes[0]
+            calculate_calls.append(current_tax["included_in_print_rate"])
+            invoice_doc.net_total = 54.41
+            current_tax["tax_amount"] = 2.72
+            current_tax["total"] = 57.13
+            invoice_doc.total_taxes_and_charges = 2.72
+            invoice_doc.grand_total = 57.13
+            invoice_doc.rounded_total = 57.13
+
+        def submit():
+            self.assertEqual(invoice_doc.taxes[0]["included_in_print_rate"], 0)
+            self.assertEqual(invoice_doc.net_total, 54.41)
+            self.assertEqual(invoice_doc.total_taxes_and_charges, 2.72)
+            self.assertEqual(invoice_doc.grand_total, 57.13)
+            invoice_doc.docstatus = 1
+
+        FakeDoc.calculate_taxes_and_totals = calculate_taxes_and_totals
+        invoice_doc.submit = submit
+
+        self.creation.frappe.db.exists = lambda doctype, name: name == "ACC-SINV-VAT-0001"
+        self.creation.frappe.db.get_value = lambda *args, **kwargs: 0
+        self.creation.frappe.get_value = lambda *args, **kwargs: 0
+        self.creation.frappe.get_cached_value = (
+            lambda doctype, name, fieldname: 0
+            if (doctype, name, fieldname) == ("POS Profile", "Main POS", "posa_tax_inclusive")
+            else None
+        )
+        self.creation.frappe.get_doc = lambda *args: invoice_doc
+        self.creation._save_draft_with_latest_timestamp = lambda doc: doc
+        self.creation._apply_invoice_gift_card_settlement = lambda *args, **kwargs: None
+        self.creation._process_post_submit_payments = lambda *args, **kwargs: None
+
+        try:
+            result = self.creation.submit_invoice(
+                json.dumps(
+                    {
+                        "doctype": "Sales Invoice",
+                        "name": "ACC-SINV-VAT-0001",
+                        "pos_profile": "Main POS",
+                        "company": "Test Company",
+                        "currency": "USD",
+                        "customer": "CUST-0001",
+                        "total": 54.41,
+                        "net_total": 51.82,
+                        "grand_total": 54.41,
+                        "rounded_total": 54.41,
+                        "total_taxes_and_charges": 2.59,
+                        "items": [
+                            {
+                                "item_code": "VAT-ITEM",
+                                "qty": 1,
+                                "rate": 54.41,
+                                "amount": 54.41,
+                                "price_list_rate": 68.01,
+                                "discount_percentage": 20,
+                                "discount_amount": 13.60,
+                            }
+                        ],
+                        "taxes": [tax_row],
+                        "payments": [],
+                    }
+                ),
+                json.dumps({}),
+                submit_in_background=0,
+            )
+        finally:
+            FakeDoc.calculate_taxes_and_totals = original_calculate_taxes_and_totals
+
+        self.assertEqual(calculate_calls, [0])
+        self.assertEqual(result["status"], 1)
+
     def test_submit_invoice_normalizes_existing_return_draft_payments_before_save(self):
         invoice_doc = self._build_invoice_doc(
             name="ACC-SINV-RETURN-0001",

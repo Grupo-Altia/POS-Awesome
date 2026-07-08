@@ -834,6 +834,11 @@ def _save_draft_with_latest_timestamp(invoice_doc, retries=2):
             invoice_doc = latest_doc
 
 
+def _apply_tax_contract_before_save(invoice_doc):
+    _merge_duplicate_taxes(invoice_doc)
+    apply_pos_tax_inclusion_contract(invoice_doc)
+
+
 def _resolve_payment_amounts(payment, conversion_rate=1):
     rate = flt(conversion_rate) or 1
     amount = payment.get("amount")
@@ -1066,10 +1071,7 @@ def update_invoice(data):
     # Reapply any custom item names after defaults are set
     _apply_item_name_overrides(invoice_doc, overrides)
 
-    # Remove duplicate taxes from item and profile templates
-    _merge_duplicate_taxes(invoice_doc)
-
-    apply_pos_tax_inclusion_contract(invoice_doc)
+    _apply_tax_contract_before_save(invoice_doc)
 
     if locked_items:
         for item in invoice_doc.items:
@@ -1273,6 +1275,7 @@ def submit_invoice(invoice, data, submit_in_background=False):
 
     # Ensure item name overrides are respected on submit
     _apply_item_name_overrides(invoice_doc)
+    _apply_tax_contract_before_save(invoice_doc)
     # Preserve explicit update_stock from client payload (e.g. Invoice generated
     # from Sales Order). Only auto-disable stock when the flag was not provided.
     if invoice.get("posa_delivery_date") and invoice.get("update_stock") is None:
@@ -1480,6 +1483,8 @@ def submit_in_background_job(kwargs):
             invoice_doc.validate_credit_limit()
 
         invoice_doc.remarks = _build_invoice_remarks(invoice_doc)
+
+        _apply_tax_contract_before_save(invoice_doc)
 
         _apply_write_off_settings(invoice_doc, data)
 
