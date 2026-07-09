@@ -163,3 +163,27 @@ Fix:
 Verification:
 
 - `yarn vitest run tests/itemsTableResponsiveColumns.spec.ts`
+
+## 2026-07-09 Online POS Product Warmup and Stock Warning
+
+Issue:
+
+- The POS item selector could briefly show `No items found` after a browser/cache reset while the catalog was being refetched.
+- The navbar also showed `Stock Confidence Offline` with missing `stock_cache_ready` even though the server was online and visible products were being loaded from the server.
+
+Findings:
+
+- Backend product data was present: `get_items` returned items for `POS Awesome - MedPlus`, and the site had about 40k enabled sales items.
+- Reproducing as `aqib@ai.ai` with the open MedPlus shift showed products loading correctly, then background sync filling IndexedDB in batches.
+- The warning was caused by offline stock cache readiness: `stock_cache_ready` is only marked after the full background stock/catalog warmup completes. During online selling, this warning was noisy because live server-backed item rows already include stock quantities.
+
+Fix:
+
+- Bootstrap/offline-cache warnings are now hidden while the browser is online, the server is reachable, and manual offline mode is not active.
+- Offline readiness state is still maintained and will surface when the POS is actually offline or manually forced offline.
+
+Verification:
+
+- `yarn vitest run tests/bootstrapWarningVisibility.spec.ts`
+- `yarn type-check`
+- Headless Chrome check with `aqib@ai.ai`: products rendered and `Stock Confidence Offline` was not visible while online.
