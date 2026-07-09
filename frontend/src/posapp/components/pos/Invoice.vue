@@ -159,7 +159,7 @@
 								@update:itemSearch="itemSearch = $event"
 								@update:selectedColumns="
 									(cols) => {
-										selected_columns = cols;
+										setSelectedColumns(cols);
 										saveColumnPreferences();
 									}
 								"
