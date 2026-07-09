@@ -1,6 +1,10 @@
 ﻿<!-- eslint-disable vue/multi-word-component-names -->
 <template>
-	<div :class="['payment-shell', { 'payment-shell--dialog': dialogMode }]">
+	<div
+		ref="paymentRoot"
+		data-pos-keyboard-root="payment"
+		:class="['payment-shell', { 'payment-shell--dialog': dialogMode }]"
+	>
 		<v-card
 			:class="[
 				'selection mx-auto my-0 pos-themed-card payment-card',
@@ -318,6 +322,7 @@ import { resolvePaymentPrintFormatDoctypes } from "../../utils/paymentPrintDocty
 import { resolvePaymentPrintFormat } from "../../utils/paymentPrintFormat";
 import { parseBooleanSetting } from "../../utils/stock";
 import { toCompanyCurrency } from "../../utils/erpnextCurrency";
+import { focusFirstKeyboardTarget } from "../../utils/keyboardNavigation";
 
 // Components
 import PaymentSummary from "./payments/PaymentSummary.vue";
@@ -393,6 +398,7 @@ const highlightSubmit = ref(false);
 const last_payment_change_was_cash = ref(null);
 const backgroundStatusCheck = ref(null);
 const paymentVisible = ref(false);
+const paymentRoot = ref(null);
 const paymentContainer = ref(null);
 const submitButton = ref(null);
 const _shortcutHandlers = ref({});
@@ -1290,17 +1296,38 @@ const enableShortcutCreditSale = () => {
 	return true;
 };
 
+const focusSubmitButton = () => {
+	const btn = submitButton.value;
+	const el = btn && btn.$el ? btn.$el : btn;
+	if (!el) {
+		return false;
+	}
+	el.scrollIntoView?.({ behavior: "smooth", block: "center" });
+	el.focus?.();
+	highlightSubmit.value = true;
+	return true;
+};
+
+const focusFirstPaymentTarget = () => {
+	const root = paymentRoot.value;
+	if (
+		focusFirstKeyboardTarget(
+			root,
+			"[data-pos-keyboard-target='payment-amount'], [data-pos-keyboard-target='payment-action']",
+		)
+	) {
+		highlightSubmit.value = false;
+		return true;
+	}
+
+	return focusSubmitButton();
+};
+
 const handleShowPayment = () => {
 	paymentVisible.value = true;
 	nextTick(() => {
 		setTimeout(() => {
-			const btn = submitButton.value;
-			const el = btn && btn.$el ? btn.$el : btn;
-			if (el) {
-				el.scrollIntoView({ behavior: "smooth", block: "center" });
-				el.focus();
-				highlightSubmit.value = true;
-			}
+			focusFirstPaymentTarget();
 			if (eventBus && typeof eventBus.emit === "function") {
 				eventBus.emit("payment_ui_ready");
 			}
@@ -2134,6 +2161,10 @@ onBeforeUnmount(() => {
 	if (_shortcutHandlers.value.handlePaymentShortcut) {
 		document.removeEventListener("keydown", _shortcutHandlers.value.handlePaymentShortcut);
 	}
+});
+
+defineExpose({
+	focusFirstPaymentTarget,
 });
 </script>
 
