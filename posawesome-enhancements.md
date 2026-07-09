@@ -141,3 +141,25 @@ Verification:
 - `yarn test:unit tests/offlinePricingSyncAdapters.spec.ts tests/bootstrapSnapshot.spec.ts tests/bootstrapWarningVisibility.spec.ts tests/offlineStatusPanel.spec.ts`
 - `yarn type-check`
 - `yarn lint`
+
+## 2026-07-09 Discount % Column Visibility
+
+Issue:
+
+- In the Docker/release POS layout, enabling the `Discount %` invoice item column could appear to do nothing.
+
+Findings:
+
+- The POS Profile field `posa_display_discount_percentage` and the Columns drawer option were already present.
+- The selected column was saved in browser preferences, but the responsive invoice table hid `discount_percentage`, `discount_amount`, `price_list_rate`, `uom`, and `posa_is_offer` whenever the cart table pane measured below 650px.
+- That made the operator-selected `Discount %` column disappear in narrower release layouts even though the switch was enabled.
+
+Fix:
+
+- The invoice items table now keeps selected optional columns visible for normal POS pane widths.
+- Optional columns only collapse on very narrow panes below 450px.
+- The initial zero-width render no longer collapses optional columns before ResizeObserver reports the real table width.
+
+Verification:
+
+- `yarn vitest run tests/itemsTableResponsiveColumns.spec.ts`
