@@ -108,3 +108,36 @@ Not run:
 ## Work Record
 
 This file is the durable record that we worked on the POSAwesome performance enhancement plan. There is no separate persistent assistant memory API available in this workspace, so the implementation notes are kept here in the app repository.
+
+## 2026-07-09 Pricing Offline Warning Investigation
+
+Issue observed on `retailmind.local`: POS showed `Connected to Server` but also `Pricing Offline`.
+
+Findings:
+
+- The MedPlus POS Profile is configured correctly:
+  - Profile: `POS Awesome - MedPlus`
+  - Company: `MedPlus Pharmacy`
+  - Price List: `Standard Selling`
+  - Currency: `PKR`
+  - `posa_tax_inclusive`: `1`
+- Backend checks passed:
+  - `posawesome.posawesome.api.utilities.get_pos_profile_tax_inclusive`
+  - `posawesome.posawesome.api.pricing_rules.get_active_pricing_rules`
+  - `posawesome.posawesome.api.offline_sync.bootstrap.sync_bootstrap_config`
+- Root cause found in frontend cache state:
+  - The new offline sync path refreshed indexed `pricing_rule_records`.
+  - The POS warning and pricing store still also depend on legacy `pricing_rules_snapshot` and `pricing_rules_context`.
+  - If that legacy snapshot was missing or cleared during cache/build reconciliation, the UI kept reporting `Pricing Offline` even after the pricing-rules resource sync succeeded.
+
+Fix:
+
+- `syncPricingRulesResource` now hydrates `pricing_rules_snapshot` from the indexed pricing-rule repository after a successful sync.
+- Full-resync-required pricing responses now explicitly mark pricing snapshot/context as missing.
+- The warning tooltip now includes the exact missing prerequisite keys, for example `pricing_rules_snapshot`, `pricing_rules_context`, or `tax_inclusive`.
+
+Verification:
+
+- `yarn test:unit tests/offlinePricingSyncAdapters.spec.ts tests/bootstrapSnapshot.spec.ts tests/bootstrapWarningVisibility.spec.ts tests/offlineStatusPanel.spec.ts`
+- `yarn type-check`
+- `yarn lint`
