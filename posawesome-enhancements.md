@@ -15,6 +15,10 @@ Optimize POSAwesome for fast pharmacy counter sales on a local network while pre
   - `Enter` opens the selected invoice and closes the right pane.
   - `Esc` closes the right pane without loading an invoice.
   - The pane now shows a loading state while drafts are fetched so opening feels immediate.
+- Fixed operator offline refresh behavior:
+  - `Refresh Offline Data` and `Rebuild Offline Data` now force a product catalog refresh.
+  - The actions wait for the background product sync to settle before re-checking offline readiness.
+  - Tax-inclusive settings and pricing rules are refreshed together so the `Pricing Offline` warning can clear after a successful online refresh.
 - Added POS Profile settings:
   - `posa_fast_counter_mode`: enables the fast in-memory hot catalog.
   - `posa_hot_catalog_limit`: controls the hot catalog size, default `5000`, bounded to `100`-`10000`.
@@ -89,6 +93,7 @@ Completed in this working session:
 - `/Users/mac/anaconda3/bin/conda run -n frappe python -m unittest posawesome.posawesome.api.test_item_search_serialization posawesome.posawesome.api.test_api_imports posawesome.posawesome.api.test_offline_sync_delta_indexes_patch posawesome.posawesome.api.test_fast_pos_performance_indexes_patch`
 - `yarn vitest run tests/itemService.spec.ts tests/itemsStoreLoadItems.spec.ts tests/useItemsSearchStore.spec.ts tests/offlineItemsCache.spec.ts`
 - `yarn vitest run tests/parkedOrdersListKeyboard.spec.ts tests/invoiceSummaryDrafts.spec.ts tests/invoiceShortcuts.spec.ts`
+- `yarn vitest run tests/offlineStatusPanel.spec.ts tests/navbarSettingsPanel.spec.ts tests/offlinePricingSyncAdapters.spec.ts tests/offlinePricingRepositories.spec.ts tests/itemsStoreLoadItems.spec.ts`
 - `yarn type-check`
 - `yarn lint`
 - `yarn build`
