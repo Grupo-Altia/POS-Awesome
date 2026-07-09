@@ -110,7 +110,7 @@
 						variant="outlined"
 						class="posa-cart-table__qty-input"
 						@blur="closeQtyEdit"
-						@keydown.enter.prevent="closeQtyEdit({ returnFocusToSearch: true })"
+						@keydown.enter.prevent="closeQtyEdit({ focusDiscountPercent: true })"
 						@keydown.esc.prevent="cancelQtyEdit"
 						@click.stop
 						ref="qtyInput"
@@ -244,7 +244,7 @@
 						variant="outlined"
 						class="posa-cart-table__editor-input"
 						@blur="closeDiscountPercentEdit"
-						@keydown.enter.prevent="closeDiscountPercentEdit"
+						@keydown.enter.prevent="submitDiscountPercentEdit"
 						@keydown.esc.prevent="cancelDiscountPercentEdit"
 						@click.stop
 						ref="discountPercentInput"
@@ -443,6 +443,7 @@ const emit = defineEmits([
 	"update-discount-percent",
 	"update-discount-amount",
 	"qty-edit-submitted",
+	"discount-percent-edit-submitted",
 	"toggle-offer",
 	"toggle-expand",
 	"remove-item",
@@ -560,7 +561,7 @@ function closeQtyEdit(options = {}) {
 		}
 		isEditingQty.value = false;
 		editingQtyValue.value = "";
-		if (didUpdate && options?.returnFocusToSearch) {
+		if (didUpdate && options?.focusDiscountPercent) {
 			emit("qty-edit-submitted", props.item);
 		}
 	}
@@ -652,6 +653,11 @@ function closeDiscountPercentEdit() {
 		isEditingDiscountPercent.value = false;
 		editingDiscountPercentValue.value = "";
 	}
+}
+
+function submitDiscountPercentEdit() {
+	closeDiscountPercentEdit();
+	emit("discount-percent-edit-submitted", props.item);
 }
 
 function cancelDiscountPercentEdit() {

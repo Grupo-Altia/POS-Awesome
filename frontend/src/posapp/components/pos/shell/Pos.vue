@@ -1,7 +1,5 @@
 <template>
 	<div
-		ref="posRoot"
-		data-pos-keyboard-root="pos"
 		class="pos-main-container dynamic-container"
 		:class="rtlClasses"
 		:style="[responsiveStyles, layoutStyleOverrides, rtlStyles]"
@@ -229,16 +227,11 @@ import { useInvoiceStore } from "../../../stores/invoiceStore.js";
 import { useItemsStore } from "../../../stores/itemsStore.js";
 import { storeToRefs } from "pinia";
 import { useCustomerDisplayPublisher } from "../../../composables/pos/shared/useCustomerDisplayPublisher";
-import {
-	moveFocusByArrow,
-	resolveKeyboardNavigationRoot,
-} from "../../../utils/keyboardNavigation";
 
 export default {
 	setup() {
 		const eventBus = inject("eventBus");
 		const dialog = ref(false);
-		const posRoot = ref(null);
 		const invoicePanel = ref(null);
 		const additionalDiscountField = ref(null);
 		const mobileDock = ref(null);
@@ -487,9 +480,13 @@ export default {
 			field?.focus?.();
 			field?.$el?.querySelector?.("input")?.focus?.();
 		};
-		const handlePosKeyboardNavigation = (event) => {
-			const root = resolveKeyboardNavigationRoot(posRoot.value);
-			moveFocusByArrow(event, { root });
+		const handlePosTabFocus = (event) => {
+			if (event.key !== "Tab" || event.altKey || event.ctrlKey || event.metaKey) {
+				return;
+			}
+
+			event.preventDefault();
+			focusItemSearchField();
 		};
 
 		useCustomerDisplayPublisher({
@@ -498,7 +495,7 @@ export default {
 		});
 
 		onMounted(() => {
-			document.addEventListener("keydown", handlePosKeyboardNavigation);
+			document.addEventListener("keydown", handlePosTabFocus, true);
 			if (typeof window !== "undefined" && "ResizeObserver" in window) {
 				mobileDockObserver = new ResizeObserver(() => {
 					updateBottomDockHeight();
@@ -520,7 +517,7 @@ export default {
 		});
 
 		onBeforeUnmount(() => {
-			document.removeEventListener("keydown", handlePosKeyboardNavigation);
+			document.removeEventListener("keydown", handlePosTabFocus, true);
 			if (mobileDockObserver) {
 				mobileDockObserver.disconnect();
 				mobileDockObserver = null;
@@ -592,7 +589,6 @@ export default {
 			itemsStore,
 			__,
 			invoiceDoc,
-			posRoot,
 			itemsCount,
 			totalQty,
 			formattedCartTotal,
