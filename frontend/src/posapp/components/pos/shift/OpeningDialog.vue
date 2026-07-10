@@ -224,10 +224,11 @@ watch(pos_profile, (val) => {
 async function get_opening_dialog_data() {
 	await initPromise;
 	await checkDbHealth();
+	const currentUser = frappe?.session?.user || "";
 
 	// Load cached data first for offline usage
 	const cached = getOpeningDialogStorage();
-	if (cached) {
+	if (cached?.user === currentUser) {
 		try {
 			companies.value = cached.companies.map((c) => c.name);
 			pos_profiles_data.value = cached.pos_profiles_data || [];
@@ -248,7 +249,10 @@ async function get_opening_dialog_data() {
 				payments_method_data.value = r.message.payments_method;
 				company.value = companies.value[0] || "";
 				try {
-					setOpeningDialogStorage(r.message);
+					setOpeningDialogStorage({
+						...r.message,
+						user: currentUser,
+					});
 				} catch (e) {
 					console.error("Failed to cache opening dialog data", e);
 				}
