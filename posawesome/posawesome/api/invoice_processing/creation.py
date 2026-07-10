@@ -873,6 +873,60 @@ def _normalize_return_payment_rows(invoice_doc, conversion_rate=1):
     _guard_return_cash_refund(invoice_doc)
 
 
+def _payment_row_key(row):
+    return (
+        str(row.get("mode_of_payment") or "").strip(),
+        str(row.get("account") or "").strip(),
+    )
+
+
+def _reapply_incoming_payment_amounts(invoice_doc, incoming_rows):
+    if not incoming_rows:
+        return
+
+    rows_by_key = {}
+    rows_by_mode = {}
+    for row in incoming_rows or []:
+        mode = str(row.get("mode_of_payment") or "").strip()
+        if not mode:
+            continue
+        rows_by_key[_payment_row_key(row)] = row
+        rows_by_mode[mode] = row
+
+    applied_modes = set()
+    for payment in invoice_doc.payments or []:
+        incoming = rows_by_key.get(_payment_row_key(payment)) or rows_by_mode.get(
+            str(payment.get("mode_of_payment") or "").strip()
+        )
+        if not incoming:
+            continue
+        applied_modes.add(str(incoming.get("mode_of_payment") or "").strip())
+        if incoming.get("amount") is not None:
+            payment.amount = flt(incoming.get("amount"), payment.precision("amount"))
+        if incoming.get("base_amount") is not None:
+            payment.base_amount = flt(incoming.get("base_amount"), payment.precision("base_amount"))
+
+    for row in incoming_rows or []:
+        mode = str(row.get("mode_of_payment") or "").strip()
+        if not mode or mode in applied_modes:
+            continue
+        payment = invoice_doc.append("payments", {})
+        for fieldname in (
+            "mode_of_payment",
+            "amount",
+            "base_amount",
+            "account",
+            "type",
+            "default",
+            "currency",
+            "conversion_rate",
+            "reference_no",
+            "clearance_date",
+        ):
+            if row.get(fieldname) is not None:
+                payment.set(fieldname, row.get(fieldname))
+
+
 def _apply_return_outstanding_policy(invoice_doc):
     """Match ERPNext's credit-note target before validation mutates the draft."""
     if not invoice_doc.get("is_return") or not invoice_doc.get("return_against"):
@@ -967,16 +1021,21 @@ def update_invoice(data):
     _sanitize_delivery_dates(data)
     _apply_manual_posting_controls(data)
     _strip_client_freebies_from_payload(data)
-    # Determine doctype based on POS Profile setting
+    # Determine doctype based on POS Profile setting. Submitted-invoice
+    # amendments preserve the source doctype even when the active profile has
+    # since switched between Sales Invoice and POS Invoice mode.
     pos_profile = data.get("pos_profile")
+    forced_doctype = data.pop("_force_invoice_doctype", None)
     doctype = "Sales Invoice"
-    if pos_profile and frappe.db.get_value(
+    if forced_doctype in {"Sales Invoice", "POS Invoice"}:
+        doctype = forced_doctype
+    elif pos_profile and frappe.db.get_value(
         "POS Profile", pos_profile, "create_pos_invoice_instead_of_sales_invoice"
     ):
         doctype = "POS Invoice"
 
     # Ensure the document type is set for new invoices to prevent validation errors
-    data.setdefault("doctype", doctype)
+    data["doctype"] = doctype
 
     return_validity_enabled, default_validity_days = _get_return_validity_settings(pos_profile)
 
@@ -1062,7 +1121,9 @@ def update_invoice(data):
     _deduplicate_free_items(invoice_doc)
 
     # Set missing values first
+    incoming_payment_rows = data.get("payments") or []
     invoice_doc.set_missing_values()
+    _reapply_incoming_payment_amounts(invoice_doc, incoming_payment_rows)
     if effective_price_list:
         invoice_doc.selling_price_list = effective_price_list
 
@@ -1189,8 +1250,13 @@ def submit_invoice(invoice, data, submit_in_background=False):
     submit_in_background = cint(submit_in_background)
     _strip_client_freebies_from_payload(invoice)
     pos_profile = invoice.get("pos_profile")
+    forced_doctype = invoice.pop("_force_invoice_doctype", None) or data.pop("_force_invoice_doctype", None)
     doctype = "Sales Invoice"
-    if pos_profile and frappe.db.get_value(
+    if forced_doctype in {"Sales Invoice", "POS Invoice"}:
+        doctype = forced_doctype
+        invoice["doctype"] = doctype
+        invoice["_force_invoice_doctype"] = doctype
+    elif pos_profile and frappe.db.get_value(
         "POS Profile", pos_profile, "create_pos_invoice_instead_of_sales_invoice"
     ):
         doctype = "POS Invoice"
@@ -1256,6 +1322,7 @@ def submit_invoice(invoice, data, submit_in_background=False):
         # Prevent TimestampMismatchError by relying on server-side timestamp
         if "modified" in invoice:
             del invoice["modified"]
+        invoice.pop("_force_invoice_doctype", None)
         invoice_doc = frappe.get_doc(doctype, invoice_name)
         invoice_doc.update(invoice)
 

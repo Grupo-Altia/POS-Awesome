@@ -41,6 +41,12 @@ from posawesome.posawesome.api.invoice_processing.returns import (
 from posawesome.posawesome.api.invoice_processing.payment import _create_change_payment_entries
 from posawesome.posawesome.api.invoice_processing.data import get_last_invoice_rates
 from posawesome.posawesome.api.utils import log_perf_event
+from posawesome.posawesome.api.submitted_invoice_edits import (
+    get_submitted_invoice_for_edit,
+    list_submitted_invoices,
+    preview_submitted_invoice_edit,
+    submit_submitted_invoice_edit,
+)
 
 
 @frappe.whitelist()

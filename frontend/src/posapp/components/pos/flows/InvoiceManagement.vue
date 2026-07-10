@@ -281,6 +281,14 @@
 											>{{ __(item.status || "Draft") }}</v-chip
 										>
 										<v-chip
+											v-if="modificationCount(item)"
+											size="small"
+											color="secondary"
+											variant="tonal"
+										>
+											{{ modificationLabel(item) }}
+										</v-chip>
+										<v-chip
 											v-if="changeAllocationRepairState(item)"
 											size="small"
 											:color="repairStateColor(changeAllocationRepairState(item))"
@@ -299,6 +307,16 @@
 											:title="__('View Details')"
 											:aria-label="__('View invoice details')"
 											@click="viewInvoice(item)"
+										/>
+										<v-btn
+											v-if="canEditSubmittedInvoice(item)"
+											icon="mdi-pencil-outline"
+											variant="text"
+											size="small"
+											color="primary"
+											:title="__('Edit Invoice')"
+											:aria-label="__('Edit submitted invoice')"
+											@click="openEditInvoice(item)"
 										/>
 										<v-btn
 											icon="mdi-printer-outline"
@@ -353,6 +371,14 @@
 													variant="flat"
 												>
 													{{ __(invoice.status || "Draft") }}
+												</v-chip>
+												<v-chip
+													v-if="modificationCount(invoice)"
+													size="small"
+													color="secondary"
+													variant="tonal"
+												>
+													{{ modificationLabel(invoice) }}
 												</v-chip>
 												<v-chip
 													v-if="changeAllocationRepairState(invoice)"
@@ -443,6 +469,16 @@
 											:title="__('View Details')"
 											:aria-label="__('View invoice details')"
 											@click="viewInvoice(invoice)"
+										/>
+										<v-btn
+											v-if="canEditSubmittedInvoice(invoice)"
+											icon="mdi-pencil-outline"
+											size="small"
+											variant="text"
+											color="primary"
+											:title="__('Edit Invoice')"
+											:aria-label="__('Edit submitted invoice')"
+											@click="openEditInvoice(invoice)"
 										/>
 										<v-btn
 											icon="mdi-printer-outline"
@@ -657,9 +693,19 @@
 									{{ formatCurrency(item.outstanding_amount || 0) }}</template
 								>
 								<template #item.status="{ item }"
-									><v-chip size="small" :color="statusColor(item.status)" variant="tonal">{{
-										__(item.status || "Unpaid")
-									}}</v-chip></template
+									><div class="d-flex flex-wrap ga-1">
+										<v-chip size="small" :color="statusColor(item.status)" variant="tonal">{{
+											__(item.status || "Unpaid")
+										}}</v-chip>
+										<v-chip
+											v-if="modificationCount(item)"
+											size="small"
+											color="secondary"
+											variant="tonal"
+										>
+											{{ modificationLabel(item) }}
+										</v-chip>
+									</div></template
 								>
 								<template #item.actions="{ item }">
 									<div class="d-flex justify-end ga-1">
@@ -672,6 +718,16 @@
 											:title="__('Add Payment')"
 											:aria-label="__('Add payment to invoice')"
 											@click="openAddPayment(item)"
+										/>
+										<v-btn
+											v-if="canEditSubmittedInvoice(item)"
+											icon="mdi-pencil-outline"
+											variant="text"
+											size="small"
+											color="primary"
+											:title="__('Edit Invoice')"
+											:aria-label="__('Edit submitted invoice')"
+											@click="openEditInvoice(item)"
 										/>
 										<v-btn
 											icon="mdi-eye-outline"
@@ -725,6 +781,14 @@
 													variant="flat"
 												>
 													{{ __(invoice.status || "Unpaid") }}
+												</v-chip>
+												<v-chip
+													v-if="modificationCount(invoice)"
+													size="small"
+													color="secondary"
+													variant="tonal"
+												>
+													{{ modificationLabel(invoice) }}
 												</v-chip>
 											</div>
 											<div class="invoice-record-card__subtitle">
@@ -812,6 +876,16 @@
 										>
 											{{ __("Add Payment") }}
 										</v-btn>
+										<v-btn
+											v-if="canEditSubmittedInvoice(invoice)"
+											icon="mdi-pencil-outline"
+											size="small"
+											variant="text"
+											color="primary"
+											:title="__('Edit Invoice')"
+											:aria-label="__('Edit submitted invoice')"
+											@click="openEditInvoice(invoice)"
+										/>
 										<v-btn
 											icon="mdi-eye-outline"
 											size="small"
@@ -1424,6 +1498,251 @@
 			</v-card-actions>
 		</v-card>
 	</v-dialog>
+
+	<v-dialog v-model="editDialog" max-width="1160px" scrollable :theme="isDarkTheme ? 'dark' : 'light'">
+		<v-card
+			:class="[
+				'invoice-detail-card',
+				isDarkTheme ? 'invoice-detail-card--dark' : 'invoice-detail-card--light',
+			]"
+		>
+			<v-card-title class="d-flex align-center justify-space-between flex-wrap ga-3">
+				<div>
+					<div class="text-h6">{{ editInvoiceOriginal?.name || __("Edit Invoice") }}</div>
+					<div class="text-subtitle-2 text-medium-emphasis">
+						{{ editInvoiceDoc?.customer_name || editInvoiceDoc?.customer || "" }}
+					</div>
+				</div>
+				<div class="d-flex align-center ga-2">
+					<v-chip v-if="editInvoiceDoc?.doctype" size="small" color="primary" variant="tonal">
+						{{ __(editInvoiceDoc.doctype) }}
+					</v-chip>
+					<v-chip v-if="editEligibility?.edit_window_hours" size="small" color="warning" variant="tonal">
+						{{ __("{0}h window", [editEligibility.edit_window_hours]) }}
+					</v-chip>
+					<v-btn
+						icon="mdi-close"
+						variant="text"
+						:aria-label="__('Close edit invoice dialog')"
+						@click="closeEditInvoice"
+					/>
+				</div>
+			</v-card-title>
+			<v-divider />
+			<v-card-text v-if="editLoading" class="tab-loader">
+				<v-progress-circular indeterminate color="primary" size="28" width="3" />
+				<span>{{ __("Loading editable invoice...") }}</span>
+			</v-card-text>
+			<v-card-text v-else-if="editInvoiceDoc">
+				<v-alert v-if="editError" type="error" variant="tonal" density="compact" class="mb-4">
+					{{ editError }}
+				</v-alert>
+				<div class="summary-grid mb-4">
+					<div class="summary-tile">
+						<div class="summary-tile__label">{{ __("Current Total") }}</div>
+						<div class="summary-tile__value">
+							{{ currencySymbol(editInvoiceDoc.currency) }}
+							{{ formatCurrency(editInvoiceDoc.grand_total || 0) }}
+						</div>
+					</div>
+					<div class="summary-tile">
+						<div class="summary-tile__label">{{ __("Preview Total") }}</div>
+						<div class="summary-tile__value">
+							{{ currencySymbol(editPreviewDoc?.currency || editInvoiceDoc.currency) }}
+							{{ formatCurrency((editPreviewDoc || editInvoiceDoc).grand_total || 0) }}
+						</div>
+					</div>
+					<div class="summary-tile">
+						<div class="summary-tile__label">{{ __("Paid") }}</div>
+						<div class="summary-tile__value">
+							{{ currencySymbol((editPreviewDoc || editInvoiceDoc).currency) }}
+							{{ formatCurrency((editPreviewDoc || editInvoiceDoc).paid_amount || editPaymentTotal) }}
+						</div>
+					</div>
+					<div class="summary-tile">
+						<div class="summary-tile__label">{{ __("Outstanding") }}</div>
+						<div class="summary-tile__value">
+							{{ currencySymbol((editPreviewDoc || editInvoiceDoc).currency) }}
+							{{ formatCurrency((editPreviewDoc || editInvoiceDoc).outstanding_amount || 0) }}
+						</div>
+					</div>
+				</div>
+
+				<div class="edit-form-grid mb-4">
+					<v-text-field
+						v-model="editInvoiceDoc.customer"
+						variant="outlined"
+						density="compact"
+						hide-details
+						:label="__('Customer')"
+					/>
+					<v-text-field
+						v-model.number="editInvoiceDoc.discount_amount"
+						type="number"
+						variant="outlined"
+						density="compact"
+						hide-details
+						:label="__('Invoice Discount')"
+					/>
+					<v-text-field
+						v-model.number="editInvoiceDoc.additional_discount_percentage"
+						type="number"
+						variant="outlined"
+						density="compact"
+						hide-details
+						:label="__('Additional Discount %')"
+					/>
+				</div>
+
+				<div class="detail-section__title">{{ __("Items") }}</div>
+				<v-table class="elevation-1 edit-invoice-table">
+					<thead>
+						<tr>
+							<th>{{ __("Item") }}</th>
+							<th>{{ __("Qty") }}</th>
+							<th>{{ __("Rate") }}</th>
+							<th>{{ __("Discount %") }}</th>
+							<th>{{ __("Discount") }}</th>
+							<th class="text-end">{{ __("Actions") }}</th>
+						</tr>
+					</thead>
+					<tbody>
+						<tr v-for="(item, index) in editInvoiceDoc.items || []" :key="item.name || index">
+							<td>
+								<div class="edit-item-title">{{ item.item_name || item.item_code }}</div>
+								<div class="text-caption text-medium-emphasis">{{ item.item_code }}</div>
+							</td>
+							<td>
+								<v-text-field
+									v-model.number="item.qty"
+									type="number"
+									variant="outlined"
+									density="compact"
+									hide-details
+									class="edit-number-input"
+								/>
+							</td>
+							<td>
+								<v-text-field
+									v-model.number="item.rate"
+									type="number"
+									variant="outlined"
+									density="compact"
+									hide-details
+									class="edit-number-input"
+								/>
+							</td>
+							<td>
+								<v-text-field
+									v-model.number="item.discount_percentage"
+									type="number"
+									variant="outlined"
+									density="compact"
+									hide-details
+									class="edit-number-input"
+								/>
+							</td>
+							<td>
+								<v-text-field
+									v-model.number="item.discount_amount"
+									type="number"
+									variant="outlined"
+									density="compact"
+									hide-details
+									class="edit-number-input"
+								/>
+							</td>
+							<td class="text-end">
+								<v-btn
+									icon="mdi-delete-outline"
+									variant="text"
+									size="small"
+									color="error"
+									:title="__('Remove Item')"
+									:aria-label="__('Remove item')"
+									@click="removeEditItem(index)"
+								/>
+							</td>
+						</tr>
+					</tbody>
+				</v-table>
+				<div class="edit-add-row mt-3">
+					<v-text-field
+						v-model="newEditItem.item_code"
+						variant="outlined"
+						density="compact"
+						hide-details
+						:label="__('Item Code')"
+					/>
+					<v-text-field
+						v-model.number="newEditItem.qty"
+						type="number"
+						variant="outlined"
+						density="compact"
+						hide-details
+						:label="__('Qty')"
+					/>
+					<v-text-field
+						v-model.number="newEditItem.rate"
+						type="number"
+						variant="outlined"
+						density="compact"
+						hide-details
+						:label="__('Rate')"
+					/>
+					<v-btn color="primary" variant="tonal" prepend-icon="mdi-plus" @click="addEditItem">
+						{{ __("Add Item") }}
+					</v-btn>
+				</div>
+
+				<div class="detail-section__title mt-4">{{ __("Payments") }}</div>
+				<v-table class="elevation-1 edit-invoice-table">
+					<thead>
+						<tr>
+							<th>{{ __("Mode") }}</th>
+							<th>{{ __("Amount") }}</th>
+							<th>{{ __("Account") }}</th>
+						</tr>
+					</thead>
+					<tbody>
+						<tr v-for="(payment, index) in editInvoiceDoc.payments || []" :key="payment.name || index">
+							<td>{{ payment.mode_of_payment }}</td>
+							<td>
+								<v-text-field
+									v-model.number="payment.amount"
+									type="number"
+									variant="outlined"
+									density="compact"
+									hide-details
+									class="edit-number-input"
+								/>
+							</td>
+							<td>{{ payment.account || "-" }}</td>
+						</tr>
+					</tbody>
+				</v-table>
+			</v-card-text>
+			<v-card-actions>
+				<v-spacer />
+				<v-btn color="secondary" variant="text" :disabled="editSubmitting" @click="previewEditInvoice">
+					{{ __("Recalculate") }}
+				</v-btn>
+				<v-btn color="error" variant="tonal" :disabled="editSubmitting" @click="closeEditInvoice">
+					{{ __("Cancel") }}
+				</v-btn>
+				<v-btn
+					color="primary"
+					variant="flat"
+					prepend-icon="mdi-content-save-check-outline"
+					:loading="editSubmitting"
+					:disabled="editLoading || editSubmitting || isOffline()"
+					@click="submitEditInvoice"
+				>
+					{{ __("Submit Amendment") }}
+				</v-btn>
+			</v-card-actions>
+		</v-card>
+	</v-dialog>
 </template>
 
 <script>
@@ -1559,6 +1878,19 @@ export default {
 		repairChangeLoading: false,
 		detailDialog: false,
 		selectedInvoiceDetail: null,
+		editDialog: false,
+		editLoading: false,
+		editSubmitting: false,
+		editError: "",
+		editInvoiceOriginal: null,
+		editInvoiceDoc: null,
+		editPreviewDoc: null,
+		editEligibility: null,
+		newEditItem: {
+			item_code: "",
+			qty: 1,
+			rate: 0,
+		},
 		partialStatusItems: ["All", "Partly Paid", "Unpaid", "Overdue"],
 		historyStatusItems: ["All", "Paid", "Partly Paid", "Unpaid", "Overdue", "Credit Note Issued"],
 		partialHeaders: [
@@ -1776,6 +2108,12 @@ export default {
 		},
 		returnsPageCount() {
 			return this.pageCount(this.filteredReturnInvoices.length);
+		},
+		editPaymentTotal() {
+			return (this.editInvoiceDoc?.payments || []).reduce(
+				(total, payment) => total + Number(payment?.amount || 0),
+				0,
+			);
 		},
 	},
 	watch: {
@@ -2126,6 +2464,27 @@ export default {
 				...extraFields,
 			];
 		},
+		submittedInvoiceListArgs(doctype, filters, extraFields = []) {
+			return {
+				doctype,
+				filters,
+				fields: this.getInvoiceListFields(extraFields),
+				order_by: "posting_date desc, posting_time desc, modified desc",
+				limit_page_length: 0,
+				pos_profile: filters?.pos_profile || null,
+				company: filters?.company || null,
+			};
+		},
+		modificationCount(invoice) {
+			return Number(invoice?.amendment_count || 0);
+		},
+		modificationLabel(invoice) {
+			const count = this.modificationCount(invoice);
+			return count > 0 ? __("Modified x{0}", [count]) : "";
+		},
+		canEditSubmittedInvoice(invoice) {
+			return Boolean(invoice?.can_edit_submitted_invoice);
+		},
 		sortInvoicesByLatest(items) {
 			return [...items].sort(
 				(left, right) => this.invoiceSortValue(right) - this.invoiceSortValue(left),
@@ -2431,14 +2790,8 @@ export default {
 					outstanding_amount: [">", 0],
 				});
 				const { message } = await frappe.call({
-					method: "frappe.client.get_list",
-					args: {
-						doctype: this.currentInvoiceDoctype,
-						filters,
-						fields: this.getInvoiceListFields(["due_date"]),
-						order_by: "posting_date desc, posting_time desc, modified desc",
-						limit_page_length: 0,
-					},
+					method: "posawesome.posawesome.api.invoices.list_submitted_invoices",
+					args: this.submittedInvoiceListArgs(this.currentInvoiceDoctype, filters, ["due_date"]),
 				});
 				this.unpaidInvoices = Array.isArray(message)
 					? message.map((entry) => ({ ...entry, doctype: this.currentInvoiceDoctype }))
@@ -2470,18 +2823,12 @@ export default {
 				const results = await Promise.all(
 					doctypes.map(async (doctype) => {
 						const { message } = await frappe.call({
-							method: "frappe.client.get_list",
-							args: {
-								doctype,
-								filters,
-								fields: this.getInvoiceListFields([
-									"change_amount",
-									"is_return",
-									"return_against",
-								]),
-								order_by: "posting_date desc, posting_time desc, modified desc",
-								limit_page_length: 0,
-							},
+							method: "posawesome.posawesome.api.invoices.list_submitted_invoices",
+							args: this.submittedInvoiceListArgs(doctype, filters, [
+								"change_amount",
+								"is_return",
+								"return_against",
+							]),
 						});
 						return Array.isArray(message) ? message.map((entry) => ({ ...entry, doctype })) : [];
 					}),
@@ -2543,6 +2890,196 @@ export default {
 			} catch (error) {
 				console.error("Error loading invoice details:", error);
 				this.toastStore.show({ title: __("Unable to load invoice details"), color: "error" });
+			}
+		},
+		closeEditInvoice() {
+			this.editDialog = false;
+			this.editLoading = false;
+			this.editSubmitting = false;
+			this.editError = "";
+			this.editInvoiceOriginal = null;
+			this.editInvoiceDoc = null;
+			this.editPreviewDoc = null;
+			this.editEligibility = null;
+			this.newEditItem = { item_code: "", qty: 1, rate: 0 };
+		},
+		editScopeArgs(invoice) {
+			return {
+				doctype: invoice?.doctype || this.currentInvoiceDoctype,
+				name: invoice?.name,
+				pos_profile: this.isSupervisorScope() ? this.resolveSupervisorProfileScope() : this.posProfile?.name,
+				company: this.posProfile?.company || null,
+			};
+		},
+		cloneForEdit(value) {
+			return JSON.parse(JSON.stringify(value || {}));
+		},
+		async openEditInvoice(invoice) {
+			if (!invoice?.name) return;
+			if (isOffline()) {
+				this.toastStore.show({ title: __("Editing submitted invoices requires an online connection"), color: "warning" });
+				return;
+			}
+			if (!this.canEditSubmittedInvoice(invoice)) {
+				this.toastStore.show({
+					title: invoice?.edit_block_reason || __("This invoice cannot be edited"),
+					color: "warning",
+				});
+				return;
+			}
+			this.editDialog = true;
+			this.editLoading = true;
+			this.editError = "";
+			this.editInvoiceOriginal = invoice;
+			this.editPreviewDoc = null;
+			try {
+				const { message } = await frappe.call({
+					method: "posawesome.posawesome.api.invoices.get_submitted_invoice_for_edit",
+					args: this.editScopeArgs(invoice),
+				});
+				this.editInvoiceDoc = this.cloneForEdit(message?.invoice || {});
+				this.editEligibility = message?.metadata || null;
+				if (!Array.isArray(this.editInvoiceDoc.items)) this.editInvoiceDoc.items = [];
+				if (!Array.isArray(this.editInvoiceDoc.payments)) this.editInvoiceDoc.payments = [];
+			} catch (error) {
+				console.error("Error loading editable invoice:", error);
+				this.editError = error?.message || __("Unable to load editable invoice");
+				this.toastStore.show({ title: this.editError, color: "error" });
+				this.closeEditInvoice();
+			} finally {
+				this.editLoading = false;
+			}
+		},
+		removeEditItem(index) {
+			if (!Array.isArray(this.editInvoiceDoc?.items)) return;
+			if (this.editInvoiceDoc.items.length <= 1) {
+				this.toastStore.show({ title: __("Invoice must have at least one item"), color: "warning" });
+				return;
+			}
+			this.editInvoiceDoc.items.splice(index, 1);
+			this.editPreviewDoc = null;
+		},
+		addEditItem() {
+			const itemCode = String(this.newEditItem?.item_code || "").trim();
+			if (!itemCode) {
+				this.toastStore.show({ title: __("Item code is required"), color: "warning" });
+				return;
+			}
+			if (!Array.isArray(this.editInvoiceDoc.items)) this.editInvoiceDoc.items = [];
+			this.editInvoiceDoc.items.push({
+				item_code: itemCode,
+				item_name: itemCode,
+				qty: Number(this.newEditItem.qty || 1),
+				rate: Number(this.newEditItem.rate || 0),
+				discount_percentage: 0,
+				discount_amount: 0,
+			});
+			this.newEditItem = { item_code: "", qty: 1, rate: 0 };
+			this.editPreviewDoc = null;
+		},
+		buildEditCorrectionData() {
+			const doc = this.editInvoiceDoc || {};
+			return {
+				customer: doc.customer,
+				discount_amount: Number(doc.discount_amount || 0),
+				additional_discount_percentage: Number(doc.additional_discount_percentage || 0),
+				apply_discount_on: doc.apply_discount_on || "Grand Total",
+				due_date: doc.due_date || null,
+				items: (doc.items || []).map((item) => ({
+					name: item.name,
+					item_code: item.item_code,
+					item_name: item.item_name,
+					description: item.description,
+					qty: Number(item.qty || 0),
+					uom: item.uom,
+					stock_uom: item.stock_uom,
+					conversion_factor: Number(item.conversion_factor || 1),
+					warehouse: item.warehouse,
+					rate: Number(item.rate || 0),
+					price_list_rate: Number(item.price_list_rate || item.rate || 0),
+					discount_percentage: Number(item.discount_percentage || 0),
+					discount_amount: Number(item.discount_amount || 0),
+					is_free_item: Number(item.is_free_item || 0),
+					batch_no: item.batch_no,
+					serial_no: item.serial_no,
+					income_account: item.income_account,
+					expense_account: item.expense_account,
+					cost_center: item.cost_center,
+				})),
+				payments: (doc.payments || []).map((payment) => ({
+					name: payment.name,
+					mode_of_payment: payment.mode_of_payment,
+					amount: Number(payment.amount || 0),
+					base_amount: Number(payment.base_amount || 0),
+					account: payment.account,
+					type: payment.type,
+					default: payment.default,
+					currency: payment.currency,
+					conversion_rate: Number(payment.conversion_rate || 1),
+				})),
+			};
+		},
+		async previewEditInvoice() {
+			if (!this.editInvoiceDoc?.name) return;
+			this.editError = "";
+			try {
+				const args = {
+					...this.editScopeArgs(this.editInvoiceDoc),
+					correction_data: JSON.stringify(this.buildEditCorrectionData()),
+				};
+				const { message } = await frappe.call({
+					method: "posawesome.posawesome.api.invoices.preview_submitted_invoice_edit",
+					args,
+				});
+				this.editPreviewDoc = message?.invoice || null;
+				this.editEligibility = message?.metadata || this.editEligibility;
+			} catch (error) {
+				console.error("Error previewing invoice edit:", error);
+				this.editError = error?.message || __("Unable to recalculate invoice");
+				this.toastStore.show({ title: this.editError, color: "error" });
+			}
+		},
+		async submitEditInvoice() {
+			if (!this.editInvoiceDoc?.name || this.editSubmitting) return;
+			if (isOffline()) {
+				this.toastStore.show({ title: __("Editing submitted invoices requires an online connection"), color: "warning" });
+				return;
+			}
+			if (!window.confirm(__("Cancel {0} and submit a corrected amendment?", [this.editInvoiceDoc.name]))) {
+				return;
+			}
+			this.editSubmitting = true;
+			this.editError = "";
+			try {
+				const clientRequestId = [
+					"submitted-edit",
+					this.editInvoiceDoc.name,
+					Date.now(),
+					Math.random().toString(16).slice(2),
+				].join("-");
+				const { message } = await frappe.call({
+					method: "posawesome.posawesome.api.invoices.submit_submitted_invoice_edit",
+					args: {
+						...this.editScopeArgs(this.editInvoiceDoc),
+						correction_data: JSON.stringify(this.buildEditCorrectionData()),
+						client_request_id: clientRequestId,
+					},
+					freeze: true,
+					freeze_message: __("Submitting corrected invoice"),
+				});
+				const amendedName = message?.name || __("new invoice");
+				this.toastStore.show({
+					title: __("Corrected invoice {0} submitted", [amendedName]),
+					color: "success",
+				});
+				this.closeEditInvoice();
+				await this.refreshAll();
+			} catch (error) {
+				console.error("Error submitting invoice edit:", error);
+				this.editError = error?.message || __("Unable to submit corrected invoice");
+				this.toastStore.show({ title: this.editError, color: "error" });
+			} finally {
+				this.editSubmitting = false;
 			}
 		},
 		async loadDraft(invoice) {
@@ -3274,6 +3811,33 @@ export default {
 	color: rgb(248, 250, 252);
 }
 
+.edit-form-grid,
+.edit-add-row {
+	display: grid;
+	grid-template-columns: repeat(3, minmax(0, 1fr));
+	gap: 12px;
+	align-items: center;
+}
+
+.edit-add-row {
+	grid-template-columns: minmax(180px, 1fr) minmax(90px, 120px) minmax(110px, 140px) auto;
+}
+
+.edit-invoice-table {
+	border-radius: 8px;
+	overflow: hidden;
+}
+
+.edit-number-input {
+	min-width: 96px;
+	max-width: 140px;
+}
+
+.edit-item-title {
+	font-weight: 700;
+	line-height: 1.25;
+}
+
 @media (max-width: 960px) {
 	.invoice-management-card {
 		max-height: 100vh;
@@ -3292,6 +3856,13 @@ export default {
 	}
 	.invoice-management-footer :deep(.v-btn) {
 		flex: 1;
+	}
+	.edit-form-grid,
+	.edit-add-row {
+		grid-template-columns: 1fr;
+	}
+	.edit-number-input {
+		max-width: none;
 	}
 }
 
