@@ -25,6 +25,17 @@ export interface GetItemsCountArgs {
 	item_groups?: string[];
 }
 
+export interface GetHotItemsArgs {
+	pos_profile: string;
+	price_list?: string;
+	customer?: string | null;
+	limit?: number;
+	days?: number;
+	include_description?: number;
+	include_image?: number;
+	item_groups?: string[];
+}
+
 export interface BarcodeLookupArgs {
 	selling_price_list: string;
 	currency: string;
@@ -77,6 +88,26 @@ const itemService = {
 		signal?: AbortSignal,
 	): Promise<Item[]> {
 		return unwrapApiResult(await this.getItems(args, signal));
+	},
+
+	getHotItems(
+		args: GetHotItemsArgs,
+		signal?: AbortSignal,
+	): Promise<ApiEnvelope<Item[]>> {
+		return api.callEnvelope(
+			"posawesome.posawesome.api.items.get_hot_items",
+			args,
+			{
+				signal,
+			},
+		);
+	},
+
+	async getHotItemsData(
+		args: GetHotItemsArgs,
+		signal?: AbortSignal,
+	): Promise<Item[]> {
+		return unwrapApiResult(await this.getHotItems(args, signal));
 	},
 
 	getItemsCount(

@@ -3,6 +3,7 @@ import { createPinia, setActivePinia } from "pinia";
 
 const itemServiceMocks = vi.hoisted(() => ({
 	getItemsData: vi.fn(),
+	getHotItemsData: vi.fn(),
 }));
 
 const offlineMocks = vi.hoisted(() => ({
@@ -33,6 +34,7 @@ const itemsSyncMocks = vi.hoisted(() => ({
 vi.mock("../src/posapp/services/itemService", () => ({
 	default: {
 		getItemsData: itemServiceMocks.getItemsData,
+		getHotItemsData: itemServiceMocks.getHotItemsData,
 		getItemGroupsData: vi.fn(async () => []),
 		getItemsFromBarcodeData: vi.fn(async () => null),
 	},
@@ -79,6 +81,12 @@ vi.mock("../src/posapp/composables/pos/items/store/useItemsSearch", () => ({
 	useItemsSearch: () => {
 		const itemsMap = { value: new Map<string, any>() };
 		const barcodeIndex = { value: new Map<string, any>() };
+		const register = (index: Map<string, any>, value: unknown, item: any) => {
+			const raw = String(value || "").trim();
+			if (!raw) return;
+			index.set(raw, item);
+			index.set(raw.toLowerCase(), item);
+		};
 
 		return {
 			itemsMap,
@@ -86,7 +94,25 @@ vi.mock("../src/posapp/composables/pos/items/store/useItemsSearch", () => ({
 			updateIndexes: (items: any[] = []) => {
 				items.forEach((item) => {
 					if (item?.item_code) {
-						itemsMap.value.set(item.item_code, item);
+						register(itemsMap.value, item.item_code, item);
+						register(barcodeIndex.value, item.item_code, item);
+					}
+					if (item?.barcode) {
+						register(barcodeIndex.value, item.barcode, item);
+					}
+					if (Array.isArray(item?.item_barcode)) {
+						item.item_barcode.forEach((entry: any) =>
+							register(barcodeIndex.value, entry?.barcode, item),
+						);
+					}
+					if (Array.isArray(item?.barcodes)) {
+						item.barcodes.forEach((entry: any) =>
+							register(
+								barcodeIndex.value,
+								entry?.barcode || entry,
+								item,
+							),
+						);
 					}
 				});
 			},
@@ -95,6 +121,15 @@ vi.mock("../src/posapp/composables/pos/items/store/useItemsSearch", () => ({
 				barcodeIndex.value = new Map();
 			},
 			performLocalSearch: itemsSearchMocks.performLocalSearch,
+			performRankedLocalSearch: (
+				term: string,
+				items: any[],
+				group: string,
+				limit = 50,
+			) =>
+				itemsSearchMocks
+					.performLocalSearch(term, items, group)
+					.slice(0, limit),
 			filterItemsByGroup: (items: any[], group: string) =>
 				group && group !== "ALL"
 					? items.filter((item) => item?.item_group === group)
@@ -178,6 +213,7 @@ describe("itemsStore loadItems", () => {
 		itemsSearchMocks.performLocalSearch.mockImplementation(
 			(_term: string, items: any[]) => items,
 		);
+		itemServiceMocks.getHotItemsData.mockResolvedValue([]);
 		itemServiceMocks.getItemsData.mockResolvedValue([
 			{
 				item_code: "ITEM-1",
@@ -225,6 +261,83 @@ describe("itemsStore loadItems", () => {
 		);
 		expect(store.items).toHaveLength(1);
 		expect(store.filteredItems).toHaveLength(1);
+	});
+
+	it("loads and indexes the hot catalog when Fast Counter Mode is enabled", async () => {
+		const store = useItemsStore();
+		const profile = {
+			name: "POS-1",
+			warehouse: "Main WH",
+			selling_price_list: "Retail",
+			currency: "PKR",
+			item_groups: [{ item_group: "Medicines" }],
+			posa_fast_counter_mode: 1,
+			posa_hot_catalog_limit: 250,
+		} as any;
+		itemServiceMocks.getHotItemsData.mockResolvedValue([
+			{
+				item_code: "HOT-1",
+				item_name: "Hot Item",
+				item_group: "Medicines",
+				price_list_rate: 15,
+			},
+		]);
+
+		await store.initialize(profile);
+
+		expect(itemServiceMocks.getHotItemsData).toHaveBeenCalledWith(
+			expect.objectContaining({
+				price_list: "Retail",
+				limit: 250,
+				days: 120,
+				include_image: 0,
+				item_groups: ["Medicines"],
+			}),
+		);
+		expect(store.hotItems.map((item) => item.item_code)).toEqual(["HOT-1"]);
+		expect(store.hotItemsLoaded).toBe(true);
+		expect(itemsSyncMocks.primeItemDetailsCache).toHaveBeenCalledWith(
+			[
+				expect.objectContaining({
+					item_code: "HOT-1",
+					price_list_rate: 15,
+				}),
+			],
+			profile,
+			"Retail",
+		);
+	});
+
+	it("returns an exact hot barcode hit without waiting for server fallback", async () => {
+		const store = useItemsStore();
+		const profile = {
+			name: "POS-1",
+			warehouse: "Main WH",
+			selling_price_list: "Retail",
+			currency: "PKR",
+			item_groups: [],
+			posa_fast_counter_mode: 1,
+			posa_use_limit_search: 1,
+		} as any;
+		itemServiceMocks.getHotItemsData.mockResolvedValue([
+			{
+				item_code: "HOT-BAR",
+				item_name: "Barcode Hot Item",
+				item_group: "ALL",
+				item_barcode: [{ barcode: "12345" }],
+			},
+		]);
+
+		await store.initialize(profile);
+		itemServiceMocks.getItemsData.mockClear();
+
+		const result = await store.searchItems("12345");
+
+		expect(result.map((item) => item.item_code)).toEqual(["HOT-BAR"]);
+		expect(store.filteredItems.map((item) => item.item_code)).toEqual([
+			"HOT-BAR",
+		]);
+		expect(itemServiceMocks.getItemsData).not.toHaveBeenCalled();
 	});
 
 	it("uses the resolved price list when seeding fetched detail rows", async () => {

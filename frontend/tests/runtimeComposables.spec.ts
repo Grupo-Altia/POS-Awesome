@@ -146,6 +146,29 @@ describe("runtime composable lifecycle ownership", () => {
 		});
 	});
 
+	it("passes cache usage details to near-capacity callbacks", async () => {
+		const usage = {
+			percentage: 95,
+			total: 1000,
+			indexedDB: 900,
+			localStorage: 100,
+		};
+		const onNearCapacity = vi.fn();
+		const metrics = useQueueMetrics({
+			getCacheUsageEstimate: vi.fn(async () => usage),
+		});
+
+		await metrics.checkCacheCapacity(90, onNearCapacity);
+
+		expect(onNearCapacity).toHaveBeenCalledWith(usage);
+		expect(metrics.cacheUsage.value).toBe(95);
+		expect(metrics.cacheUsageDetails.value).toEqual({
+			total: 1000,
+			indexedDB: 900,
+			localStorage: 100,
+		});
+	});
+
 	it("starts and stops boot sync timer ownership once", () => {
 		const runtime = {
 			startTimerSync: vi.fn(),

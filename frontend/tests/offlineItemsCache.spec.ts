@@ -73,8 +73,13 @@ describe("offline cache item persistence", () => {
 				item_name: "Test Item",
 				actual_qty: 7,
 				profile_scope: "POS-A_WH-A",
+				item_code_lc: "item-1",
+				item_name_lc: "test item",
 				barcodes: ["12345"],
+				barcodes_lc: ["12345"],
 				name_keywords: ["test", "item"],
+				name_keywords_lc: ["test", "item"],
+				search_text: "item-1 test item 12345 test item",
 			}),
 		]);
 	});
@@ -97,8 +102,13 @@ describe("offline cache item persistence", () => {
 			expect.objectContaining({
 				item_code: "ITEM-2",
 				profile_scope: "POS-B_WH-B",
+				item_code_lc: "item-2",
+				item_name_lc: "barcode item",
 				barcodes: ["98765"],
+				barcodes_lc: ["98765"],
 				name_keywords: ["barcode", "item"],
+				name_keywords_lc: ["barcode", "item"],
+				search_text: "item-2 barcode item 98765 barcode item",
 			}),
 		]);
 	});
@@ -123,6 +133,8 @@ describe("offline cache item persistence", () => {
 			expect.objectContaining({
 				item_code: "ITEM-3",
 				name_keywords: ["fallback", "item"],
+				name_keywords_lc: ["fallback", "item"],
+				item_code_lc: "item-3",
 			}),
 		);
 	});

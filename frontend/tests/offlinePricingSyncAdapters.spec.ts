@@ -11,7 +11,12 @@ const repositoryMocks = vi.hoisted(() => ({
 		clear: vi.fn().mockResolvedValue(undefined),
 		replaceRuleTargets: vi.fn().mockResolvedValue(undefined),
 		deleteByRuleNames: vi.fn().mockResolvedValue(undefined),
+		getAll: vi.fn().mockResolvedValue([]),
 	},
+}));
+
+const cacheMocks = vi.hoisted(() => ({
+	savePricingRulesSnapshot: vi.fn(),
 }));
 
 const commonMocks = vi.hoisted(() => ({
@@ -27,6 +32,7 @@ const commonMocks = vi.hoisted(() => ({
 }));
 
 vi.mock("../src/offline/repositories", () => repositoryMocks);
+vi.mock("../src/offline/cache", () => cacheMocks);
 vi.mock("../src/offline/sync/adapters/common", async () => {
 	const actual = await vi.importActual<any>(
 		"../src/offline/sync/adapters/common",
@@ -98,6 +104,14 @@ describe("offline pricing sync adapters", () => {
 	});
 
 	it("replaces all targets for changed Pricing Rule parents and deletes tombstones", async () => {
+		repositoryMocks.pricingRuleRepository.getAll.mockResolvedValueOnce([
+			{
+				key: "RULE-1::item_group::Products",
+				rule_name: "RULE-1",
+				target_type: "item_group",
+				target_value: "Products",
+			},
+		]);
 		const fetcher = vi.fn().mockResolvedValue({
 			changes: [
 				{
@@ -116,7 +130,12 @@ describe("offline pricing sync adapters", () => {
 		});
 
 		await syncPricingRulesResource({
-			posProfile: { name: "POS-1", company: "Test Co" },
+			posProfile: {
+				name: "POS-1",
+				company: "Test Co",
+				selling_price_list: "Standard Selling",
+				currency: "PKR",
+			},
 			watermark: "2026-05-01T00:00:00",
 			fetcher,
 		});
@@ -129,5 +148,14 @@ describe("offline pricing sync adapters", () => {
 		expect(
 			repositoryMocks.pricingRuleRepository.deleteByRuleNames,
 		).toHaveBeenCalledWith(["RULE-OLD"]);
+		expect(cacheMocks.savePricingRulesSnapshot).toHaveBeenCalledWith(
+			[
+				expect.objectContaining({
+					rule_name: "RULE-1",
+					target_type: "item_group",
+				}),
+			],
+			expect.stringContaining('"price_list":"Standard Selling"'),
+		);
 	});
 });

@@ -19,14 +19,26 @@ def _install_stubs():
     sys.modules["frappe"] = frappe_module
 
     frappe_utils = types.ModuleType("frappe.utils")
-    frappe_utils.cint = int
+    frappe_utils.cint = lambda value=0: int(value or 0)
     frappe_utils.cstr = str
     frappe_utils.get_datetime = lambda value: value
+    frappe_utils.add_days = lambda date_value, days: f"{date_value}:{days}"
+    frappe_utils.nowdate = lambda: "2026-07-08"
     sys.modules["frappe.utils"] = frappe_utils
 
     frappe_cache = types.ModuleType("frappe.utils.caching")
     frappe_cache.redis_cache = lambda ttl=None: (lambda fn: fn)
     sys.modules["frappe.utils.caching"] = frappe_cache
+
+    query_builder = types.ModuleType("frappe.query_builder")
+    query_builder.DocType = lambda name: types.SimpleNamespace(name=name)
+    query_builder.Order = types.SimpleNamespace(desc="desc", asc="asc")
+    sys.modules["frappe.query_builder"] = query_builder
+
+    query_functions = types.ModuleType("frappe.query_builder.functions")
+    query_functions.Max = lambda value: value
+    query_functions.Sum = lambda value: value
+    sys.modules["frappe.query_builder.functions"] = query_functions
 
     fetchers = types.ModuleType("posawesome.posawesome.api.item_fetchers")
     fetchers.ItemDetailAggregator = object
@@ -155,6 +167,54 @@ class TestItemSearchSerialization(unittest.TestCase):
 
         self.assertEqual(plan.order_by, "item_code asc")
         self.assertNotIn("item_code", plan.filters)
+
+    def test_hot_catalog_limit_is_bounded(self):
+        self.assertEqual(self.module._coerce_hot_catalog_limit(None), 5000)
+        self.assertEqual(self.module._coerce_hot_catalog_limit(50), 100)
+        self.assertEqual(self.module._coerce_hot_catalog_limit(20000), 10000)
+
+    def test_hot_item_search_fills_sales_ranking_with_active_fallback(self):
+        calls = []
+
+        self.module._get_hot_sales_item_codes = lambda *args, **kwargs: [
+            "ITEM-HOT"
+        ]
+        self.module._enrich_hot_items = lambda _profile, rows, *args, **kwargs: rows
+
+        def fake_get_all(doctype, **kwargs):
+            calls.append((doctype, kwargs))
+            if kwargs.get("filters", {}).get("item_code") == ["in", ["ITEM-HOT"]]:
+                return [{"item_code": "ITEM-HOT", "item_name": "Hot Item"}]
+            return [{"item_code": "ITEM-FALLBACK", "item_name": "Fallback"}]
+
+        self.module.frappe.get_all = fake_get_all
+
+        result = self.module._execute_hot_item_search(
+            json.dumps(
+                {
+                    "name": "POS-1",
+                    "company": "Test Co",
+                    "selling_price_list": "Retail",
+                }
+            ),
+            price_list=None,
+            customer=None,
+            limit=2,
+            days=120,
+            include_description=False,
+            include_image=False,
+            item_groups=[],
+        )
+
+        self.assertEqual(
+            [row["item_code"] for row in result],
+            ["ITEM-HOT", "ITEM-FALLBACK"],
+        )
+        fallback_call = calls[-1][1]
+        self.assertEqual(
+            fallback_call["filters"]["item_code"],
+            ["not in", ["ITEM-HOT"]],
+        )
 
 
 if __name__ == "__main__":

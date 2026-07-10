@@ -95,6 +95,7 @@
 						:title="formatFloat(item.qty, hideQtyDecimals ? 0 : undefined)"
 						@click.stop="openQtyEdit"
 						tabindex="0"
+						data-pos-keyboard-target="cart-qty"
 						role="button"
 						:aria-label="__('Edit quantity')"
 						@keydown.enter.prevent="openQtyEdit"
@@ -109,7 +110,8 @@
 						variant="outlined"
 						class="posa-cart-table__qty-input"
 						@blur="closeQtyEdit"
-						@keydown.enter.prevent="closeQtyEdit"
+						@keydown.enter.prevent="closeQtyEdit({ focusDiscountPercent: true })"
+						@keydown.esc.prevent="cancelQtyEdit"
 						@click.stop
 						ref="qtyInput"
 						:autofocus="true"
@@ -148,6 +150,7 @@
 						class="posa-cart-table__editor-display"
 						@click.stop="openUomEdit"
 						tabindex="0"
+						data-pos-keyboard-target="cart-uom"
 						role="button"
 						:aria-label="__('Edit unit of measure')"
 					>
@@ -170,6 +173,7 @@
 						:autofocus="true"
 						:disabled="disableUomEdit"
 						@blur="isEditingUom = false"
+						@keydown.esc.prevent="isEditingUom = false"
 					></v-select>
 
 					<v-btn
@@ -214,6 +218,7 @@
 						class="posa-cart-table__editor-display"
 						@click.stop="openDiscountPercentEdit"
 						tabindex="0"
+						data-pos-keyboard-target="cart-discount-percent"
 						role="button"
 						:aria-label="__('Edit discount percentage')"
 						@keydown.enter.prevent="openDiscountPercentEdit"
@@ -239,7 +244,8 @@
 						variant="outlined"
 						class="posa-cart-table__editor-input"
 						@blur="closeDiscountPercentEdit"
-						@keydown.enter.prevent="closeDiscountPercentEdit"
+						@keydown.enter.prevent="submitDiscountPercentEdit"
+						@keydown.esc.prevent="cancelDiscountPercentEdit"
 						@click.stop
 						ref="discountPercentInput"
 						:autofocus="true"
@@ -261,6 +267,7 @@
 						class="posa-cart-table__editor-display"
 						@click.stop="openDiscountAmountEdit"
 						tabindex="0"
+						data-pos-keyboard-target="cart-discount-amount"
 						role="button"
 						:aria-label="__('Edit discount amount')"
 						@keydown.enter.prevent="openDiscountAmountEdit"
@@ -279,6 +286,7 @@
 						class="posa-cart-table__editor-input"
 						@blur="closeDiscountAmountEdit"
 						@keydown.enter.prevent="closeDiscountAmountEdit"
+						@keydown.esc.prevent="cancelDiscountAmountEdit"
 						@click.stop
 						ref="discountAmountInput"
 						:autofocus="true"
@@ -296,6 +304,7 @@
 						class="posa-cart-table__editor-display"
 						@click.stop="openRateEdit"
 						tabindex="0"
+						data-pos-keyboard-target="cart-rate"
 						role="button"
 						:aria-label="__('Edit rate')"
 						@keydown.enter.prevent="openRateEdit"
@@ -314,6 +323,7 @@
 						class="posa-cart-table__editor-input"
 						@blur="closeRateEdit"
 						@keydown.enter.prevent="closeRateEdit"
+						@keydown.esc.prevent="cancelRateEdit"
 						@click.stop
 						ref="rateInput"
 						:autofocus="true"
@@ -432,6 +442,8 @@ const emit = defineEmits([
 	"update-rate",
 	"update-discount-percent",
 	"update-discount-amount",
+	"qty-edit-submitted",
+	"discount-percent-edit-submitted",
 	"toggle-offer",
 	"toggle-expand",
 	"remove-item",
@@ -537,17 +549,27 @@ function openUomEdit() {
 	});
 }
 
-function closeQtyEdit() {
+function closeQtyEdit(options = {}) {
 	if (isEditingQty.value) {
+		let didUpdate = false;
 		if (editingQtyValue.value !== "" && editingQtyValue.value != null) {
 			const newQty = parseFloat(editingQtyValue.value);
 			// Emit event to update parent state
 			const val = !newQty || newQty <= 0 ? 1 : newQty;
 			emit("update-qty", props.item, val);
+			didUpdate = true;
 		}
 		isEditingQty.value = false;
 		editingQtyValue.value = "";
+		if (didUpdate && options?.focusDiscountPercent) {
+			emit("qty-edit-submitted", props.item);
+		}
 	}
+}
+
+function cancelQtyEdit() {
+	isEditingQty.value = false;
+	editingQtyValue.value = "";
 }
 
 function handleMinusClick() {
@@ -606,6 +628,11 @@ function closeRateEdit() {
 	}
 }
 
+function cancelRateEdit() {
+	isEditingRate.value = false;
+	editingRateValue.value = "";
+}
+
 function openDiscountPercentEdit() {
 	if (disableDiscountEdit.value) return;
 	isEditingDiscountPercent.value = true;
@@ -628,6 +655,16 @@ function closeDiscountPercentEdit() {
 	}
 }
 
+function submitDiscountPercentEdit() {
+	closeDiscountPercentEdit();
+	emit("discount-percent-edit-submitted", props.item);
+}
+
+function cancelDiscountPercentEdit() {
+	isEditingDiscountPercent.value = false;
+	editingDiscountPercentValue.value = "";
+}
+
 function openDiscountAmountEdit() {
 	if (disableDiscountEdit.value) return;
 	isEditingDiscountAmount.value = true;
@@ -648,6 +685,11 @@ function closeDiscountAmountEdit() {
 		isEditingDiscountAmount.value = false;
 		editingDiscountAmountValue.value = "";
 	}
+}
+
+function cancelDiscountAmountEdit() {
+	isEditingDiscountAmount.value = false;
+	editingDiscountAmountValue.value = "";
 }
 </script>
 

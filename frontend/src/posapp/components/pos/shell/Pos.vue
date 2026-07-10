@@ -480,6 +480,14 @@ export default {
 			field?.focus?.();
 			field?.$el?.querySelector?.("input")?.focus?.();
 		};
+		const handlePosTabFocus = (event) => {
+			if (event.key !== "Tab" || event.altKey || event.ctrlKey || event.metaKey) {
+				return;
+			}
+
+			event.preventDefault();
+			focusItemSearchField();
+		};
 
 		useCustomerDisplayPublisher({
 			posProfile,
@@ -487,6 +495,7 @@ export default {
 		});
 
 		onMounted(() => {
+			document.addEventListener("keydown", handlePosTabFocus, true);
 			if (typeof window !== "undefined" && "ResizeObserver" in window) {
 				mobileDockObserver = new ResizeObserver(() => {
 					updateBottomDockHeight();
@@ -508,6 +517,7 @@ export default {
 		});
 
 		onBeforeUnmount(() => {
+			document.removeEventListener("keydown", handlePosTabFocus, true);
 			if (mobileDockObserver) {
 				mobileDockObserver.disconnect();
 				mobileDockObserver = null;
