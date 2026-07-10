@@ -45,30 +45,28 @@
 				</div>
 			</v-card-title>
 
-			<v-tabs
-				v-model="activeTab"
-				color="primary"
-				class="posa-item-history-tabs"
-			>
-				<v-tab value="sales" prepend-icon="mdi-history" data-item-history-keytarget data-testid="item-history-sales-tab">{{
-					__("Sales History")
-				}}</v-tab>
-				<v-tab value="details" prepend-icon="mdi-information-outline" data-item-history-keytarget data-testid="item-history-details-tab">{{
-					__("Item Details")
-				}}</v-tab>
+			<v-tabs v-model="activeTab" color="primary" class="posa-item-history-tabs">
+				<v-tab
+					value="sales"
+					prepend-icon="mdi-history"
+					data-item-history-keytarget
+					data-testid="item-history-sales-tab"
+					>{{ __("Sales History") }}</v-tab
+				>
+				<v-tab
+					value="details"
+					prepend-icon="mdi-information-outline"
+					data-item-history-keytarget
+					data-testid="item-history-details-tab"
+					>{{ __("Item Details") }}</v-tab
+				>
 			</v-tabs>
 			<v-divider />
 
 			<v-card-text class="posa-item-history-body">
 				<v-window v-model="activeTab">
 					<v-window-item value="sales">
-						<v-alert
-							v-if="offline"
-							type="warning"
-							variant="tonal"
-							density="compact"
-							class="mb-3"
-						>
+						<v-alert v-if="offline" type="warning" variant="tonal" density="compact" class="mb-3">
 							{{ __("Sales history requires an online connection.") }}
 						</v-alert>
 						<div class="posa-item-history-filters">
@@ -178,7 +176,9 @@
 									:key="`${row.doctype}-${row.invoice}`"
 									:class="{
 										'posa-item-history-row--active': selectedHistoryIndex === index,
-										'posa-modal-keyboard-box': isKeyboardTargetActive(`history-row-${index}`),
+										'posa-modal-keyboard-box': isKeyboardTargetActive(
+											`history-row-${index}`,
+										),
 									}"
 									tabindex="0"
 									data-item-history-keytarget
@@ -293,8 +293,17 @@
 		</v-card>
 	</v-dialog>
 
-	<v-dialog v-model="invoiceDetailDialog" max-width="1040px" scrollable :theme="isDarkTheme ? 'dark' : 'light'">
-		<v-card class="invoice-detail-card pos-themed-card">
+	<v-dialog
+		v-model="invoiceDetailDialog"
+		max-width="1040px"
+		scrollable
+		:theme="isDarkTheme ? 'dark' : 'light'"
+	>
+		<v-card
+			class="invoice-detail-card pos-themed-card"
+			data-testid="item-history-invoice-detail-dialog"
+			@keydown.esc.capture.stop.prevent="closeInvoiceDetailDialog"
+		>
 			<v-card-title class="d-flex align-center justify-space-between flex-wrap ga-3">
 				<div>
 					<div class="text-h6">{{ selectedInvoiceDetail?.name || __("Invoice Details") }}</div>
@@ -306,7 +315,7 @@
 					icon="mdi-close"
 					variant="text"
 					:aria-label="__('Close invoice details')"
-					@click="invoiceDetailDialog = false"
+					@click="closeInvoiceDetailDialog"
 				/>
 			</v-card-title>
 			<v-divider />
@@ -400,13 +409,7 @@ interface Props {
 	formatCurrency: (_val: any, _precision?: number) => string;
 	currencySymbol: (_currency?: string) => string;
 	isNumber: (_val: any) => string | boolean;
-	setFormatedCurrency: (
-		_item: any,
-		_field: string,
-		_value: any,
-		_force?: boolean,
-		_event?: any,
-	) => void;
+	setFormatedCurrency: (_item: any, _field: string, _value: any, _force?: boolean, _event?: any) => void;
 	calcPrices: (_item: any, _value: any, _event?: any) => void;
 	calcUom: (_item: any, _uom: string) => void;
 	changePriceListRate: (_item: any) => void;
@@ -627,7 +630,11 @@ const getTargetCenter = (element: HTMLElement) => {
 	};
 };
 
-const scoreTargetForArrow = (key: string, current: ReturnType<typeof getTargetCenter>, target: HTMLElement) => {
+const scoreTargetForArrow = (
+	key: string,
+	current: ReturnType<typeof getTargetCenter>,
+	target: HTMLElement,
+) => {
 	const candidate = getTargetCenter(target);
 	const dx = candidate.x - current.x;
 	const dy = candidate.y - current.y;
@@ -648,7 +655,13 @@ const setDefaultKeyboardTarget = async () => {
 		return;
 	}
 	const preferred: HTMLElement | null =
-		targets.find((target) => target.getAttribute("role") === "tab" && target.textContent?.includes(activeTab.value === "details" ? __("Item Details") : __("Sales History"))) ||
+		targets.find(
+			(target) =>
+				target.getAttribute("role") === "tab" &&
+				target.textContent?.includes(
+					activeTab.value === "details" ? __("Item Details") : __("Sales History"),
+				),
+		) ||
 		(activeTab.value === "sales"
 			? targets.find((target) => target.dataset.itemHistoryKey === "history-row-0") || null
 			: null) ||
@@ -744,6 +757,18 @@ const viewInvoice = async (row: any) => {
 	}
 };
 
+const closeInvoiceDetailDialog = async () => {
+	invoiceDetailDialog.value = false;
+	await nextTick();
+	const previousTarget = activeKeyboardTarget.value;
+	if (previousTarget?.isConnected && isElementVisible(previousTarget)) {
+		setKeyboardTarget(previousTarget);
+	} else {
+		await setDefaultKeyboardTarget();
+	}
+	getRootElement()?.focus?.({ preventScroll: true });
+};
+
 const isEditableTarget = (target: EventTarget | null) => {
 	const element = target as HTMLElement | null;
 	if (!element) return false;
@@ -754,7 +779,7 @@ const handleModalKeydown = (event: KeyboardEvent) => {
 	if (invoiceDetailDialog.value) {
 		if (event.key === "Escape") {
 			event.preventDefault();
-			invoiceDetailDialog.value = false;
+			void closeInvoiceDetailDialog();
 		}
 		return;
 	}
@@ -911,7 +936,9 @@ watch(historyRows, () => {
 
 .posa-item-history-row--active td {
 	background: rgba(0, 150, 166, 0.16) !important;
-	box-shadow: inset 0 2px 0 rgb(var(--v-theme-primary)), inset 0 -2px 0 rgb(var(--v-theme-primary));
+	box-shadow:
+		inset 0 2px 0 rgb(var(--v-theme-primary)),
+		inset 0 -2px 0 rgb(var(--v-theme-primary));
 }
 
 .posa-modal-keyboard-box {

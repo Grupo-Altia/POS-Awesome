@@ -380,3 +380,28 @@ Verification:
 - `/Users/mac/anaconda3/bin/conda run -n frappe bench --site retailmind.local clear-cache`
 - `POSA_KEYBOARD_E2E=1 POSA_SMOKE_BASE_URL=http://127.0.0.1:8000 POSA_SMOKE_USER=aqib@ai.ai POSA_SMOKE_PASSWORD=alpha123 yarn playwright test --config=playwright.config.ts tests/e2e/pos-keyboard-accessibility.spec.ts --reporter=list`
 - Result: `6 passed (2.3m)`.
+
+## 2026-07-10 Invoice Edit and Item History Keyboard Fixes
+
+Issues resolved:
+
+- In the submitted invoice edit modal, pressing `Enter` on a focused discount field could stay on the same field when the value was not changed.
+- In the item sales history modal, closing the nested invoice preview with `Esc` could leave focus in the closed preview and stop arrow-key bounding-box navigation.
+- The credentialed Playwright suite could race the live POS item sync and transient bench login responses, causing false failures before the keyboard path under test.
+
+Implemented:
+
+- Submitted invoice edit `Enter` handling now advances when the active field belongs to the current edit-navigation target, even if no value changed.
+- Item sales history invoice preview close now restores the prior modal keyboard target, refocuses the modal shell, and keeps arrow navigation alive.
+- Added regression coverage for opening an item-history invoice preview, closing it with `Esc`, and continuing arrow navigation in the parent modal.
+- Hardened the real-browser keyboard suite with login retries, explicit item fixture discovery, highest positive selling-price selection, and POS search retry while the offline item index is syncing.
+
+Verification:
+
+- `yarn build`
+- `yarn type-check`
+- `/Users/mac/anaconda3/bin/conda run -n frappe bench --site retailmind.local clear-cache`
+- `POSA_KEYBOARD_E2E=1 POSA_SMOKE_BASE_URL=http://127.0.0.1:8000 POSA_SMOKE_USER=aqib@ai.ai POSA_SMOKE_PASSWORD=alpha123 yarn playwright test --config=playwright.config.ts tests/e2e/pos-keyboard-accessibility.spec.ts -g "operator can add items and edit invoice grid fully from keyboard" --reporter=list`
+- Result: `1 passed (54.9s)`.
+- `POSA_KEYBOARD_E2E=1 POSA_SMOKE_BASE_URL=http://127.0.0.1:8000 POSA_SMOKE_USER=aqib@ai.ai POSA_SMOKE_PASSWORD=alpha123 yarn playwright test --config=playwright.config.ts tests/e2e/pos-keyboard-accessibility.spec.ts --reporter=list`
+- Result: `6 passed (3.0m)`.

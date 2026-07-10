@@ -697,9 +697,12 @@
 								>
 								<template #item.status="{ item }"
 									><div class="d-flex flex-wrap ga-1">
-										<v-chip size="small" :color="statusColor(item.status)" variant="tonal">{{
-											__(item.status || "Unpaid")
-										}}</v-chip>
+										<v-chip
+											size="small"
+											:color="statusColor(item.status)"
+											variant="tonal"
+											>{{ __(item.status || "Unpaid") }}</v-chip
+										>
 										<v-chip
 											v-if="modificationCount(item)"
 											size="small"
@@ -1532,7 +1535,12 @@
 					<v-chip v-if="editInvoiceDoc?.doctype" size="small" color="primary" variant="tonal">
 						{{ __(editInvoiceDoc.doctype) }}
 					</v-chip>
-					<v-chip v-if="editEligibility?.edit_window_hours" size="small" color="warning" variant="tonal">
+					<v-chip
+						v-if="editEligibility?.edit_window_hours"
+						size="small"
+						color="warning"
+						variant="tonal"
+					>
 						{{ __("{0}h window", [editEligibility.edit_window_hours]) }}
 					</v-chip>
 					<v-btn
@@ -1807,7 +1815,10 @@
 						</tr>
 					</thead>
 					<tbody>
-						<tr v-for="(payment, index) in editInvoiceDoc.payments || []" :key="payment.name || index">
+						<tr
+							v-for="(payment, index) in editInvoiceDoc.payments || []"
+							:key="payment.name || index"
+						>
 							<td>{{ payment.mode_of_payment }}</td>
 							<td>
 								<v-text-field
@@ -3094,7 +3105,9 @@ export default {
 			return {
 				doctype: invoice?.doctype || this.currentInvoiceDoctype,
 				name: invoice?.name,
-				pos_profile: this.isSupervisorScope() ? this.resolveSupervisorProfileScope() : this.posProfile?.name,
+				pos_profile: this.isSupervisorScope()
+					? this.resolveSupervisorProfileScope()
+					: this.posProfile?.name,
 				company: this.posProfile?.company || null,
 			};
 		},
@@ -3142,7 +3155,9 @@ export default {
 			const primaryIndex = Math.max(
 				0,
 				payments.findIndex((payment) =>
-					String(payment?.mode_of_payment || "").toLowerCase().includes("cash"),
+					String(payment?.mode_of_payment || "")
+						.toLowerCase()
+						.includes("cash"),
 				),
 			);
 			payments.forEach((payment, index) => {
@@ -3155,7 +3170,8 @@ export default {
 			if (previewDoc) {
 				previewDoc.paid_amount = targetTotal;
 				previewDoc.base_paid_amount = this.normalizeEditMoney(
-					targetTotal * Number(previewDoc.conversion_rate || this.editInvoiceDoc.conversion_rate || 1),
+					targetTotal *
+						Number(previewDoc.conversion_rate || this.editInvoiceDoc.conversion_rate || 1),
 				);
 				previewDoc.outstanding_amount = 0;
 			}
@@ -3259,7 +3275,10 @@ export default {
 			const root = element.closest?.("[data-edit-nav]") || element;
 			this.setEditKeyboardTarget(root, { focusRoot: false });
 			target.focus();
-			if (typeof target.select === "function" && target.matches("input[type='number'], input[type='text']")) {
+			if (
+				typeof target.select === "function" &&
+				target.matches("input[type='number'], input[type='text']")
+			) {
 				target.select();
 			}
 			this.editKeyboardEditing = target.matches("input, textarea, select, [contenteditable='true']");
@@ -3366,7 +3385,9 @@ export default {
 				this.$nextTick(() => {
 					if (target.dataset.editNav === "new-item-add") {
 						this.setEditKeyboardTarget(
-							this.editNavigationFields().find((element) => element.dataset.editNav === "new-item-code"),
+							this.editNavigationFields().find(
+								(element) => element.dataset.editNav === "new-item-code",
+							),
 						);
 						return;
 					}
@@ -3382,7 +3403,9 @@ export default {
 			if (target) {
 				this.setEditKeyboardTarget(target);
 				this.editKeyboardEditing = Boolean(
-					this.editFocusableElement(target)?.matches("input, textarea, select, [contenteditable='true']"),
+					this.editFocusableElement(target)?.matches(
+						"input, textarea, select, [contenteditable='true']",
+					),
 				);
 			}
 		},
@@ -3422,7 +3445,8 @@ export default {
 			const fieldRoot = target?.closest?.("[data-edit-nav]");
 			if (event.key === "Enter") {
 				event.preventDefault();
-				if (this.editKeyboardEditing && fieldRoot) {
+				const activeRoot = document.activeElement?.closest?.("[data-edit-nav]");
+				if ((this.editKeyboardEditing || activeRoot === fieldRoot) && fieldRoot) {
 					this.editKeyboardEditing = false;
 					this.setEditKeyboardTarget(fieldRoot);
 					this.moveEditKeyboardBox(event.shiftKey ? "ArrowLeft" : "ArrowRight");
@@ -3434,7 +3458,10 @@ export default {
 		async openEditInvoice(invoice) {
 			if (!invoice?.name) return;
 			if (isOffline()) {
-				this.toastStore.show({ title: __("Editing submitted invoices requires an online connection"), color: "warning" });
+				this.toastStore.show({
+					title: __("Editing submitted invoices requires an online connection"),
+					color: "warning",
+				});
 				return;
 			}
 			if (!this.canEditSubmittedInvoice(invoice)) {
@@ -3593,10 +3620,17 @@ export default {
 			if (!this.editInvoiceDoc?.name || this.editSubmitting) return;
 			this.clearScheduledEditPreview();
 			if (isOffline()) {
-				this.toastStore.show({ title: __("Editing submitted invoices requires an online connection"), color: "warning" });
+				this.toastStore.show({
+					title: __("Editing submitted invoices requires an online connection"),
+					color: "warning",
+				});
 				return;
 			}
-			if (!window.confirm(__("Cancel {0} and submit a corrected amendment?", [this.editInvoiceDoc.name]))) {
+			if (
+				!window.confirm(
+					__("Cancel {0} and submit a corrected amendment?", [this.editInvoiceDoc.name]),
+				)
+			) {
 				return;
 			}
 			this.editSubmitting = true;
@@ -3826,7 +3860,8 @@ export default {
 				const response = await fetch(pdf_url, {
 					headers: { "X-Frappe-CSRF-Token": frappe.csrf_token },
 				});
-				if (!response.ok) throw new Error(__("Failed to download invoice. Status: {0}", [response.status]));
+				if (!response.ok)
+					throw new Error(__("Failed to download invoice. Status: {0}", [response.status]));
 				const blob = await response.blob();
 				const file = new File([blob], `${invoice.name}.pdf`, { type: "application/pdf" });
 				if (navigator.share && navigator.canShare && navigator.canShare({ files: [file] })) {
