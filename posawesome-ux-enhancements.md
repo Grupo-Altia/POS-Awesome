@@ -190,3 +190,8 @@ Verification:
 - `yarn vitest run tests/cartFieldFocus.spec.ts tests/invoiceShortcuts.spec.ts tests/keyboardNavigation.spec.ts`
 - `yarn build`
 - `yarn lint`
+
+Follow-up:
+
+- Quantity edit mode now starts with an empty input so operators can type the replacement quantity immediately.
+- If the operator leaves quantity blank and moves away, the previous cart quantity is restored instead of being overwritten.

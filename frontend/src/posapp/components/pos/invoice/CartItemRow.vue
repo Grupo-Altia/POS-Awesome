@@ -584,7 +584,7 @@ function focusQtyInput() {
 
 function handleQtyFocus() {
 	isEditingQty.value = true;
-	editingQtyValue.value = formatQtyInputValue();
+	editingQtyValue.value = "";
 }
 
 function handleQtyInputUpdate(value) {
