@@ -66,9 +66,11 @@
 					@add-one="addOne"
 					@calc-uom="calcUom"
 					@update-rate="handleRateUpdate"
+					@rate-edit-submitted="(submittedItem) => handleGridEditorSubmitted(submittedItem, 'rate')"
 					@update-discount-percent="handleDiscountPercentUpdate"
 					@update-discount-amount="handleDiscountAmountUpdate"
-					@discount-percent-edit-submitted="handleDiscountEditSubmitted"
+					@discount-percent-edit-submitted="(submittedItem) => handleGridEditorSubmitted(submittedItem, 'discount_percentage')"
+					@discount-amount-edit-submitted="(submittedItem) => handleGridEditorSubmitted(submittedItem, 'discount_amount')"
 					@open-name-dialog="openNameDialog"
 					@reset-item-name="resetItemName"
 					@toggle-offer="toggleOffer"
@@ -457,6 +459,21 @@ const commitActiveGridEditorAndMoveEntry = async (delta: number) => {
 	moveGridEntry(delta);
 };
 
+const advanceGridEntryFromItem = (item: any, fromCellKey: CartGridColumnKey, delta = 1) => {
+	const rowIndex = getItemIndex(item);
+	if (rowIndex < 0) {
+		eventBus?.emit("focus_item_search");
+		return false;
+	}
+
+	gridMode.value = "cell";
+	activeRowIndex.value = rowIndex;
+	rememberSelectedRow(rowIndex);
+	activeCellKey.value = fromCellKey;
+	void commitActiveGridEditorAndMoveEntry(delta);
+	return true;
+};
+
 const openItemHistory = (item: any) => {
 	if (!item) {
 		return false;
@@ -605,27 +622,11 @@ const getItemIndex = (item: any) => {
 };
 
 const handleQtyEditSubmitted = (item: any) => {
-	if (gridMode.value !== "inactive") {
-		void commitActiveGridEditorAndMoveEntry(1);
-		return;
-	}
-	window.setTimeout(() => {
-		const index = getItemIndex(item);
-		if (index >= 0 && focusItemField(index, "discount_percentage", { activate: false })) {
-			return;
-		}
-		eventBus?.emit("focus_item_search");
-	}, 0);
+	advanceGridEntryFromItem(item, "qty");
 };
 
-const handleDiscountEditSubmitted = () => {
-	if (gridMode.value !== "inactive") {
-		void commitActiveGridEditorAndMoveEntry(1);
-		return;
-	}
-	window.setTimeout(() => {
-		eventBus?.emit("focus_item_search");
-	}, 0);
+const handleGridEditorSubmitted = (item: any, fromCellKey: CartGridColumnKey) => {
+	advanceGridEntryFromItem(item, fromCellKey);
 };
 
 const handleRateUpdate = (item: any, newRate: any) => {

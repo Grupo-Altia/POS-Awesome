@@ -295,6 +295,27 @@ Verification:
 - `PYTHONPATH=/Users/mac/frappe-bench/apps/frappe:/Users/mac/frappe-bench/apps/erpnext:/Users/mac/frappe-bench/apps/posawesome /Users/mac/anaconda3/bin/conda run -n frappe python -m unittest posawesome.posawesome.api.test_item_quick_edit`
 - `/Users/mac/anaconda3/bin/conda run -n frappe bench --site retailmind.local execute posawesome.posawesome.api.item_quick_edit.get_item_quick_edit --kwargs "{'item_code':'39017','pos_profile':'POS Awesome - MedPlus'}"` returned mapped supplier `HARIS TRADERS-MEIJI MILK (1)` from `RetailMind Supplier Brand Mapping`.
 
+## 2026-07-10 Invoice Item Quantity Enter Navigation Fix
+
+Issue:
+
+- After adding/selecting an item, keyboard focus moved to quantity, but pressing `Enter` after typing a quantity could commit the value without moving the bounding box to the next editable invoice-item cell.
+- The old quantity submit path only advanced when the quantity value changed, so unchanged/default quantities could leave the keyboard workflow feeling frozen.
+
+Implemented:
+
+- Quantity `Enter` now always commits the current editor state and emits a submit/advance event, even when the typed quantity matches the current row quantity.
+- Discount amount and rate editors now emit the same submit/advance signal as quantity and discount percentage.
+- The invoice-items table now resolves the submitting row, re-enters cell mode at that row/column, and advances through the shared grid entry navigation path.
+- Added focused coverage for the unchanged-quantity `Enter` case.
+
+Verification:
+
+- `yarn test:unit tests/cartItemRowKeyboard.spec.ts tests/cartFieldFocus.spec.ts`
+- `yarn test:unit tests/invoiceShortcuts.spec.ts tests/invoiceQuickEditSelection.spec.ts`
+- `yarn type-check`
+- `yarn lint`
+
 ## 2026-07-10 Submitted Invoice Edit Keyboard UX
 
 Implemented:

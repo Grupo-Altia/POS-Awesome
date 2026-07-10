@@ -108,7 +108,7 @@
 						@update:model-value="handleQtyInputUpdate"
 						@focus="handleQtyFocus"
 						@blur="closeQtyEdit"
-						@keydown.enter.stop.prevent="closeQtyEdit({ focusDiscountPercent: true })"
+						@keydown.enter.stop.prevent="submitQtyEdit"
 						@keydown.esc.stop.prevent="cancelQtyEdit"
 						@click.stop
 						ref="qtyInput"
@@ -272,7 +272,7 @@
 						variant="outlined"
 						class="posa-cart-table__editor-input"
 						@blur="closeDiscountAmountEdit"
-						@keydown.enter.prevent="closeDiscountAmountEdit"
+						@keydown.enter.prevent="submitDiscountAmountEdit"
 						@keydown.esc.prevent="cancelDiscountAmountEdit"
 						@click.stop
 						ref="discountAmountInput"
@@ -309,7 +309,7 @@
 						variant="outlined"
 						class="posa-cart-table__editor-input"
 						@blur="closeRateEdit"
-						@keydown.enter.prevent="closeRateEdit"
+						@keydown.enter.prevent="submitRateEdit"
 						@keydown.esc.prevent="cancelRateEdit"
 						@click.stop
 						ref="rateInput"
@@ -444,6 +444,8 @@ const emit = defineEmits([
 	"update-discount-amount",
 	"qty-edit-submitted",
 	"discount-percent-edit-submitted",
+	"discount-amount-edit-submitted",
+	"rate-edit-submitted",
 	"toggle-offer",
 	"toggle-expand",
 	"remove-item",
@@ -601,26 +603,26 @@ function openUomEdit() {
 	});
 }
 
-function closeQtyEdit(options = {}) {
+function closeQtyEdit() {
 	if (isEditingQty.value) {
-		let didUpdate = false;
 		if (editingQtyValue.value !== "" && editingQtyValue.value != null) {
 			const newQty = parseFloat(editingQtyValue.value);
 			// Emit event to update parent state
 			const val = !newQty || newQty <= 0 ? 1 : newQty;
 			if (val !== props.item.qty) {
 				emit("update-qty", props.item, val);
-				didUpdate = true;
 			}
 			editingQtyValue.value = String(val);
 		} else {
 			editingQtyValue.value = formatQtyInputValue();
 		}
 		isEditingQty.value = false;
-		if (didUpdate && options?.focusDiscountPercent) {
-			emit("qty-edit-submitted", props.item);
-		}
 	}
+}
+
+function submitQtyEdit() {
+	closeQtyEdit();
+	emit("qty-edit-submitted", props.item);
 }
 
 function cancelQtyEdit() {
@@ -681,6 +683,11 @@ function closeRateEdit() {
 	}
 }
 
+function submitRateEdit() {
+	closeRateEdit();
+	emit("rate-edit-submitted", props.item);
+}
+
 function cancelRateEdit() {
 	isEditingRate.value = false;
 	editingRateValue.value = "";
@@ -738,6 +745,11 @@ function closeDiscountAmountEdit() {
 		isEditingDiscountAmount.value = false;
 		editingDiscountAmountValue.value = "";
 	}
+}
+
+function submitDiscountAmountEdit() {
+	closeDiscountAmountEdit();
+	emit("discount-amount-edit-submitted", props.item);
 }
 
 function cancelDiscountAmountEdit() {
