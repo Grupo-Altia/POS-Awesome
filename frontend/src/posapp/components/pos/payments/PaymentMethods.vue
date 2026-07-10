@@ -23,6 +23,7 @@
 				<v-col cols="12" md="7" v-if="!isMpesaC2bPayment(payment)">
 					<v-text-field
 						data-pos-keyboard-target="payment-amount"
+						:data-testid="`payment-amount-${payment.mode_of_payment}`"
 						density="compact"
 						variant="solo"
 						:color="isReturn ? 'error' : 'primary'"

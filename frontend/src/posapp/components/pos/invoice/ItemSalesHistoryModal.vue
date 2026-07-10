@@ -12,6 +12,7 @@
 			class="posa-item-history-card pos-themed-card"
 			tabindex="0"
 			data-pos-keyboard-root="item-history"
+			data-testid="item-history-modal"
 			@keydown.capture="handleModalKeydown"
 			@click.capture="handleModalClick"
 		>
@@ -35,6 +36,7 @@
 					</v-chip>
 					<v-btn
 						data-item-history-keytarget
+						data-testid="item-history-close"
 						icon="mdi-close"
 						variant="text"
 						:aria-label="__('Close item history')"
@@ -48,10 +50,10 @@
 				color="primary"
 				class="posa-item-history-tabs"
 			>
-				<v-tab value="sales" prepend-icon="mdi-history" data-item-history-keytarget>{{
+				<v-tab value="sales" prepend-icon="mdi-history" data-item-history-keytarget data-testid="item-history-sales-tab">{{
 					__("Sales History")
 				}}</v-tab>
-				<v-tab value="details" prepend-icon="mdi-information-outline" data-item-history-keytarget>{{
+				<v-tab value="details" prepend-icon="mdi-information-outline" data-item-history-keytarget data-testid="item-history-details-tab">{{
 					__("Item Details")
 				}}</v-tab>
 			</v-tabs>
@@ -180,6 +182,7 @@
 									}"
 									tabindex="0"
 									data-item-history-keytarget
+									:data-testid="`item-history-row-${index}`"
 									:data-item-history-key="`history-row-${index}`"
 									@click="selectedHistoryIndex = index"
 									@dblclick="viewInvoice(row)"
@@ -208,6 +211,7 @@
 									<td class="text-end">
 										<v-btn
 											data-item-history-keytarget
+											:data-testid="`item-history-view-${index}`"
 											icon="mdi-eye-outline"
 											variant="text"
 											size="small"

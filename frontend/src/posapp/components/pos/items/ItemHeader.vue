@@ -17,7 +17,7 @@
 						:label="frappe._('Search, scan or browse item')"
 							hide-details
 							data-pos-keyboard-target="item-search"
-							data-pos-arrow-enters-invoice-grid
+							data-testid="pos-item-search"
 							:model-value="searchInput"
 						@update:model-value="
 							(val) => {

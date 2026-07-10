@@ -21,6 +21,7 @@ export const buildSelectorRowProps = (
 	return {
 		...highlightProps,
 		"data-item-code": item?.item_code || "",
+		"data-testid": item?.item_code ? `pos-item-row-${item.item_code}` : "pos-item-row",
 		"data-pos-keyboard-target": "item-row",
 		draggable: true,
 		role: "button",

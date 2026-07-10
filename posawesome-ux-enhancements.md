@@ -323,11 +323,41 @@ Implemented:
 - The submitted invoice edit modal now opens with a visible keyboard bounding box instead of focusing an input immediately.
 - Arrow keys move the box across customer/discount fields, item quantity/rate/discount cells, item delete buttons, add-item fields, payment amount fields, cancel, submit, and close.
 - `Enter` focuses the boxed input for editing or activates the boxed button.
-- While editing a field, arrow keys leave the field and move the box; `Enter` commits the field and advances the box; `Esc` leaves field editing or closes the modal.
+- While editing a field, arrow keys stay inside the field for normal cursor/value control; `Enter` commits the field and advances the box; `Esc` leaves field editing or closes the modal.
 - The modal keeps normal `Ctrl/Cmd+Enter` submit behavior.
+- Payment rows in the edit modal are now automatic. The primary payment row, normally Cash, is adjusted to the corrected invoice total after preview and before submit.
+- The modal shows a cashier settlement summary: collect the difference when the corrected total is higher than the original paid amount, refund the difference when the corrected total is lower, or no cash difference when unchanged.
+- Fixed the focus handoff so pressing `Enter` on the bounding box places the cursor inside the selected editable field instead of immediately returning focus to the modal shell.
 
 Verification:
 
 - `yarn type-check`
 - `yarn vitest run tests/cartFieldFocus.spec.ts tests/invoiceShortcuts.spec.ts tests/keyboardNavigation.spec.ts`
 - `yarn build`
+
+## 2026-07-10 Product Search Arrow Navigation Fix
+
+Implemented:
+
+- Removed invoice-grid arrow capture from the product selector search field so `ArrowDown` continues into the product search results instead of moving focus to the invoice items table.
+- Kept invoice-item search grid entry behavior scoped to the cart search field.
+
+## 2026-07-10 POS Keyboard Accessibility Playwright Suite
+
+Implemented:
+
+- Added an opt-in real-browser Playwright E2E suite at `frontend/tests/e2e/pos-keyboard-accessibility.spec.ts`.
+- The suite models the real counter workflow: product search, invoice grid editing, item history, item quick edit, saved drafts, payment, invoice management, and submitted invoice edit.
+- Added stable `data-testid` hooks for keyboard-critical POS surfaces without changing user-visible UI.
+- The suite is gated behind `POSA_KEYBOARD_E2E=1` because it creates real invoices and temporarily enables item quick edit on the configured POS Profile.
+
+Run:
+
+- `POSA_KEYBOARD_E2E=1 POSA_SMOKE_BASE_URL=http://127.0.0.1:8000 POSA_SMOKE_USER=<user> POSA_SMOKE_PASSWORD=<password> yarn playwright test --config=playwright.config.ts tests/e2e/pos-keyboard-accessibility.spec.ts`
+
+Verification:
+
+- `yarn type-check`
+- `yarn playwright test --config=playwright.config.ts --list`
+- `yarn vitest run tests/invoiceShortcuts.spec.ts tests/keyboardNavigation.spec.ts tests/cartFieldFocus.spec.ts tests/cartItemRowKeyboard.spec.ts tests/itemHeader.spec.ts`
+- Local opt-in Playwright execution reached the login page and stopped with the expected setup error because no Playwright credentials/session were configured in this shell.

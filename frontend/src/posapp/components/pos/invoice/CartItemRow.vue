@@ -4,6 +4,7 @@
 		class="posa-cart-item-row"
 		:class="rowClasses"
 		:data-cart-row-index="rowIndex"
+		:data-testid="`cart-row-${item.item_code || rowIndex}`"
 		:data-active-cell-key="activeCellKey || undefined"
 		:tabindex="activeRow && keyboardMode === 'row' ? 0 : -1"
 		role="row"
@@ -522,6 +523,7 @@ function getCellAttrs(key, baseClass = "") {
 		id: props.rowIndex >= 0 ? getCartGridCellId(props.rowIndex, key) : undefined,
 		role: "gridcell",
 		"data-column-key": key,
+		"data-testid": `cart-cell-${props.rowIndex}-${key}`,
 		"aria-selected": isKeyboardCellActive(key) ? "true" : "false",
 		class: [
 			baseClass,

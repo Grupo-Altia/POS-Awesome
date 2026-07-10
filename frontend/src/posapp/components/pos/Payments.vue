@@ -3,6 +3,7 @@
 	<div
 		ref="paymentRoot"
 		data-pos-keyboard-root="payment"
+		data-testid="payment-root"
 		:class="['payment-shell', { 'payment-shell--dialog': dialogMode }]"
 	>
 		<v-card

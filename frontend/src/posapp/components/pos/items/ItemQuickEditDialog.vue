@@ -5,7 +5,7 @@
 		persistent
 		@update:model-value="emit('update:modelValue', $event)"
 	>
-		<v-card class="item-quick-edit pos-themed-card">
+		<v-card class="item-quick-edit pos-themed-card" data-testid="item-quick-edit-modal">
 			<v-card-title class="item-quick-edit__title">
 				<div>
 					<div class="text-h6">{{ __("Item Quick Edit") }}</div>
@@ -42,6 +42,7 @@
 						<v-text-field
 							ref="lookupField"
 							v-model.trim="lookupValue"
+							data-testid="item-quick-edit-lookup"
 							:label="__('Item Code or Barcode')"
 							density="compact"
 							variant="outlined"
@@ -77,6 +78,7 @@
 								<v-col cols="12" md="8">
 									<v-text-field
 										v-model="form.item_name"
+										data-testid="item-quick-edit-name"
 										:label="__('Name')"
 										density="compact"
 										variant="outlined"
@@ -87,6 +89,7 @@
 								<v-col cols="12" md="6">
 									<v-text-field
 										v-model="form.retailmind_short_name"
+										data-testid="item-quick-edit-short-name"
 										:label="__('Short Name')"
 										density="compact"
 										variant="outlined"
@@ -151,6 +154,7 @@
 								<v-col cols="12" md="6">
 									<v-text-field
 										v-model.number="form.retail_price"
+										data-testid="item-quick-edit-retail-price"
 										:label="__('Retail Price')"
 										type="number"
 										min="0"
@@ -207,6 +211,7 @@
 							<div class="item-quick-edit__section-title">{{ __("Controls") }}</div>
 							<v-checkbox
 								v-model="form.retailmind_controlled_item"
+								data-testid="item-quick-edit-controlled"
 								:label="__('Steroid/Narcotics Item')"
 								density="compact"
 								hide-details
@@ -240,6 +245,7 @@
 				<v-btn
 					color="primary"
 					variant="tonal"
+					data-testid="item-quick-edit-update"
 					:loading="saving"
 					:disabled="!loaded || !canSave || !isOnline || loading"
 					@click="save"

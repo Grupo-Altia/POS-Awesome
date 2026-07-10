@@ -9,6 +9,7 @@
 				@click="$emit('save-and-clear')"
 				class="summary-btn"
 				data-pos-keyboard-target="invoice-action"
+				data-testid="invoice-action-save-clear"
 				:loading="saveLoading"
 			>
 				{{ __("Save & Clear") }}
@@ -23,6 +24,7 @@
 				@click="$emit('load-drafts')"
 				class="white-text-btn summary-btn"
 				data-pos-keyboard-target="invoice-action"
+				data-testid="invoice-action-drafts"
 				:loading="loadDraftsLoading"
 			>
 				{{ __("Drafts") }}
@@ -37,6 +39,7 @@
 				@click="$emit('select-order')"
 				class="summary-btn"
 				data-pos-keyboard-target="invoice-action"
+				data-testid="invoice-action-select-order"
 				:loading="selectOrderLoading"
 			>
 				{{ __("Select S.O") }}
@@ -51,6 +54,7 @@
 				@click="$emit('open-invoice-management')"
 				class="summary-btn"
 				data-pos-keyboard-target="invoice-action"
+				data-testid="invoice-action-management"
 				:loading="invoiceManagementLoading"
 			>
 				{{ __("Invoice Mgmt") }}
@@ -65,6 +69,7 @@
 				@click="$emit('cancel-sale')"
 				class="summary-btn"
 				data-pos-keyboard-target="invoice-action"
+				data-testid="invoice-action-cancel-sale"
 				:loading="cancelLoading"
 			>
 				{{ __("Cancel Sale") }}
@@ -80,6 +85,7 @@
 				@click="$emit('open-returns')"
 				class="summary-btn"
 				data-pos-keyboard-target="invoice-action"
+				data-testid="invoice-action-returns"
 				:loading="returnsLoading"
 			>
 				{{ __("Sales Return") }}
@@ -94,6 +100,7 @@
 				@click="$emit('print-draft')"
 				class="summary-btn"
 				data-pos-keyboard-target="invoice-action"
+				data-testid="invoice-action-print-draft"
 				:loading="printLoading"
 			>
 				{{ __("Print Draft") }}
@@ -108,6 +115,7 @@
 				@click="$emit('open-customer-display')"
 				class="summary-btn"
 				data-pos-keyboard-target="invoice-action"
+				data-testid="invoice-action-customer-display"
 				:loading="customerDisplayLoading"
 			>
 				{{ __("Customer Screen") }}
@@ -123,6 +131,7 @@
 				@click="$emit('show-payment')"
 				class="summary-btn pay-btn"
 				data-pos-keyboard-target="pay"
+				data-testid="invoice-action-pay"
 				:loading="paymentLoading"
 			>
 				{{ __("PAY") }}

@@ -15,6 +15,7 @@
 					isDarkTheme ? 'invoice-management-card--dark' : 'invoice-management-card--light',
 				]"
 				variant="flat"
+				data-testid="invoice-management-dialog"
 			>
 				<v-card-title class="invoice-management-header">
 					<div>
@@ -314,6 +315,7 @@
 											variant="text"
 											size="small"
 											color="primary"
+											:data-testid="`invoice-management-edit-${item.name}`"
 											:title="__('Edit Invoice')"
 											:aria-label="__('Edit submitted invoice')"
 											@click="openEditInvoice(item)"
@@ -476,6 +478,7 @@
 											size="small"
 											variant="text"
 											color="primary"
+											:data-testid="`invoice-management-edit-${invoice.name}`"
 											:title="__('Edit Invoice')"
 											:aria-label="__('Edit submitted invoice')"
 											@click="openEditInvoice(invoice)"
@@ -725,6 +728,7 @@
 											variant="text"
 											size="small"
 											color="primary"
+											:data-testid="`invoice-management-edit-${item.name}`"
 											:title="__('Edit Invoice')"
 											:aria-label="__('Edit submitted invoice')"
 											@click="openEditInvoice(item)"
@@ -882,6 +886,7 @@
 											size="small"
 											variant="text"
 											color="primary"
+											:data-testid="`invoice-management-edit-${invoice.name}`"
 											:title="__('Edit Invoice')"
 											:aria-label="__('Edit submitted invoice')"
 											@click="openEditInvoice(invoice)"
@@ -1507,11 +1512,14 @@
 		:theme="isDarkTheme ? 'dark' : 'light'"
 	>
 		<v-card
+			tabindex="0"
 			:class="[
 				'invoice-detail-card',
 				isDarkTheme ? 'invoice-detail-card--dark' : 'invoice-detail-card--light',
 			]"
+			data-testid="invoice-edit-modal"
 			@keydown.capture="handleEditModalKeydown"
+			@click.capture="handleEditModalClick"
 		>
 			<v-card-title class="d-flex align-center justify-space-between flex-wrap ga-3">
 				<div>
@@ -1530,6 +1538,8 @@
 					<v-btn
 						icon="mdi-close"
 						variant="text"
+						class="edit-key-field"
+						data-edit-nav="close"
 						:aria-label="__('Close edit invoice dialog')"
 						@click="closeEditInvoice"
 					/>
@@ -1568,18 +1578,37 @@
 						</div>
 					</div>
 					<div class="summary-tile">
-						<div class="summary-tile__label">{{ __("Paid") }}</div>
+						<div class="summary-tile__label">{{ __("Payment Applied") }}</div>
 						<div class="summary-tile__value">
-							{{ currencySymbol((editPreviewDoc || editInvoiceDoc).currency) }}
-							{{ formatCurrency((editPreviewDoc || editInvoiceDoc).paid_amount || editPaymentTotal) }}
+							{{ currencySymbol(editSettlementCurrency) }}
+							{{ formatCurrency(editAutoPaymentTotal) }}
 						</div>
 					</div>
 					<div class="summary-tile">
-						<div class="summary-tile__label">{{ __("Outstanding") }}</div>
+						<div class="summary-tile__label">{{ __("Cash Difference") }}</div>
 						<div class="summary-tile__value">
-							{{ currencySymbol((editPreviewDoc || editInvoiceDoc).currency) }}
-							{{ formatCurrency((editPreviewDoc || editInvoiceDoc).outstanding_amount || 0) }}
+							{{ currencySymbol(editSettlementCurrency) }}
+							{{ formatCurrency(Math.abs(editSettlementDelta)) }}
 						</div>
+						<div class="summary-tile__meta">
+							{{ editSettlementLabel }}
+						</div>
+					</div>
+				</div>
+				<div
+					class="edit-settlement-summary mb-4"
+					:class="editSettlementSummaryClass"
+					data-testid="invoice-edit-settlement-summary"
+				>
+					<div>
+						<div class="edit-settlement-summary__label">{{ __("Cashier Action") }}</div>
+						<div class="edit-settlement-summary__value">
+							{{ editSettlementLabel }}
+						</div>
+					</div>
+					<div class="edit-settlement-summary__amount">
+						{{ currencySymbol(editSettlementCurrency) }}
+						{{ formatCurrency(Math.abs(editSettlementDelta)) }}
 					</div>
 				</div>
 
@@ -1591,6 +1620,7 @@
 						hide-details
 						class="edit-key-field"
 						data-edit-nav="customer"
+						data-testid="invoice-edit-customer"
 						:label="__('Customer')"
 						@update:model-value="scheduleEditPreview()"
 					/>
@@ -1602,6 +1632,7 @@
 						hide-details
 						class="edit-key-field"
 						data-edit-nav="discount_amount"
+						data-testid="invoice-edit-discount-amount"
 						:label="__('Invoice Discount')"
 						@update:model-value="scheduleEditPreview()"
 					/>
@@ -1613,6 +1644,7 @@
 						hide-details
 						class="edit-key-field"
 						data-edit-nav="additional_discount_percentage"
+						data-testid="invoice-edit-additional-discount-percentage"
 						:label="__('Additional Discount %')"
 						@update:model-value="scheduleEditPreview()"
 					/>
@@ -1645,6 +1677,7 @@
 									hide-details
 									class="edit-number-input edit-key-field"
 									:data-edit-nav="`item-${index}-qty`"
+									:data-testid="`invoice-edit-item-${index}-qty`"
 									:data-edit-row="index"
 									data-edit-col="qty"
 									data-edit-section="items"
@@ -1660,6 +1693,7 @@
 									hide-details
 									class="edit-number-input edit-key-field"
 									:data-edit-nav="`item-${index}-rate`"
+									:data-testid="`invoice-edit-item-${index}-rate`"
 									:data-edit-row="index"
 									data-edit-col="rate"
 									data-edit-section="items"
@@ -1675,6 +1709,7 @@
 									hide-details
 									class="edit-number-input edit-key-field"
 									:data-edit-nav="`item-${index}-discount_percentage`"
+									:data-testid="`invoice-edit-item-${index}-discount-percentage`"
 									:data-edit-row="index"
 									data-edit-col="discount_percentage"
 									data-edit-section="items"
@@ -1690,6 +1725,7 @@
 									hide-details
 									class="edit-number-input edit-key-field"
 									:data-edit-nav="`item-${index}-discount_amount`"
+									:data-testid="`invoice-edit-item-${index}-discount-amount`"
 									:data-edit-row="index"
 									data-edit-col="discount_amount"
 									data-edit-section="items"
@@ -1702,6 +1738,11 @@
 									variant="text"
 									size="small"
 									color="error"
+									class="edit-key-field"
+									:data-edit-nav="`item-${index}-remove`"
+									:data-edit-row="index"
+									data-edit-col="remove"
+									data-edit-section="items"
 									:title="__('Remove Item')"
 									:aria-label="__('Remove item')"
 									@click="removeEditItem(index)"
@@ -1777,10 +1818,12 @@
 									hide-details
 									class="edit-number-input edit-key-field"
 									:data-edit-nav="`payment-${index}-amount`"
+									:data-testid="`invoice-edit-payment-${index}-amount`"
 									:data-edit-row="index"
 									data-edit-col="amount"
 									data-edit-section="payments"
-									@update:model-value="scheduleEditPreview()"
+									readonly
+									:label="__('Auto Adjusted')"
 								/>
 							</td>
 							<td>{{ payment.account || "-" }}</td>
@@ -1793,13 +1836,23 @@
 				<div class="edit-preview-status text-caption text-medium-emphasis">
 					{{ editPreviewStatus }}
 				</div>
-				<v-btn color="error" variant="tonal" :disabled="editSubmitting" @click="closeEditInvoice">
+				<v-btn
+					color="error"
+					variant="tonal"
+					class="edit-key-field"
+					data-edit-nav="cancel"
+					:disabled="editSubmitting"
+					@click="closeEditInvoice"
+				>
 					{{ __("Cancel") }}
 				</v-btn>
 				<v-btn
 					color="primary"
 					variant="flat"
 					prepend-icon="mdi-content-save-check-outline"
+					class="edit-key-field"
+					data-edit-nav="submit"
+					data-testid="invoice-edit-submit"
 					:loading="editSubmitting"
 					:disabled="editLoading || editSubmitting || isOffline()"
 					@click="submitEditInvoice"
@@ -1957,6 +2010,9 @@ export default {
 		editInvoiceDoc: null,
 		editPreviewDoc: null,
 		editEligibility: null,
+		editKeyboardTargetKey: "",
+		editKeyboardEditing: false,
+		editKeyboardGeneratedId: 0,
 		newEditItem: {
 			item_code: "",
 			qty: 1,
@@ -2186,6 +2242,42 @@ export default {
 				0,
 			);
 		},
+		editSettlementCurrency() {
+			return (this.editPreviewDoc || this.editInvoiceDoc || {}).currency || this.posProfile?.currency;
+		},
+		editCorrectedTotal() {
+			const source = this.editPreviewDoc || this.editInvoiceDoc || {};
+			return this.normalizeEditMoney(source.rounded_total || source.grand_total || 0);
+		},
+		editOriginalPaidTotal() {
+			const source = this.editInvoiceOriginal || this.editInvoiceDoc || {};
+			const paid = Number(source.paid_amount ?? 0);
+			if (Number.isFinite(paid) && Math.abs(paid) > 0) {
+				return this.normalizeEditMoney(paid);
+			}
+			return this.normalizeEditMoney(
+				(source.payments || []).reduce((total, payment) => total + Number(payment?.amount || 0), 0),
+			);
+		},
+		editAutoPaymentTotal() {
+			return this.normalizeEditMoney(this.editCorrectedTotal);
+		},
+		editSettlementDelta() {
+			return this.normalizeEditMoney(this.editCorrectedTotal - this.editOriginalPaidTotal);
+		},
+		editSettlementLabel() {
+			const delta = this.editSettlementDelta;
+			if (delta > 0) return __("Collect from customer");
+			if (delta < 0) return __("Refund to customer");
+			return __("No cash difference");
+		},
+		editSettlementSummaryClass() {
+			return {
+				"edit-settlement-summary--collect": this.editSettlementDelta > 0,
+				"edit-settlement-summary--refund": this.editSettlementDelta < 0,
+				"edit-settlement-summary--balanced": this.editSettlementDelta === 0,
+			};
+		},
 		editPreviewStatus() {
 			if (this.editPreviewLoading) return __("Recalculating...");
 			if (this.editPreviewDirty) return __("Recalculation pending");
@@ -2197,6 +2289,11 @@ export default {
 		editDialog(value) {
 			if (!value) {
 				this.clearScheduledEditPreview();
+				this.clearEditKeyboardBox();
+				this.editKeyboardTargetKey = "";
+				this.editKeyboardEditing = false;
+			} else {
+				this.$nextTick(() => this.setDefaultEditKeyboardTarget());
 			}
 		},
 		invoiceManagementDialog(value) {
@@ -3004,6 +3101,66 @@ export default {
 		cloneForEdit(value) {
 			return JSON.parse(JSON.stringify(value || {}));
 		},
+		normalizeEditMoney(value) {
+			const precision = Number.isInteger(Number(this.currency_precision))
+				? Number(this.currency_precision)
+				: 2;
+			const factor = 10 ** Math.max(0, precision);
+			const number = Number(value || 0);
+			if (!Number.isFinite(number)) return 0;
+			return Math.round(number * factor) / factor;
+		},
+		ensureEditPaymentRows() {
+			if (!this.editInvoiceDoc) return [];
+			if (!Array.isArray(this.editInvoiceDoc.payments)) {
+				this.editInvoiceDoc.payments = [];
+			}
+			if (!this.editInvoiceDoc.payments.length) {
+				const profilePayment = Array.isArray(this.posProfile?.payments)
+					? this.posProfile.payments.find((payment) => payment?.mode_of_payment)
+					: null;
+				this.editInvoiceDoc.payments.push({
+					mode_of_payment: profilePayment?.mode_of_payment || "Cash",
+					account: profilePayment?.account || "",
+					type: profilePayment?.type || "Cash",
+					default: profilePayment?.default || 1,
+					amount: 0,
+					base_amount: 0,
+					currency: this.editInvoiceDoc.currency || this.posProfile?.currency,
+					conversion_rate: Number(this.editInvoiceDoc.conversion_rate || 1),
+				});
+			}
+			return this.editInvoiceDoc.payments;
+		},
+		syncEditPaymentsToCorrectedTotal(totalOverride = null, previewDoc = null) {
+			if (!this.editInvoiceDoc) return 0;
+			const targetTotal = this.normalizeEditMoney(
+				totalOverride ?? this.editCorrectedTotal ?? this.editInvoiceDoc.grand_total,
+			);
+			const payments = this.ensureEditPaymentRows();
+			if (!payments.length) return targetTotal;
+			const primaryIndex = Math.max(
+				0,
+				payments.findIndex((payment) =>
+					String(payment?.mode_of_payment || "").toLowerCase().includes("cash"),
+				),
+			);
+			payments.forEach((payment, index) => {
+				const amount = index === primaryIndex ? targetTotal : 0;
+				payment.amount = amount;
+				payment.base_amount = this.normalizeEditMoney(
+					amount * Number(payment.conversion_rate || this.editInvoiceDoc.conversion_rate || 1),
+				);
+			});
+			if (previewDoc) {
+				previewDoc.paid_amount = targetTotal;
+				previewDoc.base_paid_amount = this.normalizeEditMoney(
+					targetTotal * Number(previewDoc.conversion_rate || this.editInvoiceDoc.conversion_rate || 1),
+				);
+				previewDoc.outstanding_amount = 0;
+			}
+			return targetTotal;
+		},
 		clearScheduledEditPreview() {
 			if (this.editPreviewTimer) {
 				if (typeof window !== "undefined") window.clearTimeout(this.editPreviewTimer);
@@ -3026,27 +3183,86 @@ export default {
 			if (typeof document === "undefined") return null;
 			return document.querySelector(".invoice-edit-modal-content");
 		},
+		editModalFocusRoot() {
+			const modal = this.editModalElement();
+			return modal?.querySelector?.(".invoice-detail-card") || modal;
+		},
+		isEditElementVisible(element) {
+			if (!element?.isConnected || typeof window === "undefined") return false;
+			const style = window.getComputedStyle(element);
+			if (style.display === "none" || style.visibility === "hidden" || style.opacity === "0") {
+				return false;
+			}
+			const rect = element.getBoundingClientRect();
+			return rect.width > 0 && rect.height > 0;
+		},
+		clearEditKeyboardBox() {
+			const modal = this.editModalElement();
+			modal?.querySelectorAll?.(".edit-keyboard-box")?.forEach((element) => {
+				element.classList.remove("edit-keyboard-box");
+			});
+		},
+		ensureEditNavKey(element) {
+			if (!element?.dataset) return "";
+			if (!element.dataset.editKeyboardKey) {
+				this.editKeyboardGeneratedId = Number(this.editKeyboardGeneratedId || 0) + 1;
+				element.dataset.editKeyboardKey = `edit-target-${this.editKeyboardGeneratedId}`;
+			}
+			return element.dataset.editKeyboardKey;
+		},
+		setEditKeyboardTarget(element, options = {}) {
+			this.clearEditKeyboardBox();
+			if (!element) {
+				this.editKeyboardTargetKey = "";
+				return false;
+			}
+			const shouldFocusRoot = options?.focusRoot !== false;
+			this.editKeyboardTargetKey = this.ensureEditNavKey(element);
+			element.classList.add("edit-keyboard-box");
+			element.scrollIntoView?.({ block: "nearest", inline: "nearest" });
+			if (shouldFocusRoot) {
+				this.editModalFocusRoot()?.focus?.({ preventScroll: true });
+			}
+			return true;
+		},
+		currentEditKeyboardTarget() {
+			const modal = this.editModalElement();
+			if (!modal || !this.editKeyboardTargetKey) return null;
+			return modal.querySelector(`[data-edit-keyboard-key="${this.editKeyboardTargetKey}"]`);
+		},
 		editNavigationFields() {
 			const modal = this.editModalElement();
 			if (!modal) return [];
 			return Array.from(modal.querySelectorAll("[data-edit-nav]")).filter((element) => {
-				if (element.disabled || element.getAttribute("aria-disabled") === "true") return false;
-				const input = element.matches("input, textarea, button")
-					? element
-					: element.querySelector("input, textarea, button");
-				return Boolean(input && !input.disabled);
+				if (
+					element.disabled ||
+					element.getAttribute("aria-disabled") === "true" ||
+					element.classList.contains("v-btn--disabled") ||
+					!this.isEditElementVisible(element)
+				) {
+					return false;
+				}
+				const input = this.editFocusableElement(element);
+				return Boolean(input && !input.disabled && input.getAttribute("aria-disabled") !== "true");
 			});
+		},
+		editFocusableElement(element) {
+			if (!element) return null;
+			return element.matches("input, textarea, button, select, [contenteditable='true']")
+				? element
+				: element.querySelector("input, textarea, button, select, [contenteditable='true']");
 		},
 		focusEditField(element) {
 			if (!element) return false;
-			const target = element.matches("input, textarea, button")
-				? element
-				: element.querySelector("input, textarea, button");
+			const target = this.editFocusableElement(element);
 			if (!target || target.disabled) return false;
+			const root = element.closest?.("[data-edit-nav]") || element;
+			this.setEditKeyboardTarget(root, { focusRoot: false });
 			target.focus();
 			if (typeof target.select === "function" && target.matches("input[type='number'], input[type='text']")) {
 				target.select();
 			}
+			this.editKeyboardEditing = target.matches("input, textarea, select, [contenteditable='true']");
 			return true;
 		},
 		focusEditFieldByPredicate(predicate) {
@@ -3060,7 +3276,7 @@ export default {
 			const currentRoot = currentElement?.closest?.("[data-edit-nav]") || currentElement;
 			const currentIndex = Math.max(fields.indexOf(currentRoot), 0);
 			const nextIndex = (currentIndex + direction + fields.length) % fields.length;
-			return this.focusEditField(fields[nextIndex]);
+			return this.setEditKeyboardTarget(fields[nextIndex]);
 		},
 		focusVerticalEditField(currentElement, direction = 1) {
 			const currentRoot = currentElement?.closest?.("[data-edit-nav]");
@@ -3077,6 +3293,99 @@ export default {
 				);
 			});
 		},
+		targetCenter(element) {
+			const rect = element.getBoundingClientRect();
+			return { x: rect.left + rect.width / 2, y: rect.top + rect.height / 2 };
+		},
+		scoreEditTargetForArrow(key, current, element) {
+			const candidate = this.targetCenter(element);
+			const dx = candidate.x - current.x;
+			const dy = candidate.y - current.y;
+			if (key === "ArrowRight" && dx <= 1) return null;
+			if (key === "ArrowLeft" && dx >= -1) return null;
+			if (key === "ArrowDown" && dy <= 1) return null;
+			if (key === "ArrowUp" && dy >= -1) return null;
+			const primary = key === "ArrowRight" || key === "ArrowLeft" ? Math.abs(dx) : Math.abs(dy);
+			const secondary = key === "ArrowRight" || key === "ArrowLeft" ? Math.abs(dy) : Math.abs(dx);
+			return secondary * 1000 + primary;
+		},
+		sortEditFieldsByPosition(fields) {
+			return [...fields].sort((left, right) => {
+				const leftRect = left.getBoundingClientRect();
+				const rightRect = right.getBoundingClientRect();
+				return leftRect.top - rightRect.top || leftRect.left - rightRect.left;
+			});
+		},
+		setDefaultEditKeyboardTarget() {
+			if (!this.editDialog || this.editLoading) return false;
+			const fields = this.editNavigationFields();
+			if (!fields.length) return false;
+			const preferred = fields.find((element) => element.dataset.editNav === "customer") || fields[0];
+			return this.setEditKeyboardTarget(preferred);
+		},
+		moveEditKeyboardBox(key) {
+			const fields = this.editNavigationFields();
+			if (!fields.length) return false;
+			const current = this.currentEditKeyboardTarget();
+			if (!current || !fields.includes(current)) {
+				return this.setEditKeyboardTarget(this.sortEditFieldsByPosition(fields)[0]);
+			}
+			const currentCenter = this.targetCenter(current);
+			let bestTarget = null;
+			let bestScore = Number.POSITIVE_INFINITY;
+			for (const field of fields) {
+				if (field === current) continue;
+				const score = this.scoreEditTargetForArrow(key, currentCenter, field);
+				if (score !== null && score < bestScore) {
+					bestScore = score;
+					bestTarget = field;
+				}
+			}
+			if (!bestTarget) {
+				const ordered = this.sortEditFieldsByPosition(fields);
+				const index = ordered.indexOf(current);
+				const delta = key === "ArrowLeft" || key === "ArrowUp" ? -1 : 1;
+				bestTarget = ordered[Math.max(0, Math.min(index + delta, ordered.length - 1))];
+			}
+			return bestTarget ? this.setEditKeyboardTarget(bestTarget) : false;
+		},
+		stopEditKeyboardEditing() {
+			this.editKeyboardEditing = false;
+			const active = document.activeElement;
+			active?.blur?.();
+			this.editModalFocusRoot()?.focus?.({ preventScroll: true });
+		},
+		activateEditKeyboardTarget() {
+			const target = this.currentEditKeyboardTarget() || this.editNavigationFields()[0];
+			if (!target) return false;
+			this.setEditKeyboardTarget(target);
+			const focusable = this.editFocusableElement(target);
+			if (!focusable || focusable.disabled) return false;
+			if (focusable.matches("button")) {
+				focusable.click();
+				this.$nextTick(() => {
+					if (target.dataset.editNav === "new-item-add") {
+						this.setEditKeyboardTarget(
+							this.editNavigationFields().find((element) => element.dataset.editNav === "new-item-code"),
+						);
+						return;
+					}
+					this.setDefaultEditKeyboardTarget();
+				});
+				return true;
+			}
+			this.focusEditField(target);
+			return true;
+		},
+		handleEditModalClick(event) {
+			const target = event.target?.closest?.("[data-edit-nav]");
+			if (target) {
+				this.setEditKeyboardTarget(target);
+				this.editKeyboardEditing = Boolean(
+					this.editFocusableElement(target)?.matches("input, textarea, select, [contenteditable='true']"),
+				);
+			}
+		},
 		handleEditModalKeydown(event) {
 			if (!this.editDialog || this.editLoading) return;
 			if ((event.ctrlKey || event.metaKey) && event.key === "Enter") {
@@ -3086,36 +3395,40 @@ export default {
 			}
 			if (event.key === "Escape") {
 				event.preventDefault();
+				if (this.editKeyboardEditing) {
+					this.stopEditKeyboardEditing();
+					return;
+				}
 				if (!this.editSubmitting) this.closeEditInvoice();
+				return;
+			}
+			if (["ArrowLeft", "ArrowRight", "ArrowUp", "ArrowDown"].includes(event.key)) {
+				if (this.editKeyboardEditing) {
+					return;
+				}
+				event.preventDefault();
+				event.stopPropagation();
+				this.moveEditKeyboardBox(event.key);
+				return;
+			}
+			if (event.key === "Tab") {
+				event.preventDefault();
+				event.stopPropagation();
+				if (this.editKeyboardEditing) this.stopEditKeyboardEditing();
+				this.moveEditKeyboardBox(event.shiftKey ? "ArrowLeft" : "ArrowRight");
 				return;
 			}
 			const target = event.target;
 			const fieldRoot = target?.closest?.("[data-edit-nav]");
-			if (!fieldRoot) return;
 			if (event.key === "Enter") {
 				event.preventDefault();
-				if (fieldRoot.dataset.editSection === "new-item") {
-					const added = this.addEditItem();
-					if (added) {
-						this.$nextTick(() =>
-							this.focusEditFieldByPredicate(
-								(element) =>
-									element.dataset.editSection === "new-item" &&
-									element.dataset.editNav === "new-item-code",
-							),
-						);
-					} else {
-						this.focusNextEditField(fieldRoot, event.shiftKey ? -1 : 1);
-					}
+				if (this.editKeyboardEditing && fieldRoot) {
+					this.editKeyboardEditing = false;
+					this.setEditKeyboardTarget(fieldRoot);
+					this.moveEditKeyboardBox(event.shiftKey ? "ArrowLeft" : "ArrowRight");
 					return;
 				}
-				this.focusNextEditField(fieldRoot, event.shiftKey ? -1 : 1);
-				return;
-			}
-			if (event.key === "ArrowDown" || event.key === "ArrowUp") {
-				if (this.focusVerticalEditField(fieldRoot, event.key === "ArrowDown" ? 1 : -1)) {
-					event.preventDefault();
-				}
+				this.activateEditKeyboardTarget();
 			}
 		},
 		async openEditInvoice(invoice) {
@@ -3145,6 +3458,9 @@ export default {
 				this.editEligibility = message?.metadata || null;
 				if (!Array.isArray(this.editInvoiceDoc.items)) this.editInvoiceDoc.items = [];
 				if (!Array.isArray(this.editInvoiceDoc.payments)) this.editInvoiceDoc.payments = [];
+				this.syncEditPaymentsToCorrectedTotal(
+					this.editInvoiceDoc.rounded_total || this.editInvoiceDoc.grand_total || 0,
+				);
 			} catch (error) {
 				console.error("Error loading editable invoice:", error);
 				this.editError = error?.message || __("Unable to load editable invoice");
@@ -3154,7 +3470,7 @@ export default {
 				this.editLoading = false;
 				if (this.editDialog && this.editInvoiceDoc?.name) {
 					this.$nextTick(() => {
-						this.focusEditFieldByPredicate((element) => element.dataset.editNav === "customer");
+						this.setDefaultEditKeyboardTarget();
 						this.scheduleEditPreview(0);
 					});
 				}
@@ -3192,6 +3508,7 @@ export default {
 			return true;
 		},
 		buildEditCorrectionData() {
+			this.syncEditPaymentsToCorrectedTotal();
 			const doc = this.editInvoiceDoc || {};
 			return {
 				customer: doc.customer,
@@ -3253,6 +3570,12 @@ export default {
 				});
 				if (requestId !== this.editPreviewRequestId) return;
 				this.editPreviewDoc = message?.invoice || null;
+				if (this.editPreviewDoc) {
+					this.syncEditPaymentsToCorrectedTotal(
+						this.editPreviewDoc.rounded_total || this.editPreviewDoc.grand_total || 0,
+						this.editPreviewDoc,
+					);
+				}
 				this.editEligibility = message?.metadata || this.editEligibility;
 				this.editPreviewLastUpdatedAt = Date.now();
 			} catch (error) {
@@ -3279,6 +3602,13 @@ export default {
 			this.editSubmitting = true;
 			this.editError = "";
 			try {
+				if (this.editPreviewDirty || !this.editPreviewDoc) {
+					await this.previewEditInvoice({ silent: true });
+				}
+				if (this.editError) {
+					return;
+				}
+				this.syncEditPaymentsToCorrectedTotal();
 				const clientRequestId = [
 					"submitted-edit",
 					this.editInvoiceDoc.name,
@@ -4056,9 +4386,69 @@ export default {
 	overflow: hidden;
 }
 
+.edit-settlement-summary {
+	display: flex;
+	align-items: center;
+	justify-content: space-between;
+	gap: 16px;
+	border-radius: 8px;
+	padding: 12px 16px;
+	border: 1px solid rgba(148, 163, 184, 0.28);
+}
+
+.edit-settlement-summary__label {
+	font-size: 0.74rem;
+	font-weight: 700;
+	text-transform: uppercase;
+	color: var(--pos-text-secondary);
+}
+
+.edit-settlement-summary__value,
+.edit-settlement-summary__amount {
+	font-weight: 800;
+	color: var(--pos-text-primary);
+}
+
+.edit-settlement-summary__amount {
+	font-size: 1.1rem;
+	white-space: nowrap;
+}
+
+.edit-settlement-summary--collect {
+	background: linear-gradient(135deg, rgba(236, 253, 245, 0.98), rgba(209, 250, 229, 0.9));
+	border-color: rgba(34, 197, 94, 0.3);
+}
+
+.edit-settlement-summary--refund {
+	background: linear-gradient(135deg, rgba(255, 247, 237, 0.98), rgba(254, 215, 170, 0.9));
+	border-color: rgba(249, 115, 22, 0.34);
+}
+
+.edit-settlement-summary--balanced {
+	background: rgba(248, 250, 252, 0.78);
+}
+
 .edit-number-input {
 	min-width: 96px;
 	max-width: 140px;
+}
+
+.edit-keyboard-box {
+	position: relative;
+	outline: 3px solid rgb(var(--v-theme-primary)) !important;
+	outline-offset: 2px;
+	border-radius: 6px;
+	z-index: 4;
+}
+
+.edit-invoice-table .edit-keyboard-box {
+	outline-offset: 1px;
+}
+
+.edit-keyboard-box :deep(.v-field) {
+	box-shadow:
+		0 0 0 2px rgba(var(--v-theme-primary), 0.2),
+		inset 0 0 0 2px rgb(var(--v-theme-primary));
 }
 
 .edit-item-title {
