@@ -15,6 +15,7 @@
 			:item-class="itemClass"
 			:row-props="rowProps"
 			@scroll.passive="handleListScroll"
+			@keydown="handleTableKeydown"
 		>
 			<template v-if="multiSelect" v-slot:item.item-select="{ item }">
 				<v-checkbox-btn
@@ -180,6 +181,27 @@ const handleRowClick = (event, data) => {
 
 const handleListScroll = (event) => {
 	emit("list-scroll", event);
+};
+
+const handleTableKeydown = (event) => {
+	const key = event.key || "";
+	if (key !== "Enter" && key !== " ") {
+		return;
+	}
+
+	const row = event.target?.closest?.("[data-item-code]");
+	const itemCode = row?.getAttribute?.("data-item-code");
+	if (!itemCode) {
+		return;
+	}
+
+	const item = props.displayedItems.find((candidate) => candidate?.item_code === itemCode);
+	if (!item) {
+		return;
+	}
+
+	event.preventDefault();
+	emit("row-click", event, { item });
 };
 
 const formatActualQty = (value) => {

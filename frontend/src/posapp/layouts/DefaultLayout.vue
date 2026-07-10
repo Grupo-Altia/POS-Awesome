@@ -125,6 +125,7 @@ import {
 	getSyncResourceDefinitions,
 	getSyncResourceState,
 	listSyncResourceStates,
+	setTaxInclusiveSetting,
 } from "../../offline/index";
 import { SyncCoordinator } from "../../offline/sync/SyncCoordinator";
 import { createOfflineSyncRuntime } from "../../offline/sync/runtime";
@@ -183,8 +184,10 @@ const instance = getCurrentInstance();
 const $theme = instance?.proxy?.$theme || { toggle: () => {}, isDark: false }; // Fallback
 const __ = instance?.proxy?.__ || ((value) => value);
 const BUILD_VERSION = typeof __BUILD_VERSION__ !== "undefined" ? __BUILD_VERSION__ : null;
-const OFFLINE_SYNC_SCHEMA_VERSION = "2026-04-09";
+const OFFLINE_SYNC_SCHEMA_VERSION = "2026-07-08";
 const OFFLINE_SYNC_TIMER_INTERVAL_MS = 60_000;
+const PRODUCT_SYNC_SETTLE_TIMEOUT_MS = 120_000;
+const PRODUCT_SYNC_SETTLE_POLL_MS = 250;
 
 // Utils
 const createFallbackLoadingScope = () =>
@@ -287,6 +290,7 @@ const startupOfflineWarmupKey = ref("");
 let _sidebarObserver = null;
 let _navPollTimer = null;
 let removeBootstrapSnapshotListener = null;
+let cacheCapacityWarningShown = false;
 
 // Event Bus
 const eventBus = instance?.proxy?.eventBus;
@@ -508,6 +512,48 @@ function canRunTimerOfflineSync() {
 	return !!(canRunOfflineSync() && serverOnline.value && !serverConnecting.value);
 }
 
+function waitForItemsBackgroundSync(timeoutMs = PRODUCT_SYNC_SETTLE_TIMEOUT_MS) {
+	return new Promise((resolve) => {
+		const startedAt = Date.now();
+		const poll = () => {
+			if (!itemsBackgroundLoading.value) {
+				resolve(true);
+				return;
+			}
+			if (Date.now() - startedAt >= timeoutMs) {
+				resolve(false);
+				return;
+			}
+			setTimeout(poll, PRODUCT_SYNC_SETTLE_POLL_MS);
+		};
+		poll();
+	});
+}
+
+async function refreshOfflineProductCatalog() {
+	const profile = getCurrentBootstrapProfile();
+	if (!profile?.name || !canRunOfflineSync()) {
+		return false;
+	}
+
+	try {
+		await memoryInitPromise;
+		if (!itemsStore.posProfile?.name) {
+			await itemsStore.initialize(
+				profile,
+				selectedCustomer.value || profile.customer || null,
+				profile.selling_price_list || null,
+			);
+		}
+		await itemsStore.refreshItems();
+		await waitForItemsBackgroundSync();
+		return true;
+	} catch (error) {
+		console.error("Failed to refresh offline product catalog", error);
+		return false;
+	}
+}
+
 async function callOfflineSyncMethod(method, args = {}) {
 	if (typeof frappe === "undefined" || typeof frappe.call !== "function") {
 		throw new Error("Frappe call API is unavailable");
@@ -674,6 +720,11 @@ const bootstrapWarningUiState = computed(() =>
 		warningActive: bootstrapWarningActive.value,
 		warningTooltip: bootstrapWarningTooltip.value,
 		capabilitySummaries: bootstrapCapabilitySummaries.value,
+		onlineReady:
+			networkOnline.value &&
+			serverOnline.value &&
+			!serverConnecting.value &&
+			!getIsManualOffline(),
 	}),
 );
 const visibleBootstrapWarningActive = computed(() => bootstrapWarningUiState.value.active);
@@ -896,6 +947,31 @@ const pollForFrappeNav = (maxAttempts = 50, interval = 100) => {
 	checkAndRemove();
 };
 
+const notifyCacheCapacityIfActionable = (usage = {}) => {
+	const pendingInvoices = getPendingOfflineInvoiceCount();
+	const pendingCashMovements = getPendingOfflineCashMovementCount();
+	const pendingTotal = pendingInvoices + pendingCashMovements;
+	if (cacheCapacityWarningShown || pendingTotal <= 0) {
+		return;
+	}
+
+	cacheCapacityWarningShown = true;
+	const offlineNow = isOffline();
+	toastStore.show({
+		title: __("Local cache usage is high"),
+		detail: offlineNow
+			? __(
+					"Reconnect online to sync {0} pending local record(s). Cache usage is {1}%.",
+					[pendingTotal, Math.round(usage.percentage || 0)],
+				)
+			: __(
+					"Sync {0} pending local record(s). Cache usage is {1}%.",
+					[pendingTotal, Math.round(usage.percentage || 0)],
+				),
+		color: "warning",
+	});
+};
+
 const initializeData = async () => {
 	await initPromise;
 	await ensureOfflineQueueReady();
@@ -920,9 +996,7 @@ const initializeData = async () => {
 	await syncStore.updatePendingCount();
 	syncTotals.value = getLastSyncTotals();
 
-	void checkCacheCapacity(90, () => {
-		alert("Local cache nearing capacity. Consider going online to sync.");
-	});
+	void checkCacheCapacity(90, notifyCacheCapacityIfActionable);
 
 	// Check if running on IP host
 	isIpHost.value = /^\d+\.\d+\.\d+\.\d+/.test(window.location.hostname);
@@ -1028,7 +1102,9 @@ const handleRefreshOfflineData = async () => {
 	if (!getIsManualOffline() && navigator.onLine) {
 		await handleRetryStatus();
 		await triggerOperatorRefreshSync();
-		await refreshOfflinePricingRules();
+		await refreshOfflineProductCatalog();
+		await refreshTaxInclusiveSetting();
+		await refreshOfflinePricingRules({ force: true });
 		evaluateBootstrapSnapshot({ allowPrompt: false });
 	}
 	toastStore.show({
@@ -1047,6 +1123,8 @@ const handleRebuildOfflineData = async () => {
 	});
 	if (canRunOfflineSync()) {
 		await triggerOperatorRefreshSync({ includeBootSync: true });
+		await refreshOfflineProductCatalog();
+		await refreshTaxInclusiveSetting();
 		await refreshOfflinePricingRules({ force: true });
 		evaluateBootstrapSnapshot({ allowPrompt: false });
 	}
@@ -1098,7 +1176,7 @@ const handleRefreshCacheUsage = () => {
 
 const refreshTaxInclusiveSetting = async () => {
 	if (!posProfile.value || !posProfile.value.name || !navigator.onLine) {
-		return;
+		return false;
 	}
 	try {
 		const r = await frappe.call({
@@ -1108,18 +1186,13 @@ const refreshTaxInclusiveSetting = async () => {
 			},
 		});
 		if (r.message !== undefined) {
-			const val = r.message;
-			import("../../offline/index")
-				.then((m) => {
-					if (m && m.setTaxInclusiveSetting) {
-						m.setTaxInclusiveSetting(val);
-					}
-				})
-				.catch(() => {});
+			setTaxInclusiveSetting(r.message);
+			return true;
 		}
 	} catch (e) {
 		console.warn("Failed to refresh tax inclusive setting", e);
 	}
+	return false;
 };
 
 const handleUpdateAfterDelete = () => {

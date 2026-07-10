@@ -57,12 +57,14 @@
 					:isRTL="isRtl"
 					:is-expanded="isItemExpanded(item.posa_row_id)"
 					@update-qty="handleQtyUpdate"
+					@qty-edit-submitted="handleQtyEditSubmitted"
 					@minus-click="handleMinusClick"
 					@add-one="addOne"
 					@calc-uom="calcUom"
 					@update-rate="handleRateUpdate"
 					@update-discount-percent="handleDiscountPercentUpdate"
 					@update-discount-amount="handleDiscountAmountUpdate"
+					@discount-percent-edit-submitted="handleDiscountEditSubmitted"
 					@open-name-dialog="openNameDialog"
 					@reset-item-name="resetItemName"
 					@toggle-offer="toggleOffer"
@@ -142,7 +144,11 @@ import { useItemsTableMerge } from "../../../composables/pos/items/useItemsTable
 import { useItemsTableNameEdit } from "../../../composables/pos/items/useItemsTableNameEdit";
 import { useFormatters } from "../../../composables/core/useFormatters";
 import { useRtl } from "../../../composables/core/useRtl";
-import { focusCartItemField, type CartShortcutField } from "../../../utils/cartFieldFocus";
+import {
+	focusCartItemField,
+	type CartFieldFocusOptions,
+	type CartShortcutField,
+} from "../../../utils/cartFieldFocus";
 import "./items-table-styles.css";
 
 // Global declarations for Frappe
@@ -315,6 +321,33 @@ const handleQtyUpdate = (item: any, newQty: any) => {
 	eventBus?.emit("recalculate_return_discount", { defer: true });
 };
 
+const getItemIndex = (item: any) => {
+	if (!item) {
+		return -1;
+	}
+	const rowId = item?.posa_row_id;
+	if (rowId) {
+		return items.value.findIndex((row: any) => row?.posa_row_id === rowId);
+	}
+	return items.value.findIndex((row: any) => row === item);
+};
+
+const handleQtyEditSubmitted = (item: any) => {
+	window.setTimeout(() => {
+		const index = getItemIndex(item);
+		if (index >= 0 && focusItemField(index, "discount_percentage", { activate: false })) {
+			return;
+		}
+		eventBus?.emit("focus_item_search");
+	}, 0);
+};
+
+const handleDiscountEditSubmitted = () => {
+	window.setTimeout(() => {
+		eventBus?.emit("focus_item_search");
+	}, 0);
+};
+
 const handleRateUpdate = (item: any, newRate: any) => {
 	props.setFormatedCurrency(item, "rate", null, false, { target: { value: newRate } });
 	props.calcPrices(item, newRate, { target: { id: "rate" } });
@@ -346,8 +379,8 @@ const handleToggleExpand = (internalItem: any, toggleExpand: any) => {
 	}
 };
 
-const focusItemField = (index: number, field: CartShortcutField) => {
-	return focusCartItemField(tableContainer.value, index, field);
+const focusItemField = (index: number, field: CartShortcutField, options?: CartFieldFocusOptions) => {
+	return focusCartItemField(tableContainer.value, index, field, options);
 };
 
 const isItemExpanded = (itemId: any) => {

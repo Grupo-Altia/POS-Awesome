@@ -132,10 +132,13 @@
 				class="drafts-drawer__sources"
 			/>
 			<ParkedOrdersList
+				ref="desktopDraftsList"
 				:parked-orders="allDrafts"
 				:format-currency="formatCurrency"
 				:currency-symbol="currencySymbol"
 				:show-manage-all="true"
+				:loading="loadDraftsLoading"
+				:loading-title="__(currentDraftSourceOption.loadingLabel)"
 				:title="currentDraftSourceOption.panelTitle"
 				:eyebrow="currentDraftSourceOption.panelEyebrow"
 				:subtitle="currentDraftSourceOption.panelSubtitle"
@@ -143,6 +146,7 @@
 				:empty-subtitle="__(currentDraftSourceOption.emptySubtitle)"
 				@resume="handleResumeDraft"
 				@manage-all="handleManageAllDrafts"
+				@close="closeDraftsSurface"
 			/>
 		</div>
 	</v-navigation-drawer>
@@ -165,10 +169,13 @@
 					class="drafts-drawer__sources"
 				/>
 				<ParkedOrdersList
+					ref="mobileDraftsList"
 					:parked-orders="allDrafts"
 					:format-currency="formatCurrency"
 					:currency-symbol="currencySymbol"
 					:show-manage-all="true"
+					:loading="loadDraftsLoading"
+					:loading-title="__(currentDraftSourceOption.loadingLabel)"
 					:title="currentDraftSourceOption.panelTitle"
 					:eyebrow="currentDraftSourceOption.panelEyebrow"
 					:subtitle="currentDraftSourceOption.panelSubtitle"
@@ -176,6 +183,7 @@
 					:empty-subtitle="__(currentDraftSourceOption.emptySubtitle)"
 					@resume="handleResumeDraft"
 					@manage-all="handleManageAllDrafts"
+					@close="closeDraftsSurface"
 				/>
 			</v-card-text>
 		</v-card>
@@ -183,7 +191,7 @@
 </template>
 
 <script setup>
-import { computed, ref, watch } from "vue";
+import { computed, nextTick, ref, watch } from "vue";
 import { storeToRefs } from "pinia";
 import { loadItemSelectorSettings } from "../../../utils/itemSelectorSettings";
 import { useResponsive } from "../../../composables/core/useResponsive";
@@ -248,6 +256,8 @@ const isEditingAdditionalDiscountPercentage = ref(false);
 const additionalDiscountField = ref(null);
 const desktopDraftsDrawer = ref(false);
 const mobileDraftsDialog = ref(false);
+const desktopDraftsList = ref(null);
+const mobileDraftsList = ref(null);
 const responsive = useResponsive();
 const uiStore = useUIStore();
 const { parkedOrders, draftSource } = storeToRefs(uiStore);
@@ -409,26 +419,45 @@ async function handleSaveAndClear() {
 	}
 }
 
-async function handleLoadDrafts() {
-	loadDraftsLoading.value = true;
-	try {
-		const nextSource = getDefaultDocumentSource(props.pos_profile, "invoice");
-		uiStore.setDraftSource(nextSource);
-		uiStore.setParkedOrders([]);
-		await emit("load-drafts", nextSource);
-		openDraftsSurface();
-	} finally {
-		loadDraftsLoading.value = false;
-	}
+function handleLoadDrafts() {
+	const nextSource = getDefaultDocumentSource(props.pos_profile, "invoice");
+	uiStore.setDraftSource(nextSource);
+	uiStore.setParkedOrders([]);
+	openDraftsSurface({ focus: false });
+	emit("load-drafts", nextSource);
 }
 
-function openDraftsSurface() {
+function openDraftsSurface(options = {}) {
 	if (showDesktopDrafts.value) {
 		desktopDraftsDrawer.value = true;
+		if (options.focus !== false) {
+			void focusDraftsSurface();
+		}
 		return;
 	}
 
 	mobileDraftsDialog.value = true;
+	if (options.focus !== false) {
+		void focusDraftsSurface();
+	}
+}
+
+function closeDraftsSurface() {
+	desktopDraftsDrawer.value = false;
+	mobileDraftsDialog.value = false;
+}
+
+async function focusDraftsSurface() {
+	await nextTick();
+	await new Promise((resolve) => {
+		if (typeof requestAnimationFrame === "function") {
+			requestAnimationFrame(resolve);
+			return;
+		}
+		setTimeout(resolve, 0);
+	});
+	const list = showDesktopDrafts.value ? desktopDraftsList.value : mobileDraftsList.value;
+	await list?.focusFirstDraft?.();
 }
 
 async function handleSelectOrder() {
@@ -459,8 +488,7 @@ async function handleOpenInvoiceManagement() {
 }
 
 function handleManageAllDrafts() {
-	desktopDraftsDrawer.value = false;
-	mobileDraftsDialog.value = false;
+	closeDraftsSurface();
 	uiStore.setInvoiceManagementDraftSource(currentDraftSource.value);
 	emit("open-invoice-management", "drafts", currentDraftSource.value);
 }
@@ -502,15 +530,19 @@ async function handleOpenCustomerDisplay() {
 }
 
 function handleResumeDraft(draft) {
-	desktopDraftsDrawer.value = false;
-	mobileDraftsDialog.value = false;
+	closeDraftsSurface();
 	emit("resume-parked-order", draft);
 }
 
 defineExpose({
 	focusAdditionalDiscountField,
+	focusDraftsSurface,
 	handleManageAllDrafts,
 	openDraftsSurface,
+	closeDraftsSurface,
+	setDraftsLoading(value) {
+		loadDraftsLoading.value = Boolean(value);
+	},
 });
 </script>
 

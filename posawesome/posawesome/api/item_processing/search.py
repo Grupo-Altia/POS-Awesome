@@ -6,7 +6,9 @@ from typing import Any, Dict, List, Optional, Sequence, Tuple
 
 import frappe
 from frappe import _, as_json
-from frappe.utils import cint, cstr, get_datetime
+from frappe.query_builder import DocType, Order
+from frappe.query_builder.functions import Max, Sum
+from frappe.utils import add_days, cint, cstr, get_datetime, nowdate
 from frappe.utils.caching import redis_cache
 
 from posawesome.posawesome.api.item_fetchers import ItemDetailAggregator
@@ -480,6 +482,248 @@ def _run_item_query(
     return result[: plan.limit_page_length] if plan.limit_page_length else result
 
 
+def _coerce_hot_catalog_limit(limit) -> int:
+    """Return a safe hot-catalog limit for one POS terminal."""
+
+    resolved = cint(limit) or 5000
+    return max(100, min(resolved, 10000))
+
+
+def _coerce_hot_catalog_days(days) -> int:
+    """Return a bounded sales-history window for hot item ranking."""
+
+    resolved = cint(days) or 120
+    return max(1, min(resolved, 730))
+
+
+def _get_item_table():
+    return DocType("Item")
+
+
+def _get_sales_invoice_table():
+    return DocType("Sales Invoice")
+
+
+def _get_sales_invoice_item_table():
+    return DocType("Sales Invoice Item")
+
+
+def _get_hot_catalog_fields(include_description: bool, include_image: bool) -> List[str]:
+    fields = [
+        "name",
+        "modified",
+        "item_code",
+        "item_name",
+        "stock_uom",
+        "is_stock_item",
+        "has_variants",
+        "variant_of",
+        "item_group",
+        "idx",
+        "has_batch_no",
+        "has_serial_no",
+        "max_discount",
+        "brand",
+        "allow_negative_stock",
+    ]
+    if include_description:
+        fields.append("description")
+    if include_image:
+        fields.append("image")
+    return fields
+
+
+def _get_hot_sales_item_codes(
+    pos_profile: Dict[str, Any],
+    item_groups: Sequence[str],
+    limit: int,
+    days: int,
+) -> List[str]:
+    """Return item codes ranked by recent POS sales activity."""
+
+    if limit <= 0:
+        return []
+
+    item = _get_item_table()
+    invoice = _get_sales_invoice_table()
+    invoice_item = _get_sales_invoice_item_table()
+
+    from_date = add_days(nowdate(), -days)
+    query = (
+        frappe.qb.from_(invoice_item)
+        .inner_join(invoice)
+        .on(invoice.name == invoice_item.parent)
+        .inner_join(item)
+        .on(item.name == invoice_item.item_code)
+        .select(invoice_item.item_code)
+        .where(invoice.docstatus == 1)
+        .where(invoice.company == pos_profile.get("company"))
+        .where(invoice.posting_date >= from_date)
+        .where(item.disabled == 0)
+        .where(item.is_sales_item == 1)
+        .where(item.is_fixed_asset == 0)
+        .groupby(invoice_item.item_code)
+        .orderby(Sum(invoice_item.qty), order=Order.desc)
+        .orderby(Max(invoice.posting_date), order=Order.desc)
+        .limit(limit)
+    )
+
+    warehouse = pos_profile.get("warehouse")
+    if warehouse:
+        query = query.where(invoice_item.warehouse == warehouse)
+    if item_groups:
+        query = query.where(item.item_group.isin(tuple(item_groups)))
+    if not pos_profile.get("posa_show_template_items"):
+        query = query.where(item.has_variants == 0)
+    if pos_profile.get("posa_hide_variants_items"):
+        query = query.where(item.variant_of.isnull())
+
+    rows = query.run(as_dict=True)
+    return [row.get("item_code") for row in rows if row.get("item_code")]
+
+
+def _get_active_fallback_items(
+    pos_profile: Dict[str, Any],
+    item_groups: Sequence[str],
+    limit: int,
+    fields: Sequence[str],
+    exclude_codes: Sequence[str],
+) -> List[Dict[str, Any]]:
+    filters: Dict[str, Any] = {
+        "disabled": 0,
+        "is_sales_item": 1,
+        "is_fixed_asset": 0,
+    }
+    if item_groups:
+        filters["item_group"] = ["in", list(item_groups)]
+    if exclude_codes:
+        filters["item_code"] = ["not in", list(exclude_codes)]
+    if not pos_profile.get("posa_show_template_items"):
+        filters.update(HAS_VARIANTS_EXCLUSION)
+    if pos_profile.get("posa_hide_variants_items"):
+        filters["variant_of"] = ["is", "not set"]
+
+    return frappe.get_all(
+        "Item",
+        filters=filters,
+        fields=list(fields),
+        order_by="modified desc, item_name asc",
+        limit_page_length=limit,
+    )
+
+
+def _enrich_hot_items(
+    pos_profile: Dict[str, Any],
+    item_rows: Sequence[Dict[str, Any]],
+    price_list: Optional[str],
+    customer: Optional[str],
+    include_description: bool,
+    include_image: bool,
+) -> List[Dict[str, Any]]:
+    if not item_rows:
+        return []
+
+    plan = SearchPlan(
+        filters={},
+        or_filters=[],
+        fields=list(_get_hot_catalog_fields(include_description, include_image)),
+        limit_page_length=None,
+        limit_start=None,
+        order_by="item_name asc",
+        page_size=len(item_rows),
+        initial_page_start=0,
+        item_code_for_search=None,
+        search_words=[],
+        normalized_search_value="",
+        word_filter_active=False,
+        include_description=include_description,
+        include_image=include_image,
+        posa_display_items_in_stock=bool(pos_profile.get("posa_display_items_in_stock")),
+        posa_show_template_items=bool(pos_profile.get("posa_show_template_items")),
+    )
+    result: List[Dict[str, Any]] = []
+    chunk_size = 500
+    for start in range(0, len(item_rows), chunk_size):
+        chunk = list(item_rows[start : start + chunk_size])
+        details = get_items_details(
+            json.dumps(pos_profile),
+            as_json(chunk),
+            price_list=price_list,
+            customer=customer,
+        )
+        detail_map = {d.get("item_code"): d for d in details or []}
+        template_attributes_map, variant_attributes_map = _build_attribute_maps(chunk, plan)
+        for item in chunk:
+            row = _shape_item_row(
+                dict(item),
+                detail_map.get(item.get("item_code"), {}),
+                plan,
+                template_attributes_map=template_attributes_map,
+                variant_attributes_map=variant_attributes_map,
+            )
+            if row:
+                result.append(row)
+    return result
+
+
+def _execute_hot_item_search(
+    pos_profile_json: str,
+    price_list: Optional[str],
+    customer: Optional[str],
+    limit,
+    days,
+    include_description: bool,
+    include_image: bool,
+    item_groups: Optional[Sequence[str]],
+) -> List[Dict[str, Any]]:
+    pos_profile = json.loads(pos_profile_json)
+    if not price_list:
+        price_list = pos_profile.get("selling_price_list")
+
+    resolved_limit = _coerce_hot_catalog_limit(limit)
+    resolved_days = _coerce_hot_catalog_days(days)
+    fields = _get_hot_catalog_fields(include_description, include_image)
+
+    hot_codes = _get_hot_sales_item_codes(
+        pos_profile,
+        item_groups or [],
+        resolved_limit,
+        resolved_days,
+    )
+
+    item_rows: List[Dict[str, Any]] = []
+    if hot_codes:
+        rows = frappe.get_all(
+            "Item",
+            filters={"item_code": ["in", hot_codes]},
+            fields=fields,
+            limit_page_length=len(hot_codes),
+        )
+        rows_by_code = {row.get("item_code"): row for row in rows}
+        item_rows.extend([rows_by_code[code] for code in hot_codes if code in rows_by_code])
+
+    remaining = resolved_limit - len(item_rows)
+    if remaining > 0:
+        item_rows.extend(
+            _get_active_fallback_items(
+                pos_profile,
+                item_groups or [],
+                remaining,
+                fields,
+                [row.get("item_code") for row in item_rows if row.get("item_code")],
+            )
+        )
+
+    return _enrich_hot_items(
+        pos_profile,
+        item_rows[:resolved_limit],
+        price_list,
+        customer,
+        include_description,
+        include_image,
+    )
+
+
 def _execute_item_search(
     pos_profile_json: str,
     price_list: Optional[str],
@@ -665,6 +909,47 @@ def get_items(
         rows=len(result or []),
         cache_path=0,
         search=1 if search_value else 0,
+        groups=len(groups_ctx.groups),
+    )
+    return result
+
+
+@frappe.whitelist()
+def get_hot_items(
+    pos_profile,
+    price_list=None,
+    customer=None,
+    limit=None,
+    days=120,
+    include_description=False,
+    include_image=False,
+    item_groups=None,
+):
+    """Return a register-local hot catalog for Fast Counter Mode.
+
+    The response shape intentionally matches ``get_items`` rows so the frontend
+    can use the same cart, pricing, UOM, stock, and offline-cache flows.
+    """
+
+    started_at = time.perf_counter()
+    profile_ctx = _normalize_profile_context(pos_profile)
+    groups_ctx = _prepare_item_groups(profile_ctx.profile_name, item_groups)
+
+    result = _execute_hot_item_search(
+        profile_ctx.pos_profile_json,
+        price_list,
+        customer,
+        limit,
+        days,
+        bool(cint(include_description)),
+        bool(cint(include_image)),
+        groups_ctx.groups,
+    )
+    log_perf_event(
+        "get_hot_items",
+        started_at,
+        profile=profile_ctx.profile_name,
+        rows=len(result or []),
         groups=len(groups_ctx.groups),
     )
     return result

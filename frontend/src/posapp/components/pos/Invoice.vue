@@ -159,7 +159,7 @@
 								@update:itemSearch="itemSearch = $event"
 								@update:selectedColumns="
 									(cols) => {
-										selected_columns = cols;
+										setSelectedColumns(cols);
 										saveColumnPreferences();
 									}
 								"
@@ -560,6 +560,35 @@ export default {
 
 		focusItemSearchField() {
 			this.uiStore.triggerItemSearchFocus();
+		},
+
+		focusCartItemQty(payload = {}) {
+			const rows = Array.isArray(this.items) ? this.items : [];
+			if (!rows.length) return;
+
+			const requestedItem = payload?.item || payload;
+			const rowId = payload?.rowId || requestedItem?.posa_row_id;
+			const itemCode = payload?.itemCode || requestedItem?.item_code;
+			let index = -1;
+
+			if (rowId) {
+				index = rows.findIndex((row) => row?.posa_row_id === rowId);
+			}
+			if (index < 0 && itemCode) {
+				index = rows.findIndex((row) => row?.item_code === itemCode);
+			}
+			if (index < 0) {
+				index = 0;
+			}
+
+			this.$nextTick(() => {
+				window.setTimeout(() => {
+					const focused = this.$refs.itemsTableRef?.focusItemField?.(index, "qty");
+					if (!focused && index !== 0) {
+						this.$refs.itemsTableRef?.focusItemField?.(0, "qty");
+					}
+				}, 0);
+			});
 		},
 
 		focusAdditionalDiscountField() {
@@ -1161,6 +1190,7 @@ export default {
 			set_all_items: this.handleSetAllItems,
 			load_return_invoice: this.handleLoadReturnInvoice,
 			share_last_invoice: this.share_last_invoice,
+			focus_cart_item_qty: this.focusCartItemQty,
 			set_new_line: this.handleSetNewLine,
 			calc_uom: this.calc_uom,
 			recalculate_return_discount: (payload) => this.applyReturnDiscountProration(payload),

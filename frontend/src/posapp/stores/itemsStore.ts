@@ -24,6 +24,9 @@ export const useItemsStore = defineStore("items", () => {
 	const SERVER_SEARCH_FALLBACK_DEBOUNCE_MS = 450;
 	const SERVER_SEARCH_MISS_CACHE_TTL_MS = 30 * 1000;
 	const SERVER_SEARCH_FALLBACK_MIN_LENGTH = 3;
+	const HOT_CATALOG_DEFAULT_LIMIT = 5000;
+	const HOT_CATALOG_MAX_LIMIT = 10000;
+	const HOT_CATALOG_DAYS = 120;
 	type OfflineModule = Record<string, any>;
 	let offlineApiPromise: Promise<OfflineModule> | null = null;
 	let serverSearchFallbackTimer: ReturnType<typeof setTimeout> | null = null;
@@ -120,6 +123,11 @@ export const useItemsStore = defineStore("items", () => {
 	const posProfile = ref<POSProfile | null>(null);
 	const customer = ref<string | null>(null);
 	const customerPriceList = ref<string | null>(null);
+	const hotItems = ref<Item[]>([]);
+	const hotItemsLoaded = ref(false);
+	const hotItemsLoading = ref(false);
+	const hotCatalogScopeKey = ref("");
+	let hotCatalogRequestToken = 0;
 
 	// Composables Initialization
 	const {
@@ -143,10 +151,13 @@ export const useItemsStore = defineStore("items", () => {
 		updateIndexes,
 		resetIndexes,
 		performLocalSearch,
+		performRankedLocalSearch,
 		filterItemsByGroup,
 		getItemByCode,
 		getItemByBarcode,
 	} = useItemsSearch();
+
+	const hotSearch = useItemsSearch();
 
 	const {
 		isLoading,
@@ -203,6 +214,10 @@ export const useItemsStore = defineStore("items", () => {
 			posProfile.value?.pose_use_limit_search;
 		return normalizeBooleanSetting(rawValue);
 	});
+
+	const fastCounterEnabled = computed(() =>
+		normalizeBooleanSetting(posProfile.value?.posa_fast_counter_mode),
+	);
 
 	const resolvePageSize = (pageSize = DEFAULT_PAGE_SIZE): number => {
 		return paginationResolvePageSize(
@@ -438,6 +453,151 @@ export const useItemsStore = defineStore("items", () => {
 		);
 	});
 
+	const resolveHotCatalogLimit = () => {
+		const rawLimit = Number(posProfile.value?.posa_hot_catalog_limit);
+		if (!Number.isFinite(rawLimit) || rawLimit <= 0) {
+			return HOT_CATALOG_DEFAULT_LIMIT;
+		}
+		return Math.max(100, Math.min(rawLimit, HOT_CATALOG_MAX_LIMIT));
+	};
+
+	const getProfileItemGroups = () => {
+		const groups = posProfile.value?.item_groups;
+		if (!Array.isArray(groups)) {
+			return [];
+		}
+		return groups
+			.map((entry: any) =>
+				typeof entry === "string" ? entry : entry?.item_group,
+			)
+			.filter(Boolean);
+	};
+
+	const buildHotCatalogScopeKey = () =>
+		[
+			getCacheScope(),
+			activePriceList.value || "default",
+			customer.value || "no_customer",
+			resolveHotCatalogLimit(),
+			getProfileItemGroups().join(","),
+		].join("|");
+
+	const setHotCatalogItems = (nextItems: Item[] = []) => {
+		const safeItems = Array.isArray(nextItems) ? nextItems : [];
+		hotItems.value = [...safeItems];
+		hotSearch.resetIndexes();
+		hotSearch.updateIndexes(hotItems.value, posProfile.value);
+		hotItemsLoaded.value = true;
+	};
+
+	const clearHotCatalog = () => {
+		hotItems.value = [];
+		hotSearch.resetIndexes();
+		hotItemsLoaded.value = false;
+		hotCatalogScopeKey.value = "";
+	};
+
+	const loadHotCatalog = async (options: { force?: boolean } = {}) => {
+		if (!fastCounterEnabled.value || !posProfile.value) {
+			clearHotCatalog();
+			return [];
+		}
+
+		const scopeKey = buildHotCatalogScopeKey();
+		if (
+			!options.force &&
+			hotItemsLoaded.value &&
+			hotCatalogScopeKey.value === scopeKey
+		) {
+			return hotItems.value;
+		}
+
+		const requestToken = ++hotCatalogRequestToken;
+		hotItemsLoading.value = true;
+		try {
+			const fetched = await itemService.getHotItemsData({
+				pos_profile: JSON.stringify(posProfile.value),
+				price_list: activePriceList.value,
+				customer: customer.value,
+				limit: resolveHotCatalogLimit(),
+				days: HOT_CATALOG_DAYS,
+				include_description: 0,
+				include_image: 0,
+				item_groups: getProfileItemGroups(),
+			});
+			if (requestToken !== hotCatalogRequestToken) {
+				return hotItems.value;
+			}
+
+			setHotCatalogItems(fetched);
+			hotCatalogScopeKey.value = scopeKey;
+			if (fetched.length > 0) {
+				primeItemDetailsCache(
+					fetched,
+					posProfile.value,
+					activePriceList.value,
+				);
+			}
+			return hotItems.value;
+		} catch (error) {
+			console.warn("Failed to load fast counter hot catalog:", error);
+			return hotItems.value;
+		} finally {
+			if (requestToken === hotCatalogRequestToken) {
+				hotItemsLoading.value = false;
+			}
+		}
+	};
+
+	const isMatchingActiveGroup = (item: Item | undefined | null) => {
+		if (!item) {
+			return false;
+		}
+		return filterItemsByGroup([item], itemGroup.value).length > 0;
+	};
+
+	const getExactHotItem = (term: string) => {
+		if (!fastCounterEnabled.value || !term) {
+			return undefined;
+		}
+		const exact =
+			hotSearch.getItemByBarcode(term) || hotSearch.getItemByCode(term);
+		return isMatchingActiveGroup(exact) ? exact : undefined;
+	};
+
+	const dedupeItems = (itemLists: Item[][], limit = DEFAULT_PAGE_SIZE) => {
+		const seen = new Set<string>();
+		const merged: Item[] = [];
+		itemLists.flat().forEach((item) => {
+			if (!item?.item_code || seen.has(item.item_code)) {
+				return;
+			}
+			seen.add(item.item_code);
+			merged.push(item);
+		});
+		return merged.slice(0, limit);
+	};
+
+	const searchHotItems = (term: string, limit = resolvePageSize()) => {
+		if (
+			!fastCounterEnabled.value ||
+			!hotItemsLoaded.value ||
+			!hotItems.value.length ||
+			!term
+		) {
+			return [];
+		}
+
+		const exact = getExactHotItem(term);
+		const ranked = hotSearch.performRankedLocalSearch(
+			term,
+			hotItems.value,
+			itemGroup.value,
+			limit,
+		);
+		return exact ? dedupeItems([[exact], ranked], limit) : ranked;
+	};
+
 	const hasMoreCachedItems = computed(() => {
 		if (!cachedPagination.value.enabled) return false;
 		if (cachedPagination.value.loading) return true;
@@ -502,7 +662,12 @@ export const useItemsStore = defineStore("items", () => {
 
 		await loadItemGroups(posProfile.value);
 		await assessCacheHealth();
-		await loadCachedItems();
+		await Promise.allSettled([
+			loadCachedItems(),
+			fastCounterEnabled.value
+				? loadHotCatalog({ force: true })
+				: Promise.resolve(clearHotCatalog()),
+		]);
 
 		if (!itemsLoaded.value || items.value.length === 0) {
 			await loadItems({ forceServer: false });
@@ -868,7 +1033,31 @@ export const useItemsStore = defineStore("items", () => {
 			return filteredItems.value;
 		}
 
+		if (
+			fastCounterEnabled.value &&
+			!hotItemsLoaded.value &&
+			!hotItemsLoading.value
+		) {
+			void loadHotCatalog();
+		}
+
+		const exactHotItem = getExactHotItem(term);
+		const hotSearchResults = searchHotItems(term, resolvePageSize());
+		if (exactHotItem) {
+			const exactResults = dedupeItems(
+				[[exactHotItem], hotSearchResults],
+				resolvePageSize(),
+			);
+			cancelPendingServerSearchFallback(exactResults);
+			setFilteredItems(exactResults, term);
+			performanceMetrics.value.searchHits++;
+			return exactResults;
+		}
+
 		if (limitSearchEnabled.value) {
+			if (hotSearchResults.length > 0) {
+				setFilteredItems(hotSearchResults, term);
+			}
 			try {
 				const serverResults = await scheduleServerSearchFallback(
 					term,
@@ -876,18 +1065,26 @@ export const useItemsStore = defineStore("items", () => {
 				);
 				performanceMetrics.value.searchMisses++;
 
-				return serverResults;
+				if (serverResults.length > 0) {
+					return serverResults;
+				}
+				if (hotSearchResults.length > 0) {
+					setFilteredItems(hotSearchResults, term);
+				}
+				return hotSearchResults;
 			} catch (error) {
 				console.error("Search failed:", error);
 				performanceMetrics.value.searchMisses++;
-				return [];
+				return hotSearchResults;
 			}
 		}
 
 		const cacheKey = `search_${getCacheScope()}_${activePriceList.value || "default"}_${term}_${itemGroup.value}`;
 		const shouldUseIndexed = shouldUseIndexedSearch();
 		const canUseSearchResultCache =
-			!shouldUseIndexed && !isLargeCatalogWindow();
+			!shouldUseIndexed &&
+			!isLargeCatalogWindow() &&
+			!fastCounterEnabled.value;
 		const cached = canUseSearchResultCache
 			? getCachedSearchResult(cacheKey)
 			: null;
@@ -915,7 +1112,10 @@ export const useItemsStore = defineStore("items", () => {
 					scope: getStorageScope(),
 				});
 
-				searchResults = Array.isArray(results) ? results : [];
+				searchResults = dedupeItems(
+					[hotSearchResults, Array.isArray(results) ? results : []],
+					cachedPagination.value.pageSize,
+				);
 				cachedPagination.value.search = term;
 				cachedPagination.value.offset = searchResults.length;
 				cachedPagination.value.total = Math.max(
@@ -926,10 +1126,15 @@ export const useItemsStore = defineStore("items", () => {
 				const sourceItems = canRefineSearch
 					? filteredItems.value
 					: items.value;
-				searchResults = performLocalSearch(
+				const localResults = performRankedLocalSearch(
 					term,
 					sourceItems,
 					itemGroup.value,
+					resolvePageSize(),
+				);
+				searchResults = dedupeItems(
+					[hotSearchResults, localResults],
+					resolvePageSize(),
 				);
 
 				if (searchResults.length === 0 && term.length >= 3) {
@@ -1085,6 +1290,9 @@ export const useItemsStore = defineStore("items", () => {
 					limit: resolvePageSize(),
 				});
 			}
+			if (fastCounterEnabled.value) {
+				await loadHotCatalog({ force: true });
+			}
 		} catch (error) {
 			console.error("Failed to update price list:", error);
 		}
@@ -1114,6 +1322,30 @@ export const useItemsStore = defineStore("items", () => {
 				item.currency = nextCurrency;
 			}
 		});
+		if (hotItems.value.length > 0) {
+			hotItems.value.forEach((item) => {
+				const priceItem = priceMap.get(item.item_code);
+				if (!priceItem) {
+					return;
+				}
+				const nextRate =
+					priceItem.price_list_rate || priceItem.rate || 0;
+				const nextCurrency =
+					priceItem.currency ||
+					item.original_currency ||
+					item.currency ||
+					posProfile.value?.currency;
+
+				item.rate = nextRate;
+				item.price_list_rate = nextRate;
+				item.original_rate = nextRate;
+				item.original_currency = nextCurrency;
+				item.currency = nextCurrency;
+			});
+			hotItems.value = [...hotItems.value];
+			hotSearch.resetIndexes();
+			hotSearch.updateIndexes(hotItems.value, posProfile.value);
+		}
 		clearSearchCache();
 
 		if (searchTerm.value) {
@@ -1133,10 +1365,15 @@ export const useItemsStore = defineStore("items", () => {
 		itemsLoaded.value = false;
 		resetCachedPagination();
 		await loadItems({ forceServer: true });
+		if (fastCounterEnabled.value) {
+			await loadHotCatalog({ force: true });
+		} else {
+			clearHotCatalog();
+		}
 	};
 
 	const addScannedItem = async (barcode: string) => {
-		let item = getItemByBarcode(barcode);
+		let item = getItemByBarcode(barcode) || getExactHotItem(barcode);
 		if (item) return item;
 
 		try {
@@ -1169,6 +1406,11 @@ export const useItemsStore = defineStore("items", () => {
 
 				items.value.push(newItem);
 				updateIndexes([newItem], posProfile.value);
+				if (fastCounterEnabled.value) {
+					setHotCatalogItems(
+						dedupeItems([[newItem], hotItems.value], resolveHotCatalogLimit()),
+					);
+				}
 
 				if (searchTerm.value) {
 					await searchItems(searchTerm.value);
@@ -1267,6 +1509,28 @@ export const useItemsStore = defineStore("items", () => {
 			updateIndexes(touchedItems, posProfile.value);
 		}
 
+		if (fastCounterEnabled.value && hotItems.value.length > 0) {
+			const updatesByCode = new Map(
+				updates
+					.filter((update) => update?.item_code)
+					.map((update) => [update.item_code, update]),
+			);
+			let touchedHotItems = false;
+			hotItems.value.forEach((item) => {
+				const update = updatesByCode.get(item.item_code);
+				if (!update) {
+					return;
+				}
+				Object.assign(item, update);
+				touchedHotItems = true;
+			});
+			if (touchedHotItems) {
+				hotItems.value = [...hotItems.value];
+				hotSearch.resetIndexes();
+				hotSearch.updateIndexes(hotItems.value, posProfile.value);
+			}
+		}
+
 		clearSearchCache();
 		if (searchTerm.value) {
 			setFilteredItems(
@@ -1307,6 +1571,9 @@ export const useItemsStore = defineStore("items", () => {
 		posProfile,
 		customer,
 		customerPriceList,
+		hotItems,
+		hotItemsLoaded,
+		hotItemsLoading,
 		cacheHealth,
 		performanceMetrics,
 		cachedPagination,
@@ -1314,6 +1581,7 @@ export const useItemsStore = defineStore("items", () => {
 
 		// Computed
 		activePriceList,
+		fastCounterEnabled,
 		itemStats,
 		cacheStats,
 
@@ -1326,6 +1594,7 @@ export const useItemsStore = defineStore("items", () => {
 		filterByGroup,
 		updatePriceList,
 		refreshItems,
+		loadHotCatalog,
 		appendCachedItemsPage,
 		resetCachedItemsForGroup,
 		backgroundSyncItems: triggerBackgroundSync, // mapped

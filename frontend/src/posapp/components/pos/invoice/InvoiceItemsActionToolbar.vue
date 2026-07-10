@@ -46,9 +46,11 @@
 							:key="column.key"
 						>
 							<v-switch
-								v-model="tempSelectedColumns"
+								:model-value="isTempColumnSelected(column.key)"
+								@update:model-value="
+									(value) => setTempColumnSelection(column.key, value)
+								"
 								:label="column.title"
-								:value="column.key"
 								hide-details
 								density="compact"
 								color="primary"
@@ -100,7 +102,7 @@ const tempSelectedColumns = ref([]);
 const itemSearchField = ref(null);
 
 const toggleColumnSelection = () => {
-	tempSelectedColumns.value = [...props.selectedColumns];
+	tempSelectedColumns.value = normalizeColumns(props.selectedColumns);
 	showColumnSelector.value = true;
 };
 
@@ -109,12 +111,29 @@ const cancelColumnSelection = () => {
 };
 
 const updateSelectedColumns = () => {
-	emit("update:selectedColumns", tempSelectedColumns.value);
+	emit("update:selectedColumns", normalizeColumns(tempSelectedColumns.value));
 	showColumnSelector.value = false;
 };
 
 const focusSearch = () => {
 	itemSearchField.value?.focus?.();
+};
+
+const normalizeColumns = (columns) =>
+	Array.isArray(columns)
+		? [...new Set(columns.filter((column) => typeof column === "string"))]
+		: [];
+
+const isTempColumnSelected = (key) => tempSelectedColumns.value.includes(key);
+
+const setTempColumnSelection = (key, selected) => {
+	const next = new Set(tempSelectedColumns.value);
+	if (selected) {
+		next.add(key);
+	} else {
+		next.delete(key);
+	}
+	tempSelectedColumns.value = [...next];
 };
 
 defineExpose({

@@ -42,6 +42,7 @@ from posawesome.posawesome.api.item_processing.search import (
     get_items,
     get_items_groups,
     get_items_count,
+    get_hot_items,
     normalize_brand,
 )
 

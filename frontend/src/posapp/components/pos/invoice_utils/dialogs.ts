@@ -182,6 +182,11 @@ export async function get_draft_invoices(
 			context.pos_profile,
 			source ?? context.uiStore?.draftSource,
 		);
+		context.uiStore.setDraftSource?.(selectedSource);
+		context.uiStore.setParkedOrders?.([]);
+		context.$refs?.invoiceSummary?.setDraftsLoading?.(true);
+		context.$refs?.invoiceSummary?.openDraftsSurface?.({ focus: false });
+
 		const drafts = await fetchDocumentSourceRecords({
 			source: selectedSource,
 			posOpeningShift: context.pos_opening_shift,
@@ -190,23 +195,24 @@ export async function get_draft_invoices(
 				? "POS Invoice"
 				: "Sales Invoice",
 		});
-		context.uiStore.setDraftSource?.(selectedSource);
 		context.uiStore.setDraftsData?.(drafts);
 		context.uiStore.setParkedOrders?.(drafts);
 		context.uiStore.closeDrafts?.();
+		context.$refs?.invoiceSummary?.setDraftsLoading?.(false);
 
 		if (typeof context.$nextTick === "function") {
 			await context.$nextTick();
 		}
-		if (drafts.length > 0) {
-			context.$refs?.invoiceSummary?.openDraftsSurface?.();
-		}
+		context.$refs?.invoiceSummary?.openDraftsSurface?.({ focus: false });
+		await context.$refs?.invoiceSummary?.focusDraftsSurface?.();
 	} catch (error) {
 		console.error("Error fetching draft invoices:", error);
 		context.toastStore.show({
 			title: __("Unable to fetch documents"),
 			color: "error",
 		});
+	} finally {
+		context.$refs?.invoiceSummary?.setDraftsLoading?.(false);
 	}
 }
 
