@@ -1499,12 +1499,19 @@
 		</v-card>
 	</v-dialog>
 
-	<v-dialog v-model="editDialog" max-width="1160px" scrollable :theme="isDarkTheme ? 'dark' : 'light'">
+	<v-dialog
+		v-model="editDialog"
+		max-width="1160px"
+		scrollable
+		content-class="invoice-edit-modal-content"
+		:theme="isDarkTheme ? 'dark' : 'light'"
+	>
 		<v-card
 			:class="[
 				'invoice-detail-card',
 				isDarkTheme ? 'invoice-detail-card--dark' : 'invoice-detail-card--light',
 			]"
+			@keydown.capture="handleEditModalKeydown"
 		>
 			<v-card-title class="d-flex align-center justify-space-between flex-wrap ga-3">
 				<div>
@@ -1548,6 +1555,14 @@
 					<div class="summary-tile">
 						<div class="summary-tile__label">{{ __("Preview Total") }}</div>
 						<div class="summary-tile__value">
+							<v-progress-circular
+								v-if="editPreviewLoading"
+								indeterminate
+								color="primary"
+								size="18"
+								width="2"
+								class="me-2"
+							/>
 							{{ currencySymbol(editPreviewDoc?.currency || editInvoiceDoc.currency) }}
 							{{ formatCurrency((editPreviewDoc || editInvoiceDoc).grand_total || 0) }}
 						</div>
@@ -1574,7 +1589,10 @@
 						variant="outlined"
 						density="compact"
 						hide-details
+						class="edit-key-field"
+						data-edit-nav="customer"
 						:label="__('Customer')"
+						@update:model-value="scheduleEditPreview()"
 					/>
 					<v-text-field
 						v-model.number="editInvoiceDoc.discount_amount"
@@ -1582,7 +1600,10 @@
 						variant="outlined"
 						density="compact"
 						hide-details
+						class="edit-key-field"
+						data-edit-nav="discount_amount"
 						:label="__('Invoice Discount')"
+						@update:model-value="scheduleEditPreview()"
 					/>
 					<v-text-field
 						v-model.number="editInvoiceDoc.additional_discount_percentage"
@@ -1590,7 +1611,10 @@
 						variant="outlined"
 						density="compact"
 						hide-details
+						class="edit-key-field"
+						data-edit-nav="additional_discount_percentage"
 						:label="__('Additional Discount %')"
+						@update:model-value="scheduleEditPreview()"
 					/>
 				</div>
 
@@ -1619,7 +1643,12 @@
 									variant="outlined"
 									density="compact"
 									hide-details
-									class="edit-number-input"
+									class="edit-number-input edit-key-field"
+									:data-edit-nav="`item-${index}-qty`"
+									:data-edit-row="index"
+									data-edit-col="qty"
+									data-edit-section="items"
+									@update:model-value="scheduleEditPreview()"
 								/>
 							</td>
 							<td>
@@ -1629,7 +1658,12 @@
 									variant="outlined"
 									density="compact"
 									hide-details
-									class="edit-number-input"
+									class="edit-number-input edit-key-field"
+									:data-edit-nav="`item-${index}-rate`"
+									:data-edit-row="index"
+									data-edit-col="rate"
+									data-edit-section="items"
+									@update:model-value="scheduleEditPreview()"
 								/>
 							</td>
 							<td>
@@ -1639,7 +1673,12 @@
 									variant="outlined"
 									density="compact"
 									hide-details
-									class="edit-number-input"
+									class="edit-number-input edit-key-field"
+									:data-edit-nav="`item-${index}-discount_percentage`"
+									:data-edit-row="index"
+									data-edit-col="discount_percentage"
+									data-edit-section="items"
+									@update:model-value="scheduleEditPreview()"
 								/>
 							</td>
 							<td>
@@ -1649,7 +1688,12 @@
 									variant="outlined"
 									density="compact"
 									hide-details
-									class="edit-number-input"
+									class="edit-number-input edit-key-field"
+									:data-edit-nav="`item-${index}-discount_amount`"
+									:data-edit-row="index"
+									data-edit-col="discount_amount"
+									data-edit-section="items"
+									@update:model-value="scheduleEditPreview()"
 								/>
 							</td>
 							<td class="text-end">
@@ -1672,6 +1716,9 @@
 						variant="outlined"
 						density="compact"
 						hide-details
+						class="edit-key-field"
+						data-edit-nav="new-item-code"
+						data-edit-section="new-item"
 						:label="__('Item Code')"
 					/>
 					<v-text-field
@@ -1680,6 +1727,9 @@
 						variant="outlined"
 						density="compact"
 						hide-details
+						class="edit-key-field"
+						data-edit-nav="new-item-qty"
+						data-edit-section="new-item"
 						:label="__('Qty')"
 					/>
 					<v-text-field
@@ -1688,9 +1738,20 @@
 						variant="outlined"
 						density="compact"
 						hide-details
+						class="edit-key-field"
+						data-edit-nav="new-item-rate"
+						data-edit-section="new-item"
 						:label="__('Rate')"
 					/>
-					<v-btn color="primary" variant="tonal" prepend-icon="mdi-plus" @click="addEditItem">
+					<v-btn
+						color="primary"
+						variant="tonal"
+						prepend-icon="mdi-plus"
+						class="edit-key-field"
+						data-edit-nav="new-item-add"
+						data-edit-section="new-item"
+						@click="addEditItem"
+					>
 						{{ __("Add Item") }}
 					</v-btn>
 				</div>
@@ -1714,7 +1775,12 @@
 									variant="outlined"
 									density="compact"
 									hide-details
-									class="edit-number-input"
+									class="edit-number-input edit-key-field"
+									:data-edit-nav="`payment-${index}-amount`"
+									:data-edit-row="index"
+									data-edit-col="amount"
+									data-edit-section="payments"
+									@update:model-value="scheduleEditPreview()"
 								/>
 							</td>
 							<td>{{ payment.account || "-" }}</td>
@@ -1724,9 +1790,9 @@
 			</v-card-text>
 			<v-card-actions>
 				<v-spacer />
-				<v-btn color="secondary" variant="text" :disabled="editSubmitting" @click="previewEditInvoice">
-					{{ __("Recalculate") }}
-				</v-btn>
+				<div class="edit-preview-status text-caption text-medium-emphasis">
+					{{ editPreviewStatus }}
+				</div>
 				<v-btn color="error" variant="tonal" :disabled="editSubmitting" @click="closeEditInvoice">
 					{{ __("Cancel") }}
 				</v-btn>
@@ -1881,6 +1947,11 @@ export default {
 		editDialog: false,
 		editLoading: false,
 		editSubmitting: false,
+		editPreviewLoading: false,
+		editPreviewTimer: null,
+		editPreviewRequestId: 0,
+		editPreviewDirty: false,
+		editPreviewLastUpdatedAt: null,
 		editError: "",
 		editInvoiceOriginal: null,
 		editInvoiceDoc: null,
@@ -2115,8 +2186,19 @@ export default {
 				0,
 			);
 		},
+		editPreviewStatus() {
+			if (this.editPreviewLoading) return __("Recalculating...");
+			if (this.editPreviewDirty) return __("Recalculation pending");
+			if (this.editPreviewLastUpdatedAt) return __("Totals updated");
+			return __("Totals update automatically");
+		},
 	},
 	watch: {
+		editDialog(value) {
+			if (!value) {
+				this.clearScheduledEditPreview();
+			}
+		},
 		invoiceManagementDialog(value) {
 			if (value) {
 				this.activeTab = this.invoiceManagementTargetTab || "history";
@@ -2178,6 +2260,9 @@ export default {
 			},
 			deep: true,
 		},
+	},
+	beforeUnmount() {
+		this.clearScheduledEditPreview();
 	},
 	methods: {
 		resetPagination() {
@@ -2893,9 +2978,14 @@ export default {
 			}
 		},
 		closeEditInvoice() {
+			this.clearScheduledEditPreview();
+			this.editPreviewRequestId = Number(this.editPreviewRequestId || 0) + 1;
 			this.editDialog = false;
 			this.editLoading = false;
 			this.editSubmitting = false;
+			this.editPreviewLoading = false;
+			this.editPreviewDirty = false;
+			this.editPreviewLastUpdatedAt = null;
 			this.editError = "";
 			this.editInvoiceOriginal = null;
 			this.editInvoiceDoc = null;
@@ -2913,6 +3003,120 @@ export default {
 		},
 		cloneForEdit(value) {
 			return JSON.parse(JSON.stringify(value || {}));
+		},
+		clearScheduledEditPreview() {
+			if (this.editPreviewTimer) {
+				if (typeof window !== "undefined") window.clearTimeout(this.editPreviewTimer);
+				this.editPreviewTimer = null;
+			}
+		},
+		scheduleEditPreview(delay = 450) {
+			if (!this.editDialog || this.editLoading || this.editSubmitting || !this.editInvoiceDoc?.name) {
+				return;
+			}
+			this.editPreviewDirty = true;
+			this.clearScheduledEditPreview();
+			if (typeof window === "undefined") return;
+			this.editPreviewTimer = window.setTimeout(() => {
+				this.editPreviewTimer = null;
+				this.previewEditInvoice({ silent: true });
+			}, delay);
+		},
+		editModalElement() {
+			if (typeof document === "undefined") return null;
+			return document.querySelector(".invoice-edit-modal-content");
+		},
+		editNavigationFields() {
+			const modal = this.editModalElement();
+			if (!modal) return [];
+			return Array.from(modal.querySelectorAll("[data-edit-nav]")).filter((element) => {
+				if (element.disabled || element.getAttribute("aria-disabled") === "true") return false;
+				const input = element.matches("input, textarea, button")
+					? element
+					: element.querySelector("input, textarea, button");
+				return Boolean(input && !input.disabled);
+			});
+		},
+		focusEditField(element) {
+			if (!element) return false;
+			const target = element.matches("input, textarea, button")
+				? element
+				: element.querySelector("input, textarea, button");
+			if (!target || target.disabled) return false;
+			target.focus();
+			if (typeof target.select === "function" && target.matches("input[type='number'], input[type='text']")) {
+				target.select();
+			}
+			return true;
+		},
+		focusEditFieldByPredicate(predicate) {
+			const fields = this.editNavigationFields();
+			const field = fields.find(predicate);
+			return this.focusEditField(field);
+		},
+		focusNextEditField(currentElement, direction = 1) {
+			const fields = this.editNavigationFields();
+			if (!fields.length) return false;
+			const currentRoot = currentElement?.closest?.("[data-edit-nav]") || currentElement;
+			const currentIndex = Math.max(fields.indexOf(currentRoot), 0);
+			const nextIndex = (currentIndex + direction + fields.length) % fields.length;
+			return this.focusEditField(fields[nextIndex]);
+		},
+		focusVerticalEditField(currentElement, direction = 1) {
+			const currentRoot = currentElement?.closest?.("[data-edit-nav]");
+			if (!currentRoot) return false;
+			const section = currentRoot.dataset.editSection;
+			const column = currentRoot.dataset.editCol;
+			const row = Number(currentRoot.dataset.editRow);
+			if (!section || !column || !Number.isFinite(row)) return false;
+			return this.focusEditFieldByPredicate((element) => {
+				return (
+					element.dataset.editSection === section &&
+					element.dataset.editCol === column &&
+					Number(element.dataset.editRow) === row + direction
+				);
+			});
+		},
+		handleEditModalKeydown(event) {
+			if (!this.editDialog || this.editLoading) return;
+			if ((event.ctrlKey || event.metaKey) && event.key === "Enter") {
+				event.preventDefault();
+				this.submitEditInvoice();
+				return;
+			}
+			if (event.key === "Escape") {
+				event.preventDefault();
+				if (!this.editSubmitting) this.closeEditInvoice();
+				return;
+			}
+			const target = event.target;
+			const fieldRoot = target?.closest?.("[data-edit-nav]");
+			if (!fieldRoot) return;
+			if (event.key === "Enter") {
+				event.preventDefault();
+				if (fieldRoot.dataset.editSection === "new-item") {
+					const added = this.addEditItem();
+					if (added) {
+						this.$nextTick(() =>
+							this.focusEditFieldByPredicate(
+								(element) =>
+									element.dataset.editSection === "new-item" &&
+									element.dataset.editNav === "new-item-code",
+							),
+						);
+					} else {
+						this.focusNextEditField(fieldRoot, event.shiftKey ? -1 : 1);
+					}
+					return;
+				}
+				this.focusNextEditField(fieldRoot, event.shiftKey ? -1 : 1);
+				return;
+			}
+			if (event.key === "ArrowDown" || event.key === "ArrowUp") {
+				if (this.focusVerticalEditField(fieldRoot, event.key === "ArrowDown" ? 1 : -1)) {
+					event.preventDefault();
+				}
+			}
 		},
 		async openEditInvoice(invoice) {
 			if (!invoice?.name) return;
@@ -2948,22 +3152,30 @@ export default {
 				this.closeEditInvoice();
 			} finally {
 				this.editLoading = false;
+				if (this.editDialog && this.editInvoiceDoc?.name) {
+					this.$nextTick(() => {
+						this.focusEditFieldByPredicate((element) => element.dataset.editNav === "customer");
+						this.scheduleEditPreview(0);
+					});
+				}
 			}
 		},
 		removeEditItem(index) {
 			if (!Array.isArray(this.editInvoiceDoc?.items)) return;
 			if (this.editInvoiceDoc.items.length <= 1) {
 				this.toastStore.show({ title: __("Invoice must have at least one item"), color: "warning" });
-				return;
+				return false;
 			}
 			this.editInvoiceDoc.items.splice(index, 1);
 			this.editPreviewDoc = null;
+			this.scheduleEditPreview();
+			return true;
 		},
 		addEditItem() {
 			const itemCode = String(this.newEditItem?.item_code || "").trim();
 			if (!itemCode) {
 				this.toastStore.show({ title: __("Item code is required"), color: "warning" });
-				return;
+				return false;
 			}
 			if (!Array.isArray(this.editInvoiceDoc.items)) this.editInvoiceDoc.items = [];
 			this.editInvoiceDoc.items.push({
@@ -2976,6 +3188,8 @@ export default {
 			});
 			this.newEditItem = { item_code: "", qty: 1, rate: 0 };
 			this.editPreviewDoc = null;
+			this.scheduleEditPreview();
+			return true;
 		},
 		buildEditCorrectionData() {
 			const doc = this.editInvoiceDoc || {};
@@ -3019,8 +3233,14 @@ export default {
 				})),
 			};
 		},
-		async previewEditInvoice() {
+		async previewEditInvoice(options = {}) {
 			if (!this.editInvoiceDoc?.name) return;
+			const silent = Boolean(options?.silent);
+			this.clearScheduledEditPreview();
+			const requestId = Number(this.editPreviewRequestId || 0) + 1;
+			this.editPreviewRequestId = requestId;
+			this.editPreviewLoading = true;
+			this.editPreviewDirty = false;
 			this.editError = "";
 			try {
 				const args = {
@@ -3031,16 +3251,24 @@ export default {
 					method: "posawesome.posawesome.api.invoices.preview_submitted_invoice_edit",
 					args,
 				});
+				if (requestId !== this.editPreviewRequestId) return;
 				this.editPreviewDoc = message?.invoice || null;
 				this.editEligibility = message?.metadata || this.editEligibility;
+				this.editPreviewLastUpdatedAt = Date.now();
 			} catch (error) {
+				if (requestId !== this.editPreviewRequestId) return;
 				console.error("Error previewing invoice edit:", error);
 				this.editError = error?.message || __("Unable to recalculate invoice");
-				this.toastStore.show({ title: this.editError, color: "error" });
+				if (!silent) this.toastStore.show({ title: this.editError, color: "error" });
+			} finally {
+				if (requestId === this.editPreviewRequestId) {
+					this.editPreviewLoading = false;
+				}
 			}
 		},
 		async submitEditInvoice() {
 			if (!this.editInvoiceDoc?.name || this.editSubmitting) return;
+			this.clearScheduledEditPreview();
 			if (isOffline()) {
 				this.toastStore.show({ title: __("Editing submitted invoices requires an online connection"), color: "warning" });
 				return;
