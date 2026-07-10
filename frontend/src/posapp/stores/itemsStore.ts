@@ -504,6 +504,11 @@ export const useItemsStore = defineStore("items", () => {
 			activePriceList.value || "default",
 			customer.value || "no_customer",
 			resolveHotCatalogLimit(),
+			normalizeBooleanSetting(
+				posProfile.value?.posa_fast_counter_positive_stock_only,
+			)
+				? "positive_stock_only"
+				: "all_stock",
 			getProfileItemGroups().join(","),
 		].join("|");
 

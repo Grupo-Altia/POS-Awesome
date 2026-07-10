@@ -12,6 +12,7 @@ const offlineMocks = vi.hoisted(() => ({
 	getAllStoredItems: vi.fn(async () => []),
 	searchStoredItems: vi.fn(async () => []),
 	getCachedPriceListItems: vi.fn(async () => null),
+	getItemsLastSync: vi.fn(() => null),
 }));
 
 const cacheMocks = vi.hoisted(() => ({
@@ -47,6 +48,7 @@ vi.mock("../src/offline/index", () => ({
 	getAllStoredItems: offlineMocks.getAllStoredItems,
 	searchStoredItems: offlineMocks.searchStoredItems,
 	getCachedPriceListItems: offlineMocks.getCachedPriceListItems,
+	getItemsLastSync: offlineMocks.getItemsLastSync,
 }));
 
 vi.mock("../src/posapp/composables/pos/items/store/useItemsCache", () => ({
@@ -273,6 +275,7 @@ describe("itemsStore loadItems", () => {
 			item_groups: [{ item_group: "Medicines" }],
 			posa_fast_counter_mode: 1,
 			posa_hot_catalog_limit: 250,
+			posa_fast_counter_positive_stock_only: 1,
 		} as any;
 		itemServiceMocks.getHotItemsData.mockResolvedValue([
 			{
@@ -294,6 +297,11 @@ describe("itemsStore loadItems", () => {
 				item_groups: ["Medicines"],
 			}),
 		);
+		const hotCatalogArgs = itemServiceMocks.getHotItemsData.mock.calls[0][0];
+		expect(
+			JSON.parse(hotCatalogArgs.pos_profile)
+				.posa_fast_counter_positive_stock_only,
+		).toBe(1);
 		expect(store.hotItems.map((item) => item.item_code)).toEqual(["HOT-1"]);
 		expect(store.hotItemsLoaded).toBe(true);
 		expect(itemsSyncMocks.primeItemDetailsCache).toHaveBeenCalledWith(

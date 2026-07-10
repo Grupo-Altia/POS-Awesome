@@ -15,6 +15,10 @@ def _install_stubs():
     frappe_module.as_json = lambda value: json.dumps(value, default=str)
     frappe_module.throw = lambda message: (_ for _ in ()).throw(Exception(message))
     frappe_module.get_all = lambda *args, **kwargs: []
+    frappe_module.db = types.SimpleNamespace(
+        get_value=lambda *args, **kwargs: None,
+        sql=lambda *args, **kwargs: [],
+    )
     frappe_module.whitelist = lambda *args, **kwargs: (lambda fn: fn)
     sys.modules["frappe"] = frappe_module
 
@@ -215,6 +219,73 @@ class TestItemSearchSerialization(unittest.TestCase):
             fallback_call["filters"]["item_code"],
             ["not in", ["ITEM-HOT"]],
         )
+
+    def test_hot_item_search_can_filter_hot_and_fallback_items_by_positive_stock(self):
+        sql_calls = []
+
+        self.module._get_hot_sales_item_codes = lambda *args, **kwargs: [
+            "ITEM-HOT-IN",
+            "ITEM-HOT-ZERO",
+        ]
+        self.module._enrich_hot_items = lambda _profile, rows, *args, **kwargs: rows
+        self.module.frappe.db.get_value = lambda *args, **kwargs: {
+            "is_group": 0,
+            "lft": 1,
+            "rgt": 2,
+        }
+
+        def fake_sql(_query, params, **kwargs):
+            sql_calls.append(params)
+            if params.get("candidate_codes"):
+                return [{"item_code": "ITEM-HOT-IN"}]
+            return [{"item_code": "ITEM-FALLBACK-IN"}]
+
+        def fake_get_all(doctype, **kwargs):
+            if doctype != "Item":
+                return []
+            filters = kwargs.get("filters", {})
+            if filters.get("item_code") == ["in", ["ITEM-HOT-IN"]]:
+                return [{"item_code": "ITEM-HOT-IN", "item_name": "Hot Item"}]
+            if filters.get("item_code") == ["in", ["ITEM-FALLBACK-IN"]]:
+                return [
+                    {
+                        "item_code": "ITEM-FALLBACK-IN",
+                        "item_name": "Fallback Item",
+                    }
+                ]
+            return []
+
+        self.module.frappe.db.sql = fake_sql
+        self.module.frappe.get_all = fake_get_all
+
+        result = self.module._execute_hot_item_search(
+            json.dumps(
+                {
+                    "name": "POS-1",
+                    "company": "Test Co",
+                    "warehouse": "Main WH",
+                    "selling_price_list": "Retail",
+                    "posa_fast_counter_positive_stock_only": 1,
+                }
+            ),
+            price_list=None,
+            customer=None,
+            limit=3,
+            days=120,
+            include_description=False,
+            include_image=False,
+            item_groups=[],
+        )
+
+        self.assertEqual(
+            [row["item_code"] for row in result],
+            ["ITEM-HOT-IN", "ITEM-FALLBACK-IN"],
+        )
+        self.assertEqual(
+            sql_calls[0]["candidate_codes"],
+            ("ITEM-HOT-IN", "ITEM-HOT-ZERO"),
+        )
+        self.assertEqual(sql_calls[1]["exclude_codes"], ("ITEM-HOT-IN",))
 
 
 if __name__ == "__main__":

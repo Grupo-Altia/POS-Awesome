@@ -582,12 +582,115 @@ def _get_hot_sales_item_codes(
     return [row.get("item_code") for row in rows if row.get("item_code")]
 
 
+def _get_stock_warehouses(pos_profile: Dict[str, Any]) -> List[str]:
+    warehouse = pos_profile.get("warehouse")
+    if not warehouse:
+        return []
+
+    try:
+        warehouse_doc = frappe.db.get_value(
+            "Warehouse",
+            warehouse,
+            ["is_group", "lft", "rgt"],
+            as_dict=True,
+        )
+    except Exception:
+        warehouse_doc = None
+
+    if not warehouse_doc or not cint(warehouse_doc.get("is_group")):
+        return [warehouse]
+
+    warehouses = frappe.get_all(
+        "Warehouse",
+        filters={
+            "lft": [">", warehouse_doc.get("lft")],
+            "rgt": ["<", warehouse_doc.get("rgt")],
+            "is_group": 0,
+        },
+        pluck="name",
+    )
+    return [row for row in warehouses if row]
+
+
+def _get_positive_stock_item_codes(
+    pos_profile: Dict[str, Any],
+    item_groups: Sequence[str],
+    limit: Optional[int] = None,
+    candidate_codes: Optional[Sequence[str]] = None,
+    exclude_codes: Optional[Sequence[str]] = None,
+) -> List[str]:
+    warehouses = _get_stock_warehouses(pos_profile)
+    if not warehouses:
+        return []
+
+    conditions = [
+        "bin.warehouse in %(warehouses)s",
+        "item.disabled = 0",
+        "item.is_sales_item = 1",
+        "item.is_fixed_asset = 0",
+    ]
+    params: Dict[str, Any] = {"warehouses": tuple(warehouses)}
+
+    if item_groups:
+        conditions.append("item.item_group in %(item_groups)s")
+        params["item_groups"] = tuple(item_groups)
+    if candidate_codes:
+        conditions.append("bin.item_code in %(candidate_codes)s")
+        params["candidate_codes"] = tuple(candidate_codes)
+    if exclude_codes:
+        conditions.append("bin.item_code not in %(exclude_codes)s")
+        params["exclude_codes"] = tuple(exclude_codes)
+    if not pos_profile.get("posa_show_template_items"):
+        conditions.append("item.has_variants = 0")
+    if pos_profile.get("posa_hide_variants_items"):
+        conditions.append("(item.variant_of is null or item.variant_of = '')")
+
+    limit_clause = ""
+    if limit:
+        limit_clause = f" limit {cint(limit)}"
+
+    rows = frappe.db.sql(
+        f"""
+        select bin.item_code
+        from `tabBin` bin
+        inner join `tabItem` item on item.name = bin.item_code
+        where {" and ".join(conditions)}
+        group by bin.item_code
+        having sum(bin.actual_qty) > 0
+        order by max(item.modified) desc, bin.item_code asc
+        {limit_clause}
+        """,
+        params,
+        as_dict=True,
+    )
+    return [row.get("item_code") for row in rows if row.get("item_code")]
+
+
+def _filter_positive_stock_item_codes(
+    pos_profile: Dict[str, Any],
+    item_groups: Sequence[str],
+    item_codes: Sequence[str],
+) -> List[str]:
+    if not item_codes:
+        return []
+
+    positive_codes = set(
+        _get_positive_stock_item_codes(
+            pos_profile,
+            item_groups,
+            candidate_codes=item_codes,
+        )
+    )
+    return [code for code in item_codes if code in positive_codes]
+
+
 def _get_active_fallback_items(
     pos_profile: Dict[str, Any],
     item_groups: Sequence[str],
     limit: int,
     fields: Sequence[str],
     exclude_codes: Sequence[str],
+    positive_stock_only: bool = False,
 ) -> List[Dict[str, Any]]:
     filters: Dict[str, Any] = {
         "disabled": 0,
@@ -602,6 +705,26 @@ def _get_active_fallback_items(
         filters.update(HAS_VARIANTS_EXCLUSION)
     if pos_profile.get("posa_hide_variants_items"):
         filters["variant_of"] = ["is", "not set"]
+
+    if positive_stock_only:
+        positive_codes = _get_positive_stock_item_codes(
+            pos_profile,
+            item_groups,
+            limit=limit,
+            exclude_codes=exclude_codes,
+        )
+        if not positive_codes:
+            return []
+        filters.pop("item_code", None)
+        filters["item_code"] = ["in", positive_codes]
+        rows = frappe.get_all(
+            "Item",
+            filters=filters,
+            fields=list(fields),
+            limit_page_length=len(positive_codes),
+        )
+        rows_by_code = {row.get("item_code"): row for row in rows}
+        return [rows_by_code[code] for code in positive_codes if code in rows_by_code]
 
     return frappe.get_all(
         "Item",
@@ -638,7 +761,10 @@ def _enrich_hot_items(
         word_filter_active=False,
         include_description=include_description,
         include_image=include_image,
-        posa_display_items_in_stock=bool(pos_profile.get("posa_display_items_in_stock")),
+        posa_display_items_in_stock=bool(
+            pos_profile.get("posa_display_items_in_stock")
+            or pos_profile.get("posa_fast_counter_positive_stock_only")
+        ),
         posa_show_template_items=bool(pos_profile.get("posa_show_template_items")),
     )
     result: List[Dict[str, Any]] = []
@@ -683,6 +809,7 @@ def _execute_hot_item_search(
     resolved_limit = _coerce_hot_catalog_limit(limit)
     resolved_days = _coerce_hot_catalog_days(days)
     fields = _get_hot_catalog_fields(include_description, include_image)
+    positive_stock_only = bool(pos_profile.get("posa_fast_counter_positive_stock_only"))
 
     hot_codes = _get_hot_sales_item_codes(
         pos_profile,
@@ -690,6 +817,12 @@ def _execute_hot_item_search(
         resolved_limit,
         resolved_days,
     )
+    if positive_stock_only:
+        hot_codes = _filter_positive_stock_item_codes(
+            pos_profile,
+            item_groups or [],
+            hot_codes,
+        )
 
     item_rows: List[Dict[str, Any]] = []
     if hot_codes:
@@ -711,6 +844,7 @@ def _execute_hot_item_search(
                 remaining,
                 fields,
                 [row.get("item_code") for row in item_rows if row.get("item_code")],
+                positive_stock_only=positive_stock_only,
             )
         )
 
