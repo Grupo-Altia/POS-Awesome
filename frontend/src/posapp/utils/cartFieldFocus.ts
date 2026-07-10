@@ -20,7 +20,7 @@ export interface CartFieldFocusOptions {
 }
 
 const FIELD_SELECTORS: Record<CartGridColumnKey, string> = {
-	qty: '[data-column-key="qty"] .posa-cart-table__qty-input-shell',
+	qty: '[data-column-key="qty"] .posa-cart-table__qty-input-shell input',
 	uom: '[data-column-key="uom"] .posa-cart-table__editor-display',
 	rate: '[data-column-key="rate"] .posa-cart-table__editor-display',
 	discount_percentage: '[data-column-key="discount_percentage"] .posa-cart-table__editor-display',
@@ -41,10 +41,22 @@ export const CART_GRID_NAVIGABLE_COLUMNS: CartGridColumnKey[] = [
 	"data-table-expand",
 ];
 
+export const CART_GRID_DIRECT_EDIT_COLUMNS: CartGridColumnKey[] = [
+	"qty",
+	"uom",
+	"discount_percentage",
+	"discount_amount",
+	"rate",
+];
+
 const NAVIGABLE_COLUMN_SET = new Set<string>(CART_GRID_NAVIGABLE_COLUMNS);
+const DIRECT_EDIT_COLUMN_SET = new Set<string>(CART_GRID_DIRECT_EDIT_COLUMNS);
 
 export const isCartGridColumnKey = (key: unknown): key is CartGridColumnKey =>
 	typeof key === "string" && NAVIGABLE_COLUMN_SET.has(key);
+
+export const isCartGridDirectEditColumnKey = (key: unknown): key is CartGridColumnKey =>
+	typeof key === "string" && DIRECT_EDIT_COLUMN_SET.has(key);
 
 export const getCartGridRowId = (rowIndex: number) =>
 	`posa-cart-grid-row-${rowIndex}`;

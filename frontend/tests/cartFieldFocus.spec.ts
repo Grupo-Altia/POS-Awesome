@@ -17,7 +17,9 @@ const createContainer = () => {
 			<tbody>
 				<tr class="posa-cart-item-row">
 					<td data-column-key="qty">
-						<div class="posa-cart-table__qty-input-shell" tabindex="0"></div>
+						<div class="posa-cart-table__qty-input-shell" tabindex="0">
+							<input type="number" />
+						</div>
 					</td>
 					<td data-column-key="uom">
 						<div class="posa-cart-table__editor-display" tabindex="0"></div>
@@ -43,7 +45,9 @@ const createContainer = () => {
 				</tr>
 				<tr class="posa-cart-item-row" data-cart-row-index="3" tabindex="-1">
 					<td data-column-key="qty">
-						<div class="posa-cart-table__qty-input-shell" tabindex="0"></div>
+						<div class="posa-cart-table__qty-input-shell" tabindex="0">
+							<input type="number" />
+						</div>
 					</td>
 					<td data-column-key="rate">
 						<div class="posa-cart-table__editor-display" tabindex="0"></div>
@@ -57,11 +61,9 @@ const createContainer = () => {
 };
 
 describe("focusCartItemField", () => {
-	it("focuses and clicks the quantity activator for the requested row", () => {
+	it("focuses and clicks the quantity input for the requested row", () => {
 		const container = createContainer();
-		const activator = container.querySelector(
-			'[data-column-key="qty"] .posa-cart-table__qty-input-shell',
-		) as HTMLElement;
+		const activator = container.querySelector('[data-column-key="qty"] input') as HTMLElement;
 		const clickSpy = vi.spyOn(activator, "click");
 
 		expect(focusCartItemField(container, 0, "qty")).toBe(true);

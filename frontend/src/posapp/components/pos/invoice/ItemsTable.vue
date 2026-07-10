@@ -7,7 +7,7 @@
 		role="grid"
 		:aria-label="__('Invoice Items')"
 		:aria-activedescendant="activeGridDescendant || undefined"
-		@keydown="handleGridKeydown"
+		@keydown.capture="handleGridKeydown"
 		@dragover="onDragOverFromSelector($event)"
 		@drop="onDropFromSelector($event)"
 		@dragenter="onDragEnterFromSelector"
@@ -160,6 +160,7 @@ import {
 	getCartGridCellId,
 	getCartGridRowId,
 	getNavigableCartColumnKeys,
+	isCartGridDirectEditColumnKey,
 	type CartGridColumnKey,
 	type CartFieldFocusOptions,
 	type CartShortcutField,
@@ -330,7 +331,7 @@ const focusActiveGridTarget = async () => {
 		}
 		if (gridMode.value === "cell" && activeCellKey.value) {
 			focusCartGridCell(tableContainer.value, activeRowIndex.value, activeCellKey.value, {
-				activate: false,
+				activate: isCartGridDirectEditColumnKey(activeCellKey.value),
 			});
 		}
 	}, 0);
@@ -394,6 +395,62 @@ const moveGridCell = (delta: number) => {
 	activeCellKey.value = keys[nextIndex] ?? null;
 	void focusActiveGridTarget();
 	return true;
+};
+
+const moveGridEntry = (delta: number) => {
+	if (gridMode.value !== "cell") {
+		return false;
+	}
+
+	const keys = navigableGridColumnKeys.value.filter(isCartGridDirectEditColumnKey);
+	if (!keys.length) {
+		return moveGridCell(delta);
+	}
+
+	const currentIndex = activeCellKey.value ? keys.indexOf(activeCellKey.value) : -1;
+	const nextIndex = currentIndex + delta;
+	if (nextIndex >= 0 && nextIndex < keys.length) {
+		activeCellKey.value = keys[nextIndex] ?? null;
+		void focusActiveGridTarget();
+		return true;
+	}
+
+	const nextRowIndex = clampRowIndex(activeRowIndex.value + (delta > 0 ? 1 : -1));
+	if (nextRowIndex >= 0 && nextRowIndex !== activeRowIndex.value) {
+		activeRowIndex.value = nextRowIndex;
+		activeCellKey.value = delta > 0 ? keys[0] ?? null : keys[keys.length - 1] ?? null;
+		void focusActiveGridTarget();
+		return true;
+	}
+
+	void focusActiveGridTarget();
+	return false;
+};
+
+const commitActiveGridEditor = async () => {
+	const activeElement = document.activeElement as HTMLElement | null;
+	if (
+		!activeElement ||
+		!tableContainer.value?.contains(activeElement) ||
+		!isEditableElement(activeElement)
+	) {
+		return false;
+	}
+
+	activeElement.blur?.();
+	await nextTick();
+	await new Promise((resolve) => window.setTimeout(resolve, 0));
+	return true;
+};
+
+const commitActiveGridEditorAndMoveCell = async (delta: number) => {
+	await commitActiveGridEditor();
+	moveGridCell(delta);
+};
+
+const commitActiveGridEditorAndMoveEntry = async (delta: number) => {
+	await commitActiveGridEditor();
+	moveGridEntry(delta);
 };
 
 const activateGridRow = () => {
@@ -520,6 +577,10 @@ const getItemIndex = (item: any) => {
 };
 
 const handleQtyEditSubmitted = (item: any) => {
+	if (gridMode.value !== "inactive") {
+		void commitActiveGridEditorAndMoveEntry(1);
+		return;
+	}
 	window.setTimeout(() => {
 		const index = getItemIndex(item);
 		if (index >= 0 && focusItemField(index, "discount_percentage", { activate: false })) {
@@ -530,6 +591,10 @@ const handleQtyEditSubmitted = (item: any) => {
 };
 
 const handleDiscountEditSubmitted = () => {
+	if (gridMode.value !== "inactive") {
+		void commitActiveGridEditorAndMoveEntry(1);
+		return;
+	}
 	window.setTimeout(() => {
 		eventBus?.emit("focus_item_search");
 	}, 0);
@@ -591,18 +656,16 @@ const handleGridKeydown = (event: KeyboardEvent) => {
 	}
 
 	if (event.key === "Tab") {
+		void commitActiveGridEditor();
 		deactivateKeyboardGrid();
 		eventBus?.emit("focus_item_search");
-		return;
-	}
-
-	if (isEditableElement(event.target as Element | null)) {
 		return;
 	}
 
 	if (event.key === "Escape") {
 		event.preventDefault();
 		if (gridMode.value === "cell") {
+			void commitActiveGridEditor();
 			gridMode.value = "row";
 			activeCellKey.value = null;
 			void focusActiveGridTarget();
@@ -634,17 +697,26 @@ const handleGridKeydown = (event: KeyboardEvent) => {
 	if (gridMode.value === "cell") {
 		if (event.key === "ArrowLeft" || event.key === "ArrowRight") {
 			event.preventDefault();
-			moveGridCell(event.key === "ArrowRight" ? 1 : -1);
+			event.stopPropagation();
+			void commitActiveGridEditorAndMoveCell(event.key === "ArrowRight" ? 1 : -1);
 			return;
 		}
 		if (event.key === "ArrowDown" || event.key === "ArrowUp") {
 			event.preventDefault();
-			moveGridRow(event.key === "ArrowDown" ? 1 : -1);
+			event.stopPropagation();
+			void commitActiveGridEditor().then(() => {
+				moveGridRow(event.key === "ArrowDown" ? 1 : -1);
+			});
 			return;
 		}
 		if (event.key === "Enter" || event.key === " ") {
 			event.preventDefault();
-			activateGridCell();
+			event.stopPropagation();
+			if (activeCellKey.value && isCartGridDirectEditColumnKey(activeCellKey.value)) {
+				void commitActiveGridEditorAndMoveEntry(1);
+			} else {
+				activateGridCell();
+			}
 		}
 	}
 };

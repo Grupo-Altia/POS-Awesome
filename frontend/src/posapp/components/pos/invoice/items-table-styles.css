@@ -499,6 +499,14 @@
 	font-variant-numeric: tabular-nums;
 }
 
+.posa-cart-item-cell--keyboard-active .posa-cart-table__qty-input .v-field {
+	box-shadow: none !important;
+}
+
+.posa-cart-item-cell--keyboard-active .posa-cart-table__qty-input .v-field__outline {
+	opacity: 0;
+}
+
 /* UOM specific styles */
 .uom-editor {
 	gap: 4px;

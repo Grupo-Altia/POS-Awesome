@@ -159,3 +159,34 @@ update `tabPOS Profile`
 set create_pos_invoice_instead_of_sales_invoice = 0
 where name in ('POS Awesome - MedPlus', 'POS Awesome - MedPlus Cashier', 'POS Terminal 1');
 ```
+
+## 2026-07-10 Invoice Items Direct Keyboard Editing
+
+Issue:
+
+- The invoice items grid required `Enter` to activate a cell before typing.
+- After entering a value, focus could leave the invoice table and return to item search.
+- Quantity keyboard focus could land on the visual shell instead of the actual input.
+- The focused quantity cell showed both the outer grid bounding box and the inner text-field outline.
+
+Decision:
+
+- When the grid bounding box enters an editable cell, that cell should become ready for typing immediately.
+- `Enter` after typing should commit the current value and move to the next editable entry in the same row.
+- `ArrowRight` and `ArrowLeft` should commit the active field and move the bounding box across columns.
+- `ArrowUp` and `ArrowDown` should commit the active field and move to the same column on the adjacent row.
+- The active input should blur before movement so the caret does not stay behind and interfere with grid navigation.
+
+Implementation notes:
+
+- Grid key handling now runs in capture phase so arrow and enter navigation are handled before inner inputs consume those keys.
+- Quantity grid focus now targets the real numeric input, not only the outer quantity shell.
+- Editable grid cells auto-activate on focus: quantity, UOM, discount %, discount amount, and rate.
+- Non-edit cells such as offer, delete, and expand still require activation.
+- Quantity inner text-field outline is suppressed while the grid cell bounding box is active to avoid double-box UI.
+
+Verification:
+
+- `yarn vitest run tests/cartFieldFocus.spec.ts tests/invoiceShortcuts.spec.ts tests/keyboardNavigation.spec.ts`
+- `yarn build`
+- `yarn lint`
