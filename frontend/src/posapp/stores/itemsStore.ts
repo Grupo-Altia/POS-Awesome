@@ -19,11 +19,13 @@ import {
 	buildLoadItemsRequest,
 	type LoadItemsOptions,
 } from "./items/loadItemsRequest";
+import { resetItemLoadingCoordinator } from "../modules/items/itemLoadingCoordinator";
 
 export const useItemsStore = defineStore("items", () => {
 	const SERVER_SEARCH_FALLBACK_DEBOUNCE_MS = 450;
 	const SERVER_SEARCH_MISS_CACHE_TTL_MS = 30 * 1000;
-	const SERVER_SEARCH_FALLBACK_MIN_LENGTH = 3;
+	const SERVER_SEARCH_FALLBACK_MIN_LENGTH = 2;
+	const RESUME_RECOVERY_COOLDOWN_MS = 10 * 1000;
 	const HOT_CATALOG_DEFAULT_LIMIT = 5000;
 	const HOT_CATALOG_MAX_LIMIT = 10000;
 	const HOT_CATALOG_DAYS = 120;
@@ -34,6 +36,7 @@ export const useItemsStore = defineStore("items", () => {
 		| ((_items: Item[]) => void)
 		| null = null;
 	let serverSearchFallbackToken = 0;
+	let lastRecoveryAt = 0;
 	const serverSearchMissCache = new Map<string, number>();
 	const activeServerSearchKeys = new Set<string>();
 
@@ -317,6 +320,24 @@ export const useItemsStore = defineStore("items", () => {
 			resolvePendingServerSearchFallback(result);
 			resolvePendingServerSearchFallback = null;
 		}
+	};
+
+	const abortAllItemRequests = () => {
+		for (const controller of abortControllers.value.values()) {
+			controller.abort();
+		}
+		abortControllers.value.clear();
+		activeServerSearchKeys.clear();
+	};
+
+	const resetRuntimeLoadingState = () => {
+		cancelPendingServerSearchFallback();
+		cancelBackgroundSync();
+		abortAllItemRequests();
+		isLoading.value = false;
+		cachedPagination.value.loading = false;
+		backgroundSyncState.value.running = false;
+		resetItemLoadingCoordinator();
 	};
 
 	const shouldTryServerSearchFallback = (term: string, group: string) => {
@@ -741,7 +762,9 @@ export const useItemsStore = defineStore("items", () => {
 			syncBootstrapItemReadiness(resolvedCount);
 		} catch (error) {
 			console.warn("Failed to load cached items:", error);
-			itemsLoaded.value = true;
+			itemsLoaded.value = false;
+			resetCachedPagination();
+			syncBootstrapItemReadiness(0);
 		}
 	};
 
@@ -815,8 +838,12 @@ export const useItemsStore = defineStore("items", () => {
 			);
 			const isServerSearchRequest = forceServer && !!searchValue;
 
+			const shouldForceServerItems = normalizeBooleanSetting(
+				posProfile.value?.posa_force_server_items,
+			);
 			const canReadFromCache =
 				!forceServer &&
+				!shouldForceServerItems &&
 				!limitSearchEnabled.value &&
 				!isLargeCatalogWindow();
 
@@ -897,13 +924,15 @@ export const useItemsStore = defineStore("items", () => {
 			itemsLoaded.value = true;
 
 			const shouldCacheFetchedItems =
-				!limitSearchEnabled.value && !isInitialBootstrapRequest;
+				!limitSearchEnabled.value &&
+				!isInitialBootstrapRequest &&
+				!shouldForceServerItems;
 
 			if (shouldCacheFetchedItems) {
 				await cacheItems(cacheKey, fetchedItems);
 			}
 
-			if (!searchValue && shouldPersistItems()) {
+			if (!searchValue && shouldPersistItems() && !shouldForceServerItems) {
 				await persistItemsToStorage(
 					fetchedItems,
 					shouldPersistItems(),
@@ -955,7 +984,9 @@ export const useItemsStore = defineStore("items", () => {
 				throw error;
 			}
 		} finally {
-			isLoading.value = false;
+			if (requestToken.value === currentRequestToken) {
+				isLoading.value = false;
+			}
 			if (cacheKey) {
 				abortControllers.value.delete(cacheKey);
 				activeServerSearchKeys.delete(cacheKey);
@@ -1098,7 +1129,6 @@ export const useItemsStore = defineStore("items", () => {
 			let searchResults: Item[] = [];
 
 			if (shouldUseIndexed) {
-				cancelPendingServerSearchFallback();
 				const normalizedGroup =
 					typeof itemGroup.value === "string" &&
 					itemGroup.value.length > 0
@@ -1116,6 +1146,25 @@ export const useItemsStore = defineStore("items", () => {
 					[hotSearchResults, Array.isArray(results) ? results : []],
 					cachedPagination.value.pageSize,
 				);
+
+				if (
+					searchResults.length === 0 &&
+					shouldTryServerSearchFallback(term, normalizedGroup)
+				) {
+					searchResults = await scheduleServerSearchFallback(
+						term,
+						normalizedGroup,
+					);
+					if (
+						normalizeSearchScope(searchTerm.value) !==
+						requestedSearchScope
+					) {
+						return [];
+					}
+				} else {
+					cancelPendingServerSearchFallback(searchResults);
+				}
+
 				cachedPagination.value.search = term;
 				cachedPagination.value.offset = searchResults.length;
 				cachedPagination.value.total = Math.max(
@@ -1361,6 +1410,7 @@ export const useItemsStore = defineStore("items", () => {
 	};
 
 	const refreshItems = async () => {
+		resetRuntimeLoadingState();
 		await clearAllCaches();
 		itemsLoaded.value = false;
 		resetCachedPagination();
@@ -1370,6 +1420,91 @@ export const useItemsStore = defineStore("items", () => {
 		} else {
 			clearHotCatalog();
 		}
+	};
+
+	const recoverItemCatalog = async (
+		options: {
+			reason?: string;
+			preserveSearch?: boolean;
+			allowCooldown?: boolean;
+		} = {},
+	) => {
+		const now = Date.now();
+		if (
+			options.allowCooldown &&
+			lastRecoveryAt &&
+			now - lastRecoveryAt < RESUME_RECOVERY_COOLDOWN_MS
+		) {
+			return items.value;
+		}
+		lastRecoveryAt = now;
+
+		const activeSearch = options.preserveSearch ? searchTerm.value : "";
+		const activeGroup = itemGroup.value || "ALL";
+		console.info("[POSA][Items] recovering item catalog", {
+			reason: options.reason || "manual",
+			search: activeSearch,
+			group: activeGroup,
+		});
+
+		resetRuntimeLoadingState();
+		clearSearchCache();
+		await assessCacheHealth().catch((error) => {
+			console.warn("Failed to assess item cache during recovery:", error);
+		});
+
+		try {
+			const fetchedItems = await loadItems({
+				forceServer: true,
+				searchValue: activeSearch,
+				groupFilter: activeGroup,
+			});
+			if (fastCounterEnabled.value) {
+				await loadHotCatalog({ force: true });
+			} else {
+				clearHotCatalog();
+			}
+			return Array.isArray(fetchedItems) ? fetchedItems : items.value;
+		} catch (error) {
+			console.error("[POSA][Items] item catalog recovery failed:", error);
+			itemsLoaded.value = items.value.length > 0;
+			if (!activeSearch && items.value.length === 0) {
+				await loadCachedItems();
+			}
+			throw error;
+		}
+	};
+
+	const recoverItemCatalogIfUnhealthy = async (reason = "resume") => {
+		if (typeof navigator !== "undefined" && navigator.onLine === false) {
+			return items.value;
+		}
+
+		const hasVisibleItems =
+			items.value.length > 0 || filteredItems.value.length > 0;
+		const expectsBrowseCatalog = !limitSearchEnabled.value;
+		const hasStuckLoading =
+			(isLoading.value || isBackgroundLoading.value) && !hasVisibleItems;
+		const hasEmptyLoadedCatalog =
+			expectsBrowseCatalog &&
+			itemsLoaded.value &&
+			items.value.length === 0 &&
+			totalItemCount.value === 0;
+		const hasMissingCache =
+			expectsBrowseCatalog &&
+			!hasVisibleItems &&
+			(cacheHealth.value.items === "missing" ||
+				cacheHealth.value.items === "error");
+
+		if (!hasStuckLoading && !hasEmptyLoadedCatalog && !hasMissingCache) {
+			return items.value;
+		}
+
+		return await recoverItemCatalog({
+			reason,
+			preserveSearch: true,
+			allowCooldown: true,
+		});
 	};
 
 	const addScannedItem = async (barcode: string) => {
@@ -1594,6 +1729,8 @@ export const useItemsStore = defineStore("items", () => {
 		filterByGroup,
 		updatePriceList,
 		refreshItems,
+		recoverItemCatalog,
+		recoverItemCatalogIfUnhealthy,
 		loadHotCatalog,
 		appendCachedItemsPage,
 		resetCachedItemsForGroup,
