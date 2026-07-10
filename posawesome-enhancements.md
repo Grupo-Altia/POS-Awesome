@@ -187,3 +187,24 @@ Verification:
 - `yarn vitest run tests/bootstrapWarningVisibility.spec.ts`
 - `yarn type-check`
 - Headless Chrome check with `aqib@ai.ai`: products rendered and `Stock Confidence Offline` was not visible while online.
+
+## 2026-07-10 Invoice Items Keyboard Grid Navigation
+
+Decision:
+
+- POS operators need keyboard-only control of the invoice items table without changing the existing `Tab` behavior that returns focus to item search.
+- `Alt/Option+ArrowRight` now enters the invoice items table on the latest cart row in row-selection mode.
+- A plain `ArrowRight` then enters cell mode; arrow keys move the solid focus box across editable/action cells and between rows.
+- `Enter` activates the selected cell using the existing row editors/actions, so pricing, discount, UOM, totals, payload, offline sync, and printing logic remain unchanged.
+
+Implementation notes:
+
+- The table derives navigable cells from the currently rendered responsive columns.
+- Navigable cells are quantity, UOM, discount %, discount amount, rate, offer action, delete action, and expand action when visible.
+- Read-only name, price-list-rate, and amount cells are skipped.
+
+Verification:
+
+- `yarn vitest run tests/cartFieldFocus.spec.ts tests/invoiceShortcuts.spec.ts tests/keyboardNavigation.spec.ts`
+- `yarn lint`
+- `yarn build`

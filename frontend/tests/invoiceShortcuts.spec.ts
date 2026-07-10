@@ -27,6 +27,7 @@ const createVm = () => ({
 	},
 	items: [{ name: "Test Item" }],
 	focusItemTableField: vi.fn(),
+	enterInvoiceItemsGrid: vi.fn(),
 	getShortcutPaymentAmount: vi.fn(() => 125),
 	confirmPaymentSubmission: vi.fn(async () => 150),
 });
@@ -113,6 +114,53 @@ describe("invoiceShortcuts", () => {
 		);
 		expect(vm.focusItemTableField).toHaveBeenCalledWith("qty");
 		expect(event.defaultPrevented).toBe(true);
+	});
+
+	it("switches compact layout to the invoice before entering invoice table grid mode", async () => {
+		const vm = createVm();
+		const event = createAltEvent("ArrowRight", "ArrowRight");
+
+		await (invoiceShortcuts as any).handleInvoiceShortcut.call(vm, event);
+
+		expect(vm.eventBus.emit).toHaveBeenCalledWith(
+			"set_compact_panel",
+			"invoice",
+		);
+		expect(vm.enterInvoiceItemsGrid).toHaveBeenCalledTimes(1);
+		expect(event.defaultPrevented).toBe(true);
+	});
+
+	it("enters invoice table grid mode on the latest cart row", () => {
+		const enterKeyboardGrid = vi.fn();
+		const vm = {
+			...createVm(),
+			items: [{ name: "First Item" }, { name: "Second Item" }],
+			$refs: {
+				itemsTableRef: { enterKeyboardGrid },
+			},
+		};
+
+		(invoiceShortcuts as any).enterInvoiceItemsGrid.call(vm);
+
+		expect(enterKeyboardGrid).toHaveBeenCalledWith({
+			rowIndex: 1,
+			mode: "row",
+		});
+	});
+
+	it("does not enter invoice table grid mode when the cart is empty", () => {
+		const enterKeyboardGrid = vi.fn();
+		const vm = {
+			...createVm(),
+			items: [],
+			$refs: {
+				itemsTableRef: { enterKeyboardGrid },
+			},
+		};
+
+		(invoiceShortcuts as any).enterInvoiceItemsGrid.call(vm);
+
+		expect(enterKeyboardGrid).not.toHaveBeenCalled();
 	});
 
 	it.each([["r", "KeyR", "rate"]])(

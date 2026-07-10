@@ -13,6 +13,8 @@ const isDigit = (event: KeyboardEvent, digit: number) =>
 	event.code === `Numpad${digit}`;
 const isBackquote = (event: KeyboardEvent) =>
 	event.key === "`" || event.code === "Backquote";
+const isArrowRight = (event: KeyboardEvent) =>
+	event.key === "ArrowRight" || event.code === "ArrowRight";
 const isLetter = (event: KeyboardEvent, letter: string) => {
 	const normalized = letter.toLowerCase();
 	const keyValue = event.key?.toLowerCase?.();
@@ -64,9 +66,11 @@ interface InvoiceShortcutsVm {
 		};
 		itemsTableRef?: {
 			focusItemField?: (_index: number, _field: ShortcutField) => void;
+			enterKeyboardGrid?: (_options?: { rowIndex?: number; mode?: "row" | "cell" }) => boolean;
 		};
 		itemsTable?: {
 			focusItemField?: (_index: number, _field: ShortcutField) => void;
+			enterKeyboardGrid?: (_options?: { rowIndex?: number; mode?: "row" | "cell" }) => boolean;
 		};
 	};
 	items?: Array<Record<string, unknown>>;
@@ -112,6 +116,7 @@ interface InvoiceShortcutsVm {
 	) => Promise<number | null>;
 	getShortcutPaymentAmount: () => number;
 	focusItemTableField: (_field: ShortcutField) => void;
+	enterInvoiceItemsGrid: () => void;
 }
 
 const invoiceShortcuts: Record<string, unknown> & ThisType<InvoiceShortcutsVm> =
@@ -149,6 +154,13 @@ const invoiceShortcuts: Record<string, unknown> & ThisType<InvoiceShortcutsVm> =
 			}
 
 			if (!isAltOnly(event)) {
+				return;
+			}
+
+			if (isArrowRight(event)) {
+				consumeEvent(event);
+				showCompactPanel(this.eventBus, "invoice");
+				this.enterInvoiceItemsGrid();
 				return;
 			}
 
@@ -394,6 +406,17 @@ const invoiceShortcuts: Record<string, unknown> & ThisType<InvoiceShortcutsVm> =
 			this.shortcutCycle[field] = (index + 1) % count;
 			this.$refs.itemsTableRef?.focusItemField?.(index, field) ||
 				this.$refs.itemsTable?.focusItemField?.(index, field);
+		},
+
+		enterInvoiceItemsGrid() {
+			const count = this.items?.length || 0;
+			if (!count) {
+				return;
+			}
+
+			const options = { rowIndex: count - 1, mode: "row" as const };
+			this.$refs.itemsTableRef?.enterKeyboardGrid?.(options) ||
+				this.$refs.itemsTable?.enterKeyboardGrid?.(options);
 		},
 	};
 

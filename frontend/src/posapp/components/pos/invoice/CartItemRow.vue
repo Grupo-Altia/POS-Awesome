@@ -1,8 +1,18 @@
 <template>
-	<tr class="posa-cart-item-row" v-memo="memoDeps">
+	<tr
+		:id="rowDomId"
+		class="posa-cart-item-row"
+		:class="rowClasses"
+		:data-cart-row-index="rowIndex"
+		:data-active-cell-key="activeCellKey || undefined"
+		:tabindex="activeRow && keyboardMode === 'row' ? 0 : -1"
+		role="row"
+		:aria-selected="activeRow ? 'true' : 'false'"
+		v-memo="memoDeps"
+	>
 		<template v-for="column in visibleColumns" :key="column.key">
 			<!-- Item Name Column -->
-			<td v-if="column.key === 'item_name'" class="text-start" :data-column-key="'item_name'">
+			<td v-if="column.key === 'item_name'" v-bind="getCellAttrs('item_name', 'text-start')">
 				<div class="d-flex align-center">
 					<span>{{ item.item_name }}</span>
 					<v-chip v-if="item.is_bundle" color="secondary" size="x-small" class="ml-1">
@@ -72,7 +82,7 @@
 			</td>
 
 			<!-- Quantity Column -->
-			<td v-else-if="column.key === 'qty'" class="text-center" :data-column-key="'qty'">
+			<td v-else-if="column.key === 'qty'" v-bind="getCellAttrs('qty', 'text-center')">
 				<div class="posa-cart-table__qty-counter" :class="{ 'rtl-layout': isRTL }">
 					<v-btn
 						:disabled="disableDecrement"
@@ -132,7 +142,7 @@
 			</td>
 
 			<!-- UOM Column (Optional) -->
-			<td v-else-if="column.key === 'uom'" class="text-center" :data-column-key="'uom'">
+			<td v-else-if="column.key === 'uom'" v-bind="getCellAttrs('uom', 'text-center')">
 				<div class="posa-cart-table__editor-box uom-editor" @click.stop>
 					<v-btn
 						size="x-small"
@@ -192,8 +202,7 @@
 			<!-- Price List Rate (Optional) -->
 			<td
 				v-else-if="column.key === 'price_list_rate'"
-				class="text-end"
-				:data-column-key="'price_list_rate'"
+				v-bind="getCellAttrs('price_list_rate', 'text-end')"
 			>
 				<div class="currency-display right-aligned">
 					<span class="currency-symbol">{{ currencySymbol(displayCurrency) }}</span>
@@ -209,8 +218,7 @@
 			<!-- Discount % (Optional) -->
 			<td
 				v-else-if="column.key === 'discount_percentage'"
-				class="text-center"
-				:data-column-key="'discount_percentage'"
+				v-bind="getCellAttrs('discount_percentage', 'text-center')"
 			>
 				<div class="posa-cart-table__editor-box">
 					<div
@@ -258,8 +266,7 @@
 			<!-- Discount Amount (Optional) -->
 			<td
 				v-else-if="column.key === 'discount_amount'"
-				class="text-center"
-				:data-column-key="'discount_amount'"
+				v-bind="getCellAttrs('discount_amount', 'text-center')"
 			>
 				<div class="posa-cart-table__editor-box">
 					<div
@@ -297,7 +304,7 @@
 			</td>
 
 			<!-- Rate Column -->
-			<td v-else-if="column.key === 'rate'" class="text-center" :data-column-key="'rate'">
+			<td v-else-if="column.key === 'rate'" v-bind="getCellAttrs('rate', 'text-center')">
 				<div class="posa-cart-table__editor-box">
 					<div
 						v-if="!isEditingRate"
@@ -334,7 +341,7 @@
 			</td>
 
 			<!-- Amount Column -->
-			<td v-else-if="column.key === 'amount'" class="text-center" :data-column-key="'amount'">
+			<td v-else-if="column.key === 'amount'" v-bind="getCellAttrs('amount', 'text-center')">
 				<div class="currency-display right-aligned">
 					<span class="currency-symbol">{{ currencySymbol(displayCurrency) }}</span>
 					<span
@@ -349,8 +356,7 @@
 			<!-- Offer Toggle (Optional) -->
 			<td
 				v-else-if="column.key === 'posa_is_offer'"
-				class="text-center"
-				:data-column-key="'posa_is_offer'"
+				v-bind="getCellAttrs('posa_is_offer', 'text-center')"
 			>
 				<v-btn
 					size="x-small"
@@ -364,7 +370,7 @@
 			</td>
 
 			<!-- Actions -->
-			<td v-else-if="column.key === 'actions'" class="text-center" :data-column-key="'actions'">
+			<td v-else-if="column.key === 'actions'" v-bind="getCellAttrs('actions', 'text-center')">
 				<v-btn
 					:disabled="!!item.posa_is_replace"
 					size="small"
@@ -379,8 +385,7 @@
 
 			<td
 				v-else-if="column.key === 'data-table-expand'"
-				class="text-center"
-				:data-column-key="'data-table-expand'"
+				v-bind="getCellAttrs('data-table-expand', 'text-center')"
 			>
 				<v-btn
 					icon
@@ -401,6 +406,10 @@
 
 <script setup>
 import { computed, nextTick, ref } from "vue";
+import {
+	getCartGridCellId,
+	getCartGridRowId,
+} from "../../../utils/cartFieldFocus";
 
 defineOptions({
 	name: "CartItemRow",
@@ -430,6 +439,19 @@ const props = defineProps({
 	hideQtyDecimals: Boolean,
 	isRTL: Boolean,
 	isExpanded: Boolean,
+	rowIndex: {
+		type: Number,
+		default: -1,
+	},
+	keyboardMode: {
+		type: String,
+		default: "inactive",
+	},
+	activeRow: Boolean,
+	activeCellKey: {
+		type: String,
+		default: "",
+	},
 });
 
 const emit = defineEmits([
@@ -485,6 +507,10 @@ const memoDeps = computed(() => {
 		props.item.is_free_item,
 		props.item.price_list_rate,
 		props.isExpanded,
+		props.rowIndex,
+		props.keyboardMode,
+		props.activeRow,
+		props.activeCellKey,
 		props.visibleColumns.map((column) => column?.key).join("|"),
 		// Include edit states to ensure UI updates when switching modes
 		isEditingQty.value,
@@ -496,6 +522,35 @@ const memoDeps = computed(() => {
 });
 
 const qtyLength = computed(() => String(Math.abs(props.item.qty || 0)).replace(".", "").length);
+
+const rowDomId = computed(() =>
+	props.rowIndex >= 0 ? getCartGridRowId(props.rowIndex) : undefined,
+);
+
+const rowClasses = computed(() => ({
+	"posa-cart-item-row--keyboard-active": props.activeRow,
+	"posa-cart-item-row--keyboard-row": props.activeRow && props.keyboardMode === "row",
+	"posa-cart-item-row--keyboard-cell": props.activeRow && props.keyboardMode === "cell",
+}));
+
+function isKeyboardCellActive(key) {
+	return props.activeRow && props.keyboardMode === "cell" && props.activeCellKey === key;
+}
+
+function getCellAttrs(key, baseClass = "") {
+	return {
+		id: props.rowIndex >= 0 ? getCartGridCellId(props.rowIndex, key) : undefined,
+		role: "gridcell",
+		"data-column-key": key,
+		"aria-selected": isKeyboardCellActive(key) ? "true" : "false",
+		class: [
+			baseClass,
+			{
+				"posa-cart-item-cell--keyboard-active": isKeyboardCellActive(key),
+			},
+		],
+	};
+}
 
 const disableDecrement = computed(
 	() =>
@@ -754,5 +809,37 @@ td {
 	outline: 2px solid var(--pos-primary);
 	outline-offset: 2px;
 	z-index: 10;
+}
+
+.posa-cart-item-row--keyboard-active {
+	position: relative;
+	background: color-mix(in srgb, var(--pos-primary) 12%, var(--pos-surface-raised)) !important;
+}
+
+.posa-cart-item-row--keyboard-active > td {
+	background: color-mix(in srgb, var(--pos-primary) 10%, transparent);
+}
+
+.posa-cart-item-row--keyboard-row {
+	outline: 3px solid var(--pos-primary);
+	outline-offset: -3px;
+}
+
+.posa-cart-item-row--keyboard-row:focus {
+	outline: 3px solid var(--pos-primary);
+	outline-offset: -3px;
+}
+
+.posa-cart-item-cell--keyboard-active {
+	background: color-mix(in srgb, var(--pos-primary) 18%, var(--pos-surface-raised)) !important;
+	box-shadow:
+		inset 0 0 0 3px var(--pos-primary),
+		inset 0 0 0 6px color-mix(in srgb, var(--pos-primary) 16%, transparent);
+	z-index: 2;
+}
+
+.posa-cart-item-cell--keyboard-active > div {
+	position: relative;
+	z-index: 3;
 }
 </style>

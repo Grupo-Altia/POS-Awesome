@@ -3,7 +3,11 @@
 		ref="tableContainer"
 		class="my-0 py-0 overflow-y-auto posa-items-table-container posa-responsive-table-container pos-themed-card"
 		:style="containerStyles"
-		:class="containerClasses"
+		:class="[containerClasses, gridContainerClasses]"
+		role="grid"
+		:aria-label="__('Invoice Items')"
+		:aria-activedescendant="activeGridDescendant || undefined"
+		@keydown="handleGridKeydown"
 		@dragover="onDragOverFromSelector($event)"
 		@drop="onDropFromSelector($event)"
 		@dragenter="onDragEnterFromSelector"
@@ -43,6 +47,7 @@
 			<template v-slot:item="{ item, toggleExpand, internalItem }">
 				<CartItemRow
 					:item="item"
+					:row-index="getItemIndex(item)"
 					:visible-columns="finalVisibleColumns"
 					:posProfile="pos_profile"
 					:isReturnInvoice="isReturnInvoice"
@@ -56,6 +61,9 @@
 					:hideQtyDecimals="hide_qty_decimals"
 					:isRTL="isRtl"
 					:is-expanded="isItemExpanded(item.posa_row_id)"
+					:keyboard-mode="gridMode"
+					:active-row="isGridRowActive(item)"
+					:active-cell-key="activeCellKey || ''"
 					@update-qty="handleQtyUpdate"
 					@qty-edit-submitted="handleQtyEditSubmitted"
 					@minus-click="handleMinusClick"
@@ -127,7 +135,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref, computed, onBeforeUnmount, onMounted, watch, getCurrentInstance } from "vue";
+import { ref, computed, nextTick, onBeforeUnmount, onMounted, watch, getCurrentInstance } from "vue";
 import { useInvoiceStore } from "../../../stores/invoiceStore";
 import { loadItemSelectorSettings } from "../../../utils/itemSelectorSettings";
 import { logComponentRender } from "../../../utils/perf";
@@ -145,10 +153,18 @@ import { useItemsTableNameEdit } from "../../../composables/pos/items/useItemsTa
 import { useFormatters } from "../../../composables/core/useFormatters";
 import { useRtl } from "../../../composables/core/useRtl";
 import {
+	activateCartGridCell,
 	focusCartItemField,
+	focusCartGridCell,
+	focusCartGridRow,
+	getCartGridCellId,
+	getCartGridRowId,
+	getNavigableCartColumnKeys,
+	type CartGridColumnKey,
 	type CartFieldFocusOptions,
 	type CartShortcutField,
 } from "../../../utils/cartFieldFocus";
+import { isEditableElement } from "../../../utils/keyboardNavigation";
 import "./items-table-styles.css";
 
 // Global declarations for Frappe
@@ -199,6 +215,10 @@ const { proxy } = getCurrentInstance() as any;
 const eventBus = proxy?.eventBus;
 const invoiceStore = useInvoiceStore();
 const tableContainer = ref<HTMLElement | null>(null);
+type CartGridMode = "inactive" | "row" | "cell";
+const gridMode = ref<CartGridMode>("inactive");
+const activeRowIndex = ref(-1);
+const activeCellKey = ref<CartGridColumnKey | null>(null);
 
 // Composables
 const { customItemFilter } = useItemsTableSearch();
@@ -253,6 +273,23 @@ const dynamicHeaderProps = computed(() => ({
 }));
 
 const finalVisibleColumns = computed(() => [...responsiveHeaders.value, DATA_TABLE_EXPAND_COLUMN]);
+const navigableGridColumnKeys = computed(() =>
+	getNavigableCartColumnKeys(finalVisibleColumns.value),
+);
+const gridContainerClasses = computed(() => ({
+	"posa-cart-grid-active": gridMode.value !== "inactive",
+	"posa-cart-grid-row-mode": gridMode.value === "row",
+	"posa-cart-grid-cell-mode": gridMode.value === "cell",
+}));
+const activeGridDescendant = computed(() => {
+	if (gridMode.value === "inactive" || activeRowIndex.value < 0) {
+		return "";
+	}
+	if (gridMode.value === "cell" && activeCellKey.value) {
+		return getCartGridCellId(activeRowIndex.value, activeCellKey.value);
+	}
+	return getCartGridRowId(activeRowIndex.value);
+});
 
 const virtualScrollConfig = computed(() => {
 	const itemCount = items.value?.length || 0;
@@ -270,9 +307,159 @@ const hide_qty_decimals = computed(() => {
 	return !!opts?.hide_qty_decimals;
 });
 
+const clampRowIndex = (index: number) => {
+	const count = items.value?.length || 0;
+	if (!count) {
+		return -1;
+	}
+	return Math.max(0, Math.min(index, count - 1));
+};
+
+const deactivateKeyboardGrid = () => {
+	gridMode.value = "inactive";
+	activeRowIndex.value = -1;
+	activeCellKey.value = null;
+};
+
+const focusActiveGridTarget = async () => {
+	await nextTick();
+	window.setTimeout(() => {
+		if (gridMode.value === "row") {
+			focusCartGridRow(tableContainer.value, activeRowIndex.value);
+			return;
+		}
+		if (gridMode.value === "cell" && activeCellKey.value) {
+			focusCartGridCell(tableContainer.value, activeRowIndex.value, activeCellKey.value, {
+				activate: false,
+			});
+		}
+	}, 0);
+};
+
+const setActiveGridRow = (rowIndex: number) => {
+	const nextRowIndex = clampRowIndex(rowIndex);
+	if (nextRowIndex < 0) {
+		deactivateKeyboardGrid();
+		return false;
+	}
+
+	activeRowIndex.value = nextRowIndex;
+	if (gridMode.value === "inactive") {
+		gridMode.value = "row";
+	}
+	void focusActiveGridTarget();
+	return true;
+};
+
+const enterGridCellMode = (preferredCellKey?: CartGridColumnKey | null) => {
+	const keys = navigableGridColumnKeys.value;
+	if (!keys.length || activeRowIndex.value < 0) {
+		return false;
+	}
+
+	const nextCellKey =
+		preferredCellKey && keys.includes(preferredCellKey)
+			? preferredCellKey
+			: keys[0] ?? null;
+	if (!nextCellKey) {
+		return false;
+	}
+	activeCellKey.value = nextCellKey;
+	gridMode.value = "cell";
+	void focusActiveGridTarget();
+	return true;
+};
+
+const moveGridRow = (delta: number) => {
+	const currentCell = activeCellKey.value;
+	const moved = setActiveGridRow(activeRowIndex.value + delta);
+	if (moved && gridMode.value === "cell" && currentCell) {
+		enterGridCellMode(currentCell);
+	}
+	return moved;
+};
+
+const moveGridCell = (delta: number) => {
+	if (gridMode.value !== "cell") {
+		return false;
+	}
+
+	const keys = navigableGridColumnKeys.value;
+	if (!keys.length) {
+		return false;
+	}
+
+	const currentIndex = activeCellKey.value ? keys.indexOf(activeCellKey.value) : -1;
+	const nextIndex = Math.max(0, Math.min((currentIndex < 0 ? 0 : currentIndex) + delta, keys.length - 1));
+	activeCellKey.value = keys[nextIndex] ?? null;
+	void focusActiveGridTarget();
+	return true;
+};
+
+const activateGridRow = () => {
+	const row = tableContainer.value?.querySelector?.(
+		`.posa-cart-item-row[data-cart-row-index="${activeRowIndex.value}"]`,
+	) as HTMLElement | null;
+	const expandButton = row?.querySelector?.(
+		'[data-column-key="data-table-expand"] button',
+	) as HTMLElement | null;
+	expandButton?.click?.();
+	return Boolean(expandButton);
+};
+
+const activateGridCell = () => {
+	if (gridMode.value !== "cell" || !activeCellKey.value) {
+		return false;
+	}
+	return activateCartGridCell(tableContainer.value, activeRowIndex.value, activeCellKey.value);
+};
+
+const enterKeyboardGrid = (options: { rowIndex?: number; mode?: "row" | "cell" } = {}) => {
+	const fallbackRow = (items.value?.length || 0) - 1;
+	const rowIndex = Number.isInteger(options.rowIndex) ? Number(options.rowIndex) : fallbackRow;
+	const nextRowIndex = clampRowIndex(rowIndex);
+	if (nextRowIndex < 0) {
+		deactivateKeyboardGrid();
+		return false;
+	}
+
+	gridMode.value = options.mode === "cell" ? "cell" : "row";
+	activeRowIndex.value = nextRowIndex;
+	activeCellKey.value = gridMode.value === "cell" ? navigableGridColumnKeys.value[0] || null : null;
+	void focusActiveGridTarget();
+	return true;
+};
+
 // Watchers
 watch(() => props.displayCurrency, clearFormatCache);
 watch(() => props.pos_profile, clearFormatCache, { deep: true });
+watch(items, () => {
+	if (gridMode.value === "inactive") {
+		return;
+	}
+	const nextRowIndex = clampRowIndex(activeRowIndex.value);
+	if (nextRowIndex < 0) {
+		deactivateKeyboardGrid();
+		return;
+	}
+	activeRowIndex.value = nextRowIndex;
+	void focusActiveGridTarget();
+});
+watch(navigableGridColumnKeys, (keys) => {
+	if (gridMode.value !== "cell") {
+		return;
+	}
+	if (!keys.length) {
+		gridMode.value = "row";
+		activeCellKey.value = null;
+		void focusActiveGridTarget();
+		return;
+	}
+	if (!activeCellKey.value || !keys.includes(activeCellKey.value)) {
+		activeCellKey.value = keys[0] ?? null;
+		void focusActiveGridTarget();
+	}
+});
 
 // Methods
 const getSerialOptions = (item: any) => {
@@ -380,11 +567,86 @@ const handleToggleExpand = (internalItem: any, toggleExpand: any) => {
 };
 
 const focusItemField = (index: number, field: CartShortcutField, options?: CartFieldFocusOptions) => {
+	deactivateKeyboardGrid();
 	return focusCartItemField(tableContainer.value, index, field, options);
 };
 
 const isItemExpanded = (itemId: any) => {
 	return props.expanded?.includes(itemId);
+};
+
+const isGridRowActive = (item: any) => {
+	return gridMode.value !== "inactive" && getItemIndex(item) === activeRowIndex.value;
+};
+
+const handleGridKeydown = (event: KeyboardEvent) => {
+	if (
+		gridMode.value === "inactive" ||
+		event.defaultPrevented ||
+		event.altKey ||
+		event.ctrlKey ||
+		event.metaKey
+	) {
+		return;
+	}
+
+	if (event.key === "Tab") {
+		deactivateKeyboardGrid();
+		eventBus?.emit("focus_item_search");
+		return;
+	}
+
+	if (isEditableElement(event.target as Element | null)) {
+		return;
+	}
+
+	if (event.key === "Escape") {
+		event.preventDefault();
+		if (gridMode.value === "cell") {
+			gridMode.value = "row";
+			activeCellKey.value = null;
+			void focusActiveGridTarget();
+		} else {
+			deactivateKeyboardGrid();
+			eventBus?.emit("focus_item_search");
+		}
+		return;
+	}
+
+	if (gridMode.value === "row") {
+		if (event.key === "ArrowDown" || event.key === "ArrowUp") {
+			event.preventDefault();
+			moveGridRow(event.key === "ArrowDown" ? 1 : -1);
+			return;
+		}
+		if (event.key === "ArrowRight") {
+			event.preventDefault();
+			enterGridCellMode(activeCellKey.value);
+			return;
+		}
+		if (event.key === "Enter" || event.key === " ") {
+			event.preventDefault();
+			activateGridRow();
+		}
+		return;
+	}
+
+	if (gridMode.value === "cell") {
+		if (event.key === "ArrowLeft" || event.key === "ArrowRight") {
+			event.preventDefault();
+			moveGridCell(event.key === "ArrowRight" ? 1 : -1);
+			return;
+		}
+		if (event.key === "ArrowDown" || event.key === "ArrowUp") {
+			event.preventDefault();
+			moveGridRow(event.key === "ArrowDown" ? 1 : -1);
+			return;
+		}
+		if (event.key === "Enter" || event.key === " ") {
+			event.preventDefault();
+			activateGridCell();
+		}
+	}
 };
 
 // Drag and Drop delegation
@@ -409,6 +671,7 @@ onBeforeUnmount(() => {
 
 defineExpose({
 	focusItemField,
+	enterKeyboardGrid,
 });
 </script>
 
