@@ -42,6 +42,12 @@ export interface BarcodeLookupArgs {
 	barcode: string;
 }
 
+export interface ItemQuickEditArgs {
+	item_code?: string;
+	barcode?: string;
+	pos_profile?: string | Record<string, unknown>;
+}
+
 function buildItemDoc(itemData: Partial<Item>) {
 	const doc: Record<string, unknown> = {
 		doctype: "Item",
@@ -169,6 +175,28 @@ const itemService = {
 
 	async createItemData(itemData: Partial<Item>): Promise<Item> {
 		return unwrapApiResult(await this.createItem(itemData));
+	},
+
+	getItemQuickEdit(args: ItemQuickEditArgs): Promise<ApiEnvelope<any>> {
+		return api.callEnvelope(
+			"posawesome.posawesome.api.item_quick_edit.get_item_quick_edit",
+			args,
+		);
+	},
+
+	async getItemQuickEditData(args: ItemQuickEditArgs): Promise<any> {
+		return unwrapApiResult(await this.getItemQuickEdit(args));
+	},
+
+	saveItemQuickEdit(data: Record<string, unknown>): Promise<ApiEnvelope<any>> {
+		return api.callEnvelope(
+			"posawesome.posawesome.api.item_quick_edit.save_item_quick_edit",
+			{ data: JSON.stringify(data) },
+		);
+	},
+
+	async saveItemQuickEditData(data: Record<string, unknown>): Promise<any> {
+		return unwrapApiResult(await this.saveItemQuickEdit(data));
 	},
 };
 

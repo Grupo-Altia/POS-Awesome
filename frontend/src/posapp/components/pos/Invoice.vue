@@ -235,6 +235,14 @@
 			@submit="handlePriceListRateDialogSubmit"
 			@cancel="handlePriceListRateDialogCancel"
 		/>
+		<ItemQuickEditDialog
+			v-model="item_quick_edit_open"
+			:item-code="item_quick_edit_item_code"
+			:pos-profile="pos_profile"
+			:cashier="currentCashier?.user"
+			:is-online="isOnline"
+			@saved="handleItemQuickEditSaved"
+		/>
 
 		<!-- Payment Section -->
 		<InvoiceSummary
@@ -282,12 +290,15 @@ import InvoiceItemsActionToolbar from "./invoice/InvoiceItemsActionToolbar.vue";
 import PackedItemsDialog from "./invoice/PackedItemsDialog.vue";
 import PaymentConfirmationDialog from "./payments/PaymentConfirmationDialog.vue";
 import PriceListRateDialog from "./invoice/PriceListRateDialog.vue";
+import ItemQuickEditDialog from "./items/ItemQuickEditDialog.vue";
 import invoiceItemMethods from "./invoice/invoiceItemMethods";
 import invoiceComputed from "./invoice/invoiceComputed";
 import invoiceWatchers from "./invoice/invoiceWatchers";
 import shortcutMethods from "./invoice/invoiceShortcuts";
 import { useInvoiceStore } from "../../stores/invoiceStore.js";
+import { useItemsStore } from "../../stores/itemsStore";
 import { useCustomersStore } from "../../stores/customersStore.js";
+import { useEmployeeStore } from "../../stores/employeeStore";
 import { useToastStore } from "../../stores/toastStore.js";
 import { useUIStore } from "../../stores/uiStore.js";
 import { storeToRefs } from "pinia";
@@ -324,12 +335,15 @@ export default {
 		const instance = getCurrentInstance();
 		const uiStore = useUIStore();
 		const invoiceStore = useInvoiceStore();
+		const itemsStore = useItemsStore();
 		const customersStore = useCustomersStore();
+		const employeeStore = useEmployeeStore();
 		const toastStore = useToastStore();
 		const { isOnline } = useOnlineStatus();
 
 		const { activeView, posProfile: livePosProfile } = storeToRefs(uiStore);
 		const { selectedCustomer, refreshToken: customerRefreshToken } = storeToRefs(customersStore);
+		const { currentCashier } = storeToRefs(employeeStore);
 		const {
 			items,
 			packedItems: packed_items,
@@ -370,7 +384,10 @@ export default {
 			isOnline,
 			toastStore,
 			invoiceStore,
+			itemsStore,
+			employeeStore,
 			customersStore,
+			currentCashier,
 			selectedCustomer,
 			customerRefreshToken,
 			invoiceType,
@@ -427,6 +444,8 @@ export default {
 			price_list_rate_dialog_initial_rate: "",
 			price_list_rate_dialog_item_label: "",
 			price_list_rate_dialog_resolver: null,
+			item_quick_edit_open: false,
+			item_quick_edit_item_code: "",
 		};
 	},
 
@@ -442,6 +461,7 @@ export default {
 		PackedItemsDialog,
 		PaymentConfirmationDialog,
 		PriceListRateDialog,
+		ItemQuickEditDialog,
 	},
 	computed: {
 		items: {
@@ -594,6 +614,75 @@ export default {
 		focusAdditionalDiscountField() {
 			this.eventBus?.emit?.("focus_additional_discount");
 			this.$refs.invoiceSummary?.focusAdditionalDiscountField?.();
+		},
+
+		resolveItemQuickEditCode() {
+			const activeGridItem = this.$refs.itemsTableRef?.getActiveGridItem?.();
+			if (activeGridItem?.item_code) {
+				return activeGridItem.item_code;
+			}
+			const rows = Array.isArray(this.items) ? this.items : [];
+			return rows.length ? rows[rows.length - 1]?.item_code || "" : "";
+		},
+
+		openItemQuickEdit() {
+			this.item_quick_edit_item_code = this.resolveItemQuickEditCode();
+			this.item_quick_edit_open = true;
+		},
+
+		handleItemQuickEditSaved(payload = {}) {
+			const updatedItem = payload?.pos_item || payload?.item;
+			if (updatedItem?.item_code) {
+				this.itemsStore?.upsertCatalogItem?.(updatedItem);
+			}
+
+			const masterItem = payload?.item || {};
+			const itemCode = updatedItem?.item_code || masterItem?.item_code;
+			if (!itemCode) {
+				return;
+			}
+
+			const retailPrice =
+				updatedItem?.rate ??
+				updatedItem?.price_list_rate ??
+				masterItem?.retail_price ??
+				null;
+			const rows = Array.isArray(this.items) ? this.items : [];
+			rows.forEach((row) => {
+				if (row?.item_code !== itemCode || !row?.posa_row_id) {
+					return;
+				}
+				this.invoiceStore.updateItemWithTotals(row.posa_row_id, (existing) => {
+					const previousQty = row.qty;
+					const previousDiscountPercentage = row.discount_percentage;
+					const previousDiscountAmount = row.discount_amount;
+					Object.assign(existing, masterItem, updatedItem, {
+						posa_row_id: row.posa_row_id,
+						qty: previousQty,
+						discount_percentage: previousDiscountPercentage,
+						discount_amount: previousDiscountAmount,
+					});
+					if (masterItem.retailmind_non_discountable || updatedItem?.retailmind_non_discountable) {
+						existing.discount_percentage = 0;
+						existing.discount_amount = 0;
+					}
+					const keepManualRate =
+						row._manual_rate_set ||
+						row.posa_is_offer ||
+						row.posa_offer_applied ||
+						row.posa_is_replace;
+					if (!keepManualRate && retailPrice !== null && retailPrice !== undefined) {
+						existing.price_list_rate = Number(retailPrice) || 0;
+						existing.rate = Number(retailPrice) || 0;
+						existing.amount = (Number(existing.qty) || 0) * existing.rate;
+					}
+				});
+			});
+			this.invoiceStore.triggerUpdateTotals?.();
+			this.toastStore.show({
+				title: __("Item updated"),
+				color: "success",
+			});
 		},
 
 		handleStockCoordinatorUpdate(event = {}) {

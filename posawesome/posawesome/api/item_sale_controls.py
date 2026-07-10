@@ -1,0 +1,100 @@
+import frappe
+from frappe import _
+from frappe.utils import flt
+
+
+LOCKED_FIELD = "retailmind_locked_for_sale"
+NON_DISCOUNTABLE_FIELD = "retailmind_non_discountable"
+CONTROLLED_FIELD = "retailmind_controlled_item"
+SHORT_NAME_FIELD = "retailmind_short_name"
+
+
+def item_control_fields():
+    return [
+        LOCKED_FIELD,
+        NON_DISCOUNTABLE_FIELD,
+        CONTROLLED_FIELD,
+        SHORT_NAME_FIELD,
+    ]
+
+
+def item_has_field(fieldname):
+    try:
+        return bool(frappe.get_meta("Item").has_field(fieldname))
+    except Exception:
+        return False
+
+
+def installed_item_control_fields():
+    return [field for field in item_control_fields() if item_has_field(field)]
+
+
+def get_item_control_flags(item_codes):
+    codes = sorted({str(code).strip() for code in item_codes or [] if code})
+    if not codes:
+        return {}
+
+    fields = ["item_code", "item_name", *installed_item_control_fields()]
+    rows = frappe.get_all(
+        "Item",
+        filters={"item_code": ["in", codes]},
+        fields=fields,
+        limit_page_length=len(codes),
+    )
+    return {row.get("item_code"): row for row in rows if row.get("item_code")}
+
+
+def collect_item_sale_control_errors(items, is_return=False):
+    if is_return:
+        return []
+
+    item_rows = list(items or [])
+    flags_by_code = get_item_control_flags(
+        [row.get("item_code") if hasattr(row, "get") else None for row in item_rows]
+    )
+    errors = []
+
+    for row in item_rows:
+        item_code = row.get("item_code") if hasattr(row, "get") else None
+        if not item_code:
+            continue
+
+        flags = flags_by_code.get(item_code) or {}
+        item_name = row.get("item_name") or flags.get("item_name") or item_code
+
+        if flags.get(LOCKED_FIELD):
+            errors.append(
+                {
+                    "item_code": item_code,
+                    "item_name": item_name,
+                    "policy": "block",
+                    "reason": "locked_for_sale",
+                    "message": _("Item {0} is locked for sale.").format(item_name),
+                }
+            )
+            continue
+
+        if flags.get(NON_DISCOUNTABLE_FIELD) and (
+            abs(flt(row.get("discount_percentage"))) > 0.0001
+            or abs(flt(row.get("discount_amount"))) > 0.0001
+        ):
+            errors.append(
+                {
+                    "item_code": item_code,
+                    "item_name": item_name,
+                    "policy": "block",
+                    "reason": "non_discountable",
+                    "message": _("Item {0} does not allow POS discounts.").format(item_name),
+                }
+            )
+
+    return errors
+
+
+def validate_invoice_item_sale_controls(invoice_doc):
+    errors = collect_item_sale_control_errors(
+        invoice_doc.get("items") or [],
+        is_return=bool(invoice_doc.get("is_return")),
+    )
+    if errors:
+        frappe.throw(errors[0].get("message"))

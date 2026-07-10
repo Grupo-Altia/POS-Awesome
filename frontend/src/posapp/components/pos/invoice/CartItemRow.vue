@@ -207,6 +207,7 @@
 						data-pos-keyboard-target="cart-discount-percent"
 						role="button"
 						:aria-label="__('Edit discount percentage')"
+						:aria-disabled="disableDiscountEdit ? 'true' : 'false'"
 						@keydown.enter.prevent="openDiscountPercentEdit"
 						@keydown.space.prevent="openDiscountPercentEdit"
 					>
@@ -255,6 +256,7 @@
 						data-pos-keyboard-target="cart-discount-amount"
 						role="button"
 						:aria-label="__('Edit discount amount')"
+						:aria-disabled="disableDiscountEdit ? 'true' : 'false'"
 						@keydown.enter.prevent="openDiscountAmountEdit"
 						@keydown.space.prevent="openDiscountAmountEdit"
 					>
@@ -365,19 +367,17 @@
 				v-else-if="column.key === 'data-table-expand'"
 				v-bind="getCellAttrs('data-table-expand', 'text-center')"
 			>
-				<v-btn
-					icon
-					size="small"
-					variant="text"
-					class="posa-cart-table__expand-btn"
-					@click.stop="$emit('toggle-expand')"
-					:aria-label="isExpanded ? __('Collapse item details') : __('Expand item details')"
-				>
-					<v-icon size="small">
-						{{ isExpanded ? "mdi-chevron-up" : "mdi-chevron-down" }}
-					</v-icon>
-				</v-btn>
-			</td>
+					<v-btn
+						icon
+						size="small"
+						variant="text"
+						class="posa-cart-table__expand-btn"
+						@click.stop="$emit('toggle-expand')"
+						:aria-label="__('Open item sales history and details')"
+					>
+						<v-icon size="small">mdi-chart-line</v-icon>
+					</v-btn>
+				</td>
 		</template>
 	</tr>
 </template>
@@ -546,7 +546,8 @@ const disableDiscountEdit = computed(
 	() =>
 		!props.posProfile.posa_allow_user_to_edit_item_discount ||
 		!!props.item.posa_is_replace ||
-		!!props.item.posa_offer_applied,
+		!!props.item.posa_offer_applied ||
+		!!props.item.retailmind_non_discountable,
 );
 
 const getQtyInputElement = () =>

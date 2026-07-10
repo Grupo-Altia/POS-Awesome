@@ -8461,6 +8461,60 @@
 	},
 	{
 		"doctype": "Custom Field",
+		"dt": "Item",
+		"fieldname": "retailmind_short_name",
+		"fieldtype": "Data",
+		"label": "RetailMind Short Name",
+		"description": "Short pharmacy display name used by RetailMind POS item maintenance.",
+		"insert_after": "item_name",
+		"name": "Item-retailmind_short_name"
+	},
+	{
+		"doctype": "Custom Field",
+		"dt": "Item",
+		"fieldname": "retailmind_controlled_item",
+		"fieldtype": "Check",
+		"label": "Controlled Item",
+		"default": "0",
+		"description": "Flags steroid, narcotic, or controlled products for POS warning/logging.",
+		"insert_after": "max_discount",
+		"name": "Item-retailmind_controlled_item"
+	},
+	{
+		"doctype": "Custom Field",
+		"dt": "Item",
+		"fieldname": "retailmind_non_discountable",
+		"fieldtype": "Check",
+		"label": "Non Discountable",
+		"default": "0",
+		"description": "Prevents POS line discounts for this item.",
+		"insert_after": "retailmind_controlled_item",
+		"name": "Item-retailmind_non_discountable"
+	},
+	{
+		"doctype": "Custom Field",
+		"dt": "Item",
+		"fieldname": "retailmind_locked_for_sale",
+		"fieldtype": "Check",
+		"label": "Locked For Sale",
+		"default": "0",
+		"description": "Keeps the item searchable but blocks adding it to POS sales.",
+		"insert_after": "retailmind_non_discountable",
+		"name": "Item-retailmind_locked_for_sale"
+	},
+	{
+		"doctype": "Custom Field",
+		"dt": "POS Profile",
+		"fieldname": "posa_allow_item_quick_edit",
+		"fieldtype": "Check",
+		"label": "Allow Item Quick Edit",
+		"default": "0",
+		"description": "Allow POS supervisors on this profile to update item master data and prices from POS.",
+		"insert_after": "posa_allow_create_purchase_items",
+		"name": "POS Profile-posa_allow_item_quick_edit"
+	},
+	{
+		"doctype": "Custom Field",
 		"dt": "User",
 		"fieldname": "posa_pos_pin",
 		"fieldtype": "Password",

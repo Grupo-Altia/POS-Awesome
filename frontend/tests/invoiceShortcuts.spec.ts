@@ -28,6 +28,7 @@ const createVm = () => ({
 	items: [{ name: "Test Item" }],
 	focusItemTableField: vi.fn(),
 	enterInvoiceItemsGrid: vi.fn(),
+	openItemQuickEdit: vi.fn(),
 	getShortcutPaymentAmount: vi.fn(() => 125),
 	confirmPaymentSubmission: vi.fn(async () => 150),
 });
@@ -102,6 +103,53 @@ describe("invoiceShortcuts", () => {
 		expect(event.defaultPrevented).toBe(true);
 	});
 
+	it("uses F12 to open item quick edit", async () => {
+		const vm = createVm();
+		const event = new KeyboardEvent("keydown", {
+			key: "F12",
+			bubbles: true,
+			cancelable: true,
+		});
+
+		await (invoiceShortcuts as any).handleInvoiceShortcut.call(vm, event);
+
+		expect(vm.openItemQuickEdit).toHaveBeenCalledTimes(1);
+		expect(event.defaultPrevented).toBe(true);
+	});
+
+	it("uses Option+7 on macOS to open item quick edit", async () => {
+		const originalPlatform = navigator.platform;
+		const originalUserAgent = navigator.userAgent;
+		Object.defineProperty(navigator, "platform", {
+			value: "MacIntel",
+			configurable: true,
+		});
+		Object.defineProperty(navigator, "userAgent", {
+			value: "Macintosh",
+			configurable: true,
+		});
+		const vm = {
+			...createVm(),
+			get_draft_orders: vi.fn(),
+		};
+		const event = createAltEvent("7", "Digit7");
+
+		await (invoiceShortcuts as any).handleInvoiceShortcut.call(vm, event);
+
+		expect(vm.openItemQuickEdit).toHaveBeenCalledTimes(1);
+		expect(vm.get_draft_orders).not.toHaveBeenCalled();
+		expect(event.defaultPrevented).toBe(true);
+
+		Object.defineProperty(navigator, "platform", {
+			value: originalPlatform,
+			configurable: true,
+		});
+		Object.defineProperty(navigator, "userAgent", {
+			value: originalUserAgent,
+			configurable: true,
+		});
+	});
+
 	it("switches compact layout to the invoice before focusing cart quantity fields", async () => {
 		const vm = createVm();
 		const event = createAltEvent("q", "KeyQ");
@@ -128,6 +176,45 @@ describe("invoiceShortcuts", () => {
 		);
 		expect(vm.enterInvoiceItemsGrid).toHaveBeenCalledTimes(1);
 		expect(event.defaultPrevented).toBe(true);
+	});
+
+	it("uses plain arrow keys outside text inputs to enter invoice table grid mode", async () => {
+		const vm = createVm();
+		const event = new KeyboardEvent("keydown", {
+			key: "ArrowDown",
+			code: "ArrowDown",
+			bubbles: true,
+			cancelable: true,
+		});
+
+		await (invoiceShortcuts as any).handleInvoiceShortcut.call(vm, event);
+
+		expect(vm.eventBus.emit).toHaveBeenCalledWith(
+			"set_compact_panel",
+			"invoice",
+		);
+		expect(vm.enterInvoiceItemsGrid).toHaveBeenCalledTimes(1);
+		expect(event.defaultPrevented).toBe(true);
+	});
+
+	it("does not steal plain arrow keys from text inputs", async () => {
+		const vm = createVm();
+		const input = document.createElement("input");
+		const event = new KeyboardEvent("keydown", {
+			key: "ArrowDown",
+			code: "ArrowDown",
+			bubbles: true,
+			cancelable: true,
+		});
+		Object.defineProperty(event, "target", {
+			value: input,
+			configurable: true,
+		});
+
+		await (invoiceShortcuts as any).handleInvoiceShortcut.call(vm, event);
+
+		expect(vm.enterInvoiceItemsGrid).not.toHaveBeenCalled();
+		expect(event.defaultPrevented).toBe(false);
 	});
 
 	it("enters invoice table grid mode on the latest cart row", () => {

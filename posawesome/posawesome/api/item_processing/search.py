@@ -22,6 +22,7 @@ from posawesome.posawesome.api.utils import (
 )
 from posawesome.posawesome.api.item_processing.barcode import search_serial_or_batch_or_barcode_number
 from posawesome.posawesome.api.item_processing.details import get_items_details
+from posawesome.posawesome.api.item_sale_controls import installed_item_control_fields
 
 
 @dataclass(frozen=True)
@@ -210,6 +211,7 @@ def _build_search_plan(
         "brand",
         "allow_negative_stock",
     ]
+    fields.extend([field for field in installed_item_control_fields() if field not in fields])
     if include_description:
         fields.append("description")
     if include_image:
@@ -526,6 +528,7 @@ def _get_hot_catalog_fields(include_description: bool, include_image: bool) -> L
         "brand",
         "allow_negative_stock",
     ]
+    fields.extend([field for field in installed_item_control_fields() if field not in fields])
     if include_description:
         fields.append("description")
     if include_image:

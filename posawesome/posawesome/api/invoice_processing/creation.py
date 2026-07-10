@@ -36,6 +36,10 @@ from posawesome.posawesome.api.idempotency import (
     strip_invoice_client_request_id,
     doctype_supports_client_request_id,
 )
+from posawesome.posawesome.api.item_sale_controls import (
+    collect_item_sale_control_errors,
+    validate_invoice_item_sale_controls,
+)
 import json
 import hashlib
 from frappe.utils import money_in_words
@@ -1417,6 +1421,7 @@ def submit_invoice(invoice, data, submit_in_background=False):
     set_batch_nos_for_bundels(invoice_doc, "warehouse", throw=True)
 
     _validate_stock_on_invoice(invoice_doc)
+    validate_invoice_item_sale_controls(invoice_doc)
 
     _validate_credit_sale_allowed(invoice_doc, data)
     _apply_write_off_settings(invoice_doc, data)
@@ -1546,6 +1551,7 @@ def submit_in_background_job(kwargs):
 
         # Re-run validations that may be impacted while queued (stock, credit limits)
         _validate_stock_on_invoice(invoice_doc)
+        validate_invoice_item_sale_controls(invoice_doc)
         if hasattr(invoice_doc, "validate_credit_limit"):
             invoice_doc.validate_credit_limit()
 
@@ -1704,6 +1710,7 @@ def validate_cart_items(items, pos_profile=None):
         pos_profile=pos_profile,
         include_warnings=True,
     )
+    errors.extend(collect_item_sale_control_errors(items))
     blocking_errors = [row for row in errors if row.get("policy") == "block"]
     warnings = [row for row in errors if row.get("policy") != "block"]
 

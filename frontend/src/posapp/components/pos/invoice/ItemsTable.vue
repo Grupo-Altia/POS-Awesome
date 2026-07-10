@@ -16,7 +16,6 @@
 		<v-data-table-virtual
 			:headers="responsiveHeaders"
 			:items="items"
-			:expanded="expanded"
 			show-expand
 			item-value="posa_row_id"
 			class="posa-cart-table elevation-2 pos-themed-card"
@@ -24,13 +23,11 @@
 			:items-per-page="virtualScrollConfig.itemsPerPage"
 			:item-height="virtualScrollConfig.itemHeight"
 			:buffer-size="virtualScrollConfig.bufferSize"
-			expand-on-click
 			fixed-header
 			:density="tableDensity"
 			hide-default-footer
 			:single-expand="true"
 			:header-props="dynamicHeaderProps"
-			@update:expanded="handleExpandedUpdate"
 			:search="itemSearch"
 			:custom-filter="customItemFilter"
 		>
@@ -44,7 +41,7 @@
 				</div>
 			</template>
 
-			<template v-slot:item="{ item, toggleExpand, internalItem }">
+			<template v-slot:item="{ item }">
 				<CartItemRow
 					:item="item"
 					:row-index="getItemIndex(item)"
@@ -60,7 +57,6 @@
 					:isNegative="memoizedIsNegative"
 					:hideQtyDecimals="hide_qty_decimals"
 					:isRTL="isRtl"
-					:is-expanded="isItemExpanded(item.posa_row_id)"
 					:keyboard-mode="gridMode"
 					:active-row="isGridRowActive(item)"
 					:active-cell-key="activeCellKey || ''"
@@ -76,40 +72,37 @@
 					@open-name-dialog="openNameDialog"
 					@reset-item-name="resetItemName"
 					@toggle-offer="toggleOffer"
-					@toggle-expand="handleToggleExpand(internalItem, toggleExpand)"
+					@toggle-expand="openItemHistory(item)"
 					@remove-item="removeItem"
-					@click="handleRowClick($event, item, toggleExpand, internalItem)"
-				/>
-			</template>
-
-			<!-- Expanded row -->
-			<template v-slot:expanded-row="{ item }">
-				<ItemsTableExpandedRow
-					:item="item"
-					:is-expanded="isItemExpanded(item.posa_row_id)"
-					:colspan="finalVisibleColumns.length"
-					:pos_profile="pos_profile"
-					:invoice-type="invoiceType"
-					:is-return-invoice="isReturnInvoice"
-					:invoice_doc="invoice_doc"
-					:hide_qty_decimals="hide_qty_decimals"
-					:expanded-content-classes="expandedContentClasses"
-					:format-float="memoizedFormatFloat"
-					:format-currency="memoizedFormatCurrency"
-					:currency-symbol="currencySymbol"
-					:is-number="isNumber"
-					:set-formated-currency="setFormatedCurrency"
-					:calc-prices="calcPrices"
-					:calc-uom="calcUom"
-					:change-price-list-rate="changePriceListRate"
-					:get-serial-options="getSerialOptions"
-					:set-serial-no="setSerialNo"
-					:set-batch-qty="setBatchQty"
-					:validate-due-date="validateDueDate"
-					@qty-change="handleQtyChange"
+					@click="handleRowClick($event, item)"
 				/>
 			</template>
 		</v-data-table-virtual>
+
+		<ItemSalesHistoryModal
+			v-model="itemHistoryDialog"
+			:item="itemHistoryTarget"
+			:pos-profile="pos_profile"
+			:invoice-type="invoiceType"
+			:is-return-invoice="isReturnInvoice"
+			:invoice-doc="invoice_doc"
+			:hide-qty-decimals="hide_qty_decimals"
+			:expanded-content-classes="expandedContentClasses"
+			:display-currency="displayCurrency"
+			:format-float="memoizedFormatFloat"
+			:format-currency="memoizedFormatCurrency"
+			:currency-symbol="currencySymbol"
+			:is-number="isNumber"
+			:set-formated-currency="setFormatedCurrency"
+			:calc-prices="calcPrices"
+			:calc-uom="calcUom"
+			:change-price-list-rate="changePriceListRate"
+			:get-serial-options="getSerialOptions"
+			:set-serial-no="setSerialNo"
+			:set-batch-qty="setBatchQty"
+			:validate-due-date="validateDueDate"
+			@qty-change="handleQtyChange"
+		/>
 
 		<!-- Edit name dialog -->
 		<v-dialog v-model="editNameDialog" max-width="400">
@@ -140,7 +133,7 @@ import { useInvoiceStore } from "../../../stores/invoiceStore";
 import { loadItemSelectorSettings } from "../../../utils/itemSelectorSettings";
 import { logComponentRender } from "../../../utils/perf";
 import CartItemRow from "./CartItemRow.vue";
-import ItemsTableExpandedRow from "./ItemsTableExpandedRow.vue";
+import ItemSalesHistoryModal from "./ItemSalesHistoryModal.vue";
 
 import { useItemsTableSearch } from "../../../composables/pos/items/useItemsTableSearch";
 import { useItemsTableDragDrop } from "../../../composables/pos/items/useItemsTableDragDrop";
@@ -220,6 +213,8 @@ type CartGridMode = "inactive" | "row" | "cell";
 const gridMode = ref<CartGridMode>("inactive");
 const activeRowIndex = ref(-1);
 const activeCellKey = ref<CartGridColumnKey | null>(null);
+const itemHistoryDialog = ref(false);
+const itemHistoryTarget = ref<any | null>(null);
 
 // Composables
 const { customItemFilter } = useItemsTableSearch();
@@ -453,15 +448,19 @@ const commitActiveGridEditorAndMoveEntry = async (delta: number) => {
 	moveGridEntry(delta);
 };
 
+const openItemHistory = (item: any) => {
+	if (!item) {
+		return false;
+	}
+	itemHistoryTarget.value = item;
+	itemHistoryDialog.value = true;
+	deactivateKeyboardGrid();
+	return true;
+};
+
 const activateGridRow = () => {
-	const row = tableContainer.value?.querySelector?.(
-		`.posa-cart-item-row[data-cart-row-index="${activeRowIndex.value}"]`,
-	) as HTMLElement | null;
-	const expandButton = row?.querySelector?.(
-		'[data-column-key="data-table-expand"] button',
-	) as HTMLElement | null;
-	expandButton?.click?.();
-	return Boolean(expandButton);
+	const item = items.value?.[activeRowIndex.value];
+	return openItemHistory(item);
 };
 
 const activateGridCell = () => {
@@ -471,7 +470,9 @@ const activateGridCell = () => {
 	return activateCartGridCell(tableContainer.value, activeRowIndex.value, activeCellKey.value);
 };
 
-const enterKeyboardGrid = (options: { rowIndex?: number; mode?: "row" | "cell" } = {}) => {
+const enterKeyboardGrid = (
+	options: { rowIndex?: number; mode?: "row" | "cell"; cellEdge?: "first" | "last" } = {},
+) => {
 	const fallbackRow = (items.value?.length || 0) - 1;
 	const rowIndex = Number.isInteger(options.rowIndex) ? Number(options.rowIndex) : fallbackRow;
 	const nextRowIndex = clampRowIndex(rowIndex);
@@ -482,9 +483,21 @@ const enterKeyboardGrid = (options: { rowIndex?: number; mode?: "row" | "cell" }
 
 	gridMode.value = options.mode === "cell" ? "cell" : "row";
 	activeRowIndex.value = nextRowIndex;
-	activeCellKey.value = gridMode.value === "cell" ? navigableGridColumnKeys.value[0] || null : null;
+	if (gridMode.value === "cell") {
+		const keys = navigableGridColumnKeys.value;
+		activeCellKey.value = options.cellEdge === "last" ? keys[keys.length - 1] || null : keys[0] || null;
+	} else {
+		activeCellKey.value = null;
+	}
 	void focusActiveGridTarget();
 	return true;
+};
+
+const getActiveGridItem = () => {
+	if (gridMode.value === "inactive") {
+		return null;
+	}
+	return items.value?.[activeRowIndex.value] || null;
 };
 
 // Watchers
@@ -524,11 +537,6 @@ const getSerialOptions = (item: any) => {
 		return item.filtered_serial_no_data;
 	}
 	return Array.isArray(item?.serial_no_data) ? item.serial_no_data : [];
-};
-
-const handleExpandedUpdate = (val: any[]) => {
-	const mappedValues = val.map((v) => (typeof v === "object" ? v.posa_row_id : v));
-	emit("update:expanded", mappedValues);
 };
 
 const handleQtyChange = (item: any, event: any) => {
@@ -619,16 +627,11 @@ const handleDiscountAmountUpdate = (item: any, newDiscount: any) => {
 	props.calcPrices(item, newDiscount, { target: { id: "discount_amount" } });
 };
 
-const handleRowClick = (event: any, item: any, toggleExpand: any, internalItem: any) => {
-	if (toggleExpand) {
-		toggleExpand(internalItem);
+const handleRowClick = (event: any, item: any) => {
+	if (isEditableElement(event.target as HTMLElement)) {
+		return;
 	}
-};
-
-const handleToggleExpand = (internalItem: any, toggleExpand: any) => {
-	if (toggleExpand) {
-		toggleExpand(internalItem);
-	}
+	openItemHistory(item);
 };
 
 const focusItemField = (index: number, field: CartShortcutField, options?: CartFieldFocusOptions) => {
@@ -636,15 +639,46 @@ const focusItemField = (index: number, field: CartShortcutField, options?: CartF
 	return focusCartItemField(tableContainer.value, index, field, options);
 };
 
-const isItemExpanded = (itemId: any) => {
-	return props.expanded?.includes(itemId);
-};
-
 const isGridRowActive = (item: any) => {
 	return gridMode.value !== "inactive" && getItemIndex(item) === activeRowIndex.value;
 };
 
+const isArrowNavigationKey = (key: string) =>
+	key === "ArrowLeft" || key === "ArrowRight" || key === "ArrowUp" || key === "ArrowDown";
+
+const getRowIndexFromEvent = (event: KeyboardEvent) => {
+	const target = event.target as HTMLElement | null;
+	const row = target?.closest?.(".posa-cart-item-row") as HTMLElement | null;
+	const rawIndex = row?.dataset?.cartRowIndex;
+	const parsed = Number(rawIndex);
+	return Number.isInteger(parsed) ? parsed : -1;
+};
+
 const handleGridKeydown = (event: KeyboardEvent) => {
+	if (
+		gridMode.value === "inactive" &&
+		isArrowNavigationKey(event.key) &&
+			!event.defaultPrevented &&
+			!event.altKey &&
+			!event.ctrlKey &&
+			!event.metaKey &&
+			!isEditableElement(event.target as HTMLElement)
+		) {
+		event.preventDefault();
+		event.stopPropagation();
+			const targetRowIndex = getRowIndexFromEvent(event);
+			const count = items.value?.length || 0;
+			const fallbackRowIndex = event.key === "ArrowDown" ? 0 : count - 1;
+			const rowIndex = targetRowIndex >= 0 ? targetRowIndex : fallbackRowIndex;
+			const mode = event.key === "ArrowLeft" || event.key === "ArrowRight" ? "cell" : "row";
+			enterKeyboardGrid({
+				rowIndex,
+				mode,
+				cellEdge: event.key === "ArrowLeft" ? "last" : "first",
+			});
+			return;
+		}
+
 	if (
 		gridMode.value === "inactive" ||
 		event.defaultPrevented ||
@@ -744,6 +778,7 @@ onBeforeUnmount(() => {
 defineExpose({
 	focusItemField,
 	enterKeyboardGrid,
+	getActiveGridItem,
 });
 </script>
 

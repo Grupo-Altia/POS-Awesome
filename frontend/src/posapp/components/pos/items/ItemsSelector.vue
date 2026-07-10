@@ -717,6 +717,19 @@ const add_item = async (item, optionsOrQty: any = {}) => {
 			requestedQty === "" || requestedQty == null ? 1 : Math.abs(parseFloat(requestedQty) || 1);
 
 		item = { ...item };
+		if (parseBooleanSetting(item.retailmind_locked_for_sale)) {
+			toastStore.show({
+				title: __("Item is locked for sale"),
+				color: "error",
+			});
+			return;
+		}
+		if (parseBooleanSetting(item.retailmind_controlled_item)) {
+			toastStore.show({
+				title: __("Controlled item"),
+				color: "warning",
+			});
+		}
 		if (item.has_variants) {
 			await useItemAddition().handleVariantItem(item, {
 				pos_profile: pos_profile.value,

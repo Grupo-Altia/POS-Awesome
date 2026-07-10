@@ -176,6 +176,11 @@ def _install_dependency_stubs():
     payments_module.redeeming_customer_credit = lambda *_args, **_kwargs: None
     sys.modules["posawesome.posawesome.api.payments"] = payments_module
 
+    sale_controls_module = types.ModuleType("posawesome.posawesome.api.item_sale_controls")
+    sale_controls_module.collect_item_sale_control_errors = lambda *_args, **_kwargs: []
+    sale_controls_module.validate_invoice_item_sale_controls = lambda *_args, **_kwargs: None
+    sys.modules["posawesome.posawesome.api.item_sale_controls"] = sale_controls_module
+
 
 def _install_package_stubs():
     package_paths = {

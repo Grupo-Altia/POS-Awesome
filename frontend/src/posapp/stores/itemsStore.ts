@@ -1585,6 +1585,33 @@ export const useItemsStore = defineStore("items", () => {
 		}
 	};
 
+	const upsertCatalogItem = (updatedItem: Item | null | undefined) => {
+		if (!updatedItem?.item_code) {
+			return;
+		}
+
+		const mergeIntoCollection = (collection: Item[]) => {
+			const index = collection.findIndex(
+				(item) => item?.item_code === updatedItem.item_code,
+			);
+			if (index >= 0) {
+				collection[index] = { ...collection[index], ...updatedItem };
+			} else {
+				collection.unshift(updatedItem);
+			}
+		};
+
+		mergeIntoCollection(items.value);
+		mergeIntoCollection(filteredItems.value);
+		if (fastCounterEnabled.value) {
+			setHotCatalogItems(
+				dedupeItems([[updatedItem], hotItems.value], resolveHotCatalogLimit()),
+			);
+		}
+		updateIndexes(items.value, posProfile.value);
+		clearSearchCache();
+	};
+
 	const refreshModifiedItems = async (
 		priceListOverride: string | null = null,
 	) => {
@@ -1759,6 +1786,7 @@ export const useItemsStore = defineStore("items", () => {
 		getItemByCode,
 		getItemByBarcode,
 		addScannedItem,
+		upsertCatalogItem,
 		refreshModifiedItems,
 		clearLimitSearchResults,
 		clearAllCaches,

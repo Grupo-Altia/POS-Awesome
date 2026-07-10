@@ -69,11 +69,31 @@ Data source:
 - Current RetailMind POS mode uses `Sales Invoice` and `Sales Invoice Item`.
 - If POS Invoice mode is enabled, item history should also consider `POS Invoice` and `POS Invoice Item`.
 
-Potential UX enhancement:
+Decision:
 
-- Add an item sales history drawer/table from item search or product dashboard.
-- Show invoice number, date/time, customer, POS profile, qty, rate, discount, and amount.
-- For supervisors, support company/profile scope. For cashiers, keep profile/permission scope.
+- Replace the invoice item inline expanded row with a modal opened by item-row click or row-mode `Enter`.
+- Modal tab 1 shows company-wide submitted non-return sales for that item across both `Sales Invoice` and `POS Invoice`.
+- Modal tab 2 shows the same item details fields that currently appear in the inline expanded row.
+- Exclude returns/credit notes from the sales history.
+- Add pagination and filters for invoice/customer search, date range, and doctype.
+
+Progress:
+
+- Backend read-only API implemented in `posawesome.posawesome.api.items.get_item_sales_history`.
+- API aggregates duplicate item rows per invoice, excludes returns/credit notes, supports both `Sales Invoice` and `POS Invoice`, and paginates results.
+- Invoice item rows now open an item history/details modal on row click, history icon click, or row-mode `Enter`.
+- Modal sales-history tab supports invoice/customer search, date filters, doctype filter, pagination, invoice viewing, `Esc` close, left/right tab switching, up/down row navigation, and `Enter` to view the selected invoice.
+- Modal details tab reuses the existing item details form instead of the old inline expanded row.
+- Plain arrow keys now enter the invoice-item keyboard grid without requiring `Alt/Option+ArrowRight`: `ArrowDown` starts at the first row, `ArrowUp` starts at the last row, `ArrowRight` starts at the first navigable cell, and `ArrowLeft` starts at the last navigable cell. Active editors and overlays keep their native arrow behavior.
+- The item history modal now has its own default keyboard bounding box. Arrow keys move the box across tabs, filters, sales rows, pagination, and actions; `Enter` focuses/activates the boxed target; `Esc` exits field editing or closes the modal.
+
+Verification:
+
+- `yarn type-check`
+- `yarn vitest run tests/cartFieldFocus.spec.ts tests/invoiceShortcuts.spec.ts tests/keyboardNavigation.spec.ts`
+- `yarn build`
+- `PYTHONPATH=/Users/mac/frappe-bench/apps/frappe:/Users/mac/frappe-bench/apps/erpnext:/Users/mac/frappe-bench/apps/posawesome /Users/mac/anaconda3/bin/conda run -n frappe python -m unittest posawesome.posawesome.api.test_items_numeric_code.TestItemSalesHistory`
+- `bench --site retailmind.local run-tests --app posawesome --module posawesome.posawesome.api.test_items_numeric_code` is currently blocked by existing local ERPNext Fiscal Year fixture overlap before POSAwesome tests run.
 
 ## Sales Invoice vs POS Invoice
 
@@ -195,3 +215,61 @@ Follow-up:
 
 - Quantity edit mode now starts with an empty input so operators can type the replacement quantity immediately.
 - If the operator leaves quantity blank and moves away, the previous cart quantity is restored instead of being overwritten.
+
+## 2026-07-10 Item Quick Edit Modal
+
+Request:
+
+- Add a POS item-maintenance modal based on the legacy pharmacy item screen.
+- Open it from POS with `F12` on Windows/non-Mac terminals and `Option+7` on macOS.
+- Make pricing and item-control changes enforceable in the system.
+
+Implemented:
+
+- Added backend migration `posawesome.patches.add_item_quick_edit_fields`.
+- Added custom fields:
+  - `POS Profile.posa_allow_item_quick_edit`
+  - `Item.retailmind_short_name`
+  - `Item.retailmind_controlled_item`
+  - `Item.retailmind_non_discountable`
+  - `Item.retailmind_locked_for_sale`
+- Added backend API module `posawesome.posawesome.api.item_quick_edit`:
+  - `get_item_quick_edit`
+  - `save_item_quick_edit`
+- Added backend sale-control validation module:
+  - POS-only locked items are blocked by cart/invoice validation.
+  - Non-discountable items reject line discounts server-side.
+  - Controlled items are warning/logging flags only for v1.
+- Added frontend modal `ItemQuickEditDialog.vue`.
+- Wired `F12` and macOS `Option+7` shortcuts through the existing invoice shortcut handler.
+- Wired saved item rows back into the POS item catalog and active cart rows.
+- Added immediate client-side blocking for locked items and disabled discount editing for non-discountable rows.
+- Expanded invoice item keyboard control:
+  - Plain arrow keys outside text-editing inputs now enter the invoice items grid and show the bounding box.
+  - Arrow keys pressed inside the invoice items table also auto-activate row/cell navigation when the grid is inactive.
+  - Text inputs outside the cart keep normal arrow-key caret/search behavior.
+
+Design note:
+
+- A visual design preview was generated with imagegen at `/Users/mac/.codex/generated_images/019f4b80-6ba5-7692-acdc-4329484ef431`.
+- The unlabeled `15` field from the legacy screenshot is intentionally not implemented until its old-POS source column is confirmed.
+
+Verification:
+
+- `node -e "JSON.parse(require('fs').readFileSync('posawesome/fixtures/custom_field.json','utf8'))"`
+- `/Users/mac/anaconda3/bin/conda run -n frappe python -m unittest posawesome.posawesome.api.test_item_sale_controls`
+- `/Users/mac/anaconda3/bin/conda run -n frappe python -m unittest posawesome.posawesome.api.invoice_processing.test_creation`
+- `PYTHONPATH=/Users/mac/frappe-bench/apps/frappe:/Users/mac/frappe-bench/apps/erpnext:/Users/mac/frappe-bench/apps/posawesome /Users/mac/anaconda3/bin/conda run -n frappe python -c "import posawesome.posawesome.api.item_quick_edit; import posawesome.posawesome.api.item_sale_controls; print('quick edit imports ok')"`
+- `/Users/mac/anaconda3/bin/conda run -n frappe bench --site retailmind.local migrate`
+- `/Users/mac/anaconda3/bin/conda run -n frappe bench --site retailmind.local execute posawesome.posawesome.api.item_quick_edit.get_item_quick_edit --kwargs "{'item_code':'CH062','pos_profile':'POS Awesome - MedPlus'}"`
+- `yarn test:unit tests/invoiceShortcuts.spec.ts`
+- `yarn type-check`
+- `yarn lint`
+- `yarn build`
+- `/Users/mac/anaconda3/bin/conda run -n frappe bench build --app posawesome`
+
+Notes:
+
+- Retail price updates also synchronize the active selling item price, `Retail Selling` and `Standard Selling` when those price lists exist, and `Item.standard_rate`.
+- Trade price updates synchronize the buying item price only.
+- Item quick edit save is available to privileged item/stock/system managers, or to POS supervisors only when the active POS Profile has `posa_allow_item_quick_edit` enabled.
