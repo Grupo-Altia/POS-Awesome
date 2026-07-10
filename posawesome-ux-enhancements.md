@@ -273,3 +273,40 @@ Notes:
 - Retail price updates also synchronize the active selling item price, `Retail Selling` and `Standard Selling` when those price lists exist, and `Item.standard_rate`.
 - Trade price updates synchronize the buying item price only.
 - Item quick edit save is available to privileged item/stock/system managers, or to POS supervisors only when the active POS Profile has `posa_allow_item_quick_edit` enabled.
+
+## 2026-07-10 Quick Edit Selection And Supplier Mapping Fix
+
+Issue:
+
+- `F12` and macOS `Option+7` opened the item quick-edit modal with the latest cart row instead of the row selected by the invoice-items bounding box.
+- Plain arrow keys did not enter the invoice-items grid while focus was inside POS search fields, so the bounding box could feel unavailable.
+- Items without direct `Item Supplier` rows did not show supplier data even when the RetailMind brand-supplier mapping existed.
+
+Implemented:
+
+- Invoice item table now remembers the active/selected row separately from whether grid mode is currently active.
+- Quick edit resolves item code from active grid row, then remembered selected row, then latest row as a fallback.
+- Product search and invoice item search fields are marked so plain arrow keys enter the invoice-items grid at a default row.
+- Quick-edit supplier loading now uses direct `Item Supplier` first, then falls back to `RetailMind Supplier Brand Mapping` by item brand.
+
+Verification:
+
+- `yarn test:unit tests/invoiceShortcuts.spec.ts tests/invoiceQuickEditSelection.spec.ts`
+- `PYTHONPATH=/Users/mac/frappe-bench/apps/frappe:/Users/mac/frappe-bench/apps/erpnext:/Users/mac/frappe-bench/apps/posawesome /Users/mac/anaconda3/bin/conda run -n frappe python -m unittest posawesome.posawesome.api.test_item_quick_edit`
+- `/Users/mac/anaconda3/bin/conda run -n frappe bench --site retailmind.local execute posawesome.posawesome.api.item_quick_edit.get_item_quick_edit --kwargs "{'item_code':'39017','pos_profile':'POS Awesome - MedPlus'}"` returned mapped supplier `HARIS TRADERS-MEIJI MILK (1)` from `RetailMind Supplier Brand Mapping`.
+
+## 2026-07-10 Submitted Invoice Edit Keyboard UX
+
+Implemented:
+
+- The submitted invoice edit modal now opens with a visible keyboard bounding box instead of focusing an input immediately.
+- Arrow keys move the box across customer/discount fields, item quantity/rate/discount cells, item delete buttons, add-item fields, payment amount fields, cancel, submit, and close.
+- `Enter` focuses the boxed input for editing or activates the boxed button.
+- While editing a field, arrow keys leave the field and move the box; `Enter` commits the field and advances the box; `Esc` leaves field editing or closes the modal.
+- The modal keeps normal `Ctrl/Cmd+Enter` submit behavior.
+
+Verification:
+
+- `yarn type-check`
+- `yarn vitest run tests/cartFieldFocus.spec.ts tests/invoiceShortcuts.spec.ts tests/keyboardNavigation.spec.ts`
+- `yarn build`

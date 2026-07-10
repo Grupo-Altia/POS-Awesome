@@ -22,6 +22,7 @@ from posawesome.posawesome.api.utils import (
 
 QUICK_EDIT_FLAG = "posa_allow_item_quick_edit"
 PRIVILEGED_ROLES = {"System Manager", "Stock Manager", "Item Manager"}
+SUPPLIER_BRAND_MAPPING_DOCTYPE = "RetailMind Supplier Brand Mapping"
 
 
 def _as_dict(data):
@@ -92,13 +93,33 @@ def _get_first_barcode(item_code):
     )
 
 
-def _get_primary_supplier(item_code):
-    return frappe.db.get_value(
+def _doctype_exists(doctype):
+    return bool(frappe.db.exists("DocType", doctype))
+
+
+def _get_brand_mapped_supplier(brand):
+    brand = str(brand or "").strip()
+    if not brand or not _doctype_exists(SUPPLIER_BRAND_MAPPING_DOCTYPE):
+        return None
+
+    rows = frappe.get_all(
+        SUPPLIER_BRAND_MAPPING_DOCTYPE,
+        filters={"brand": brand},
+        fields=["supplier", "mapping_type", "confidence"],
+        order_by="mapping_type asc, confidence desc, modified desc",
+        limit_page_length=1,
+    )
+    return rows[0].get("supplier") if rows else None
+
+
+def _get_primary_supplier(item_code, brand=None):
+    item_supplier = frappe.db.get_value(
         "Item Supplier",
         {"parent": item_code, "parenttype": "Item", "parentfield": "supplier_items"},
         "supplier",
         order_by="idx asc",
     )
+    return item_supplier or _get_brand_mapped_supplier(brand)
 
 
 def _resolve_price_list(profile, price_list=None, buying=False):
@@ -245,7 +266,7 @@ def get_item_quick_edit(item_code=None, barcode=None, pos_profile=None):
     item.update(
         {
             "barcode": _get_first_barcode(resolved_item_code) or "",
-            "primary_supplier": _get_primary_supplier(resolved_item_code) or "",
+            "primary_supplier": _get_primary_supplier(resolved_item_code, item.get("brand")) or "",
             "selling_price_list": selling_price_list,
             "buying_price_list": buying_price_list,
             "retail_price": _get_item_price(

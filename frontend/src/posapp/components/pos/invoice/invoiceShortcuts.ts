@@ -43,8 +43,12 @@ const isTextEditingTarget = (target: EventTarget | null) => {
 		tagName === "select" ||
 		["textbox", "searchbox", "spinbutton", "combobox"].includes(
 			String(element.getAttribute("role") || "").toLowerCase(),
-			)
+		)
 	);
+};
+const isArrowEntrySearchTarget = (target: EventTarget | null) => {
+	const element = target as HTMLElement | null;
+	return Boolean(element?.closest?.("[data-pos-arrow-enters-invoice-grid]"));
 };
 const isElementVisible = (element: HTMLElement) => {
 	if (typeof window === "undefined") {
@@ -73,13 +77,15 @@ const shouldEnterInvoiceGridFromArrow = (event: KeyboardEvent) => {
 		event.altKey ||
 		event.ctrlKey ||
 		event.metaKey ||
-		isTextEditingTarget(event.target) ||
 		hasVisibleOverlay()
 	) {
 		return false;
 	}
 	const target = event.target as HTMLElement | null;
-	return !target?.closest?.(".posa-items-table-container, .v-overlay__content");
+	if (target?.closest?.(".posa-items-table-container, .v-overlay__content")) {
+		return false;
+	}
+	return !isTextEditingTarget(target) || isArrowEntrySearchTarget(target);
 };
 const invoiceGridEntryOptionsFromArrow = (key: string, count: number) => {
 	const rowIndex = key === "ArrowDown" ? 0 : Math.max(0, count - 1);

@@ -291,6 +291,7 @@ import PackedItemsDialog from "./invoice/PackedItemsDialog.vue";
 import PaymentConfirmationDialog from "./payments/PaymentConfirmationDialog.vue";
 import PriceListRateDialog from "./invoice/PriceListRateDialog.vue";
 import ItemQuickEditDialog from "./items/ItemQuickEditDialog.vue";
+import { resolveItemQuickEditCodeFromRows } from "./invoice/itemQuickEditSelection";
 import invoiceItemMethods from "./invoice/invoiceItemMethods";
 import invoiceComputed from "./invoice/invoiceComputed";
 import invoiceWatchers from "./invoice/invoiceWatchers";
@@ -617,12 +618,7 @@ export default {
 		},
 
 		resolveItemQuickEditCode() {
-			const activeGridItem = this.$refs.itemsTableRef?.getActiveGridItem?.();
-			if (activeGridItem?.item_code) {
-				return activeGridItem.item_code;
-			}
-			const rows = Array.isArray(this.items) ? this.items : [];
-			return rows.length ? rows[rows.length - 1]?.item_code || "" : "";
+			return resolveItemQuickEditCodeFromRows(this.$refs.itemsTableRef, this.items);
 		},
 
 		openItemQuickEdit() {

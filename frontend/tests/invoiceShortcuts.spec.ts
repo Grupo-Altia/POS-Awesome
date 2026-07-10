@@ -217,6 +217,32 @@ describe("invoiceShortcuts", () => {
 		expect(event.defaultPrevented).toBe(false);
 	});
 
+	it("uses plain arrow keys from marked search fields to enter invoice table grid mode", async () => {
+		const vm = createVm();
+		const shell = document.createElement("div");
+		shell.setAttribute("data-pos-arrow-enters-invoice-grid", "");
+		const input = document.createElement("input");
+		shell.appendChild(input);
+		document.body.appendChild(shell);
+		const event = new KeyboardEvent("keydown", {
+			key: "ArrowDown",
+			code: "ArrowDown",
+			bubbles: true,
+			cancelable: true,
+		});
+		Object.defineProperty(event, "target", {
+			value: input,
+			configurable: true,
+		});
+
+		await (invoiceShortcuts as any).handleInvoiceShortcut.call(vm, event);
+
+		expect(vm.eventBus.emit).toHaveBeenCalledWith("set_compact_panel", "invoice");
+		expect(vm.enterInvoiceItemsGrid).toHaveBeenCalledTimes(1);
+		expect(event.defaultPrevented).toBe(true);
+		shell.remove();
+	});
+
 	it("enters invoice table grid mode on the latest cart row", () => {
 		const enterKeyboardGrid = vi.fn();
 		const vm = {

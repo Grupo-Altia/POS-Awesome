@@ -213,6 +213,7 @@ type CartGridMode = "inactive" | "row" | "cell";
 const gridMode = ref<CartGridMode>("inactive");
 const activeRowIndex = ref(-1);
 const activeCellKey = ref<CartGridColumnKey | null>(null);
+const selectedRowIndex = ref(-1);
 const itemHistoryDialog = ref(false);
 const itemHistoryTarget = ref<any | null>(null);
 
@@ -311,6 +312,11 @@ const clampRowIndex = (index: number) => {
 	return Math.max(0, Math.min(index, count - 1));
 };
 
+const rememberSelectedRow = (rowIndex: number) => {
+	selectedRowIndex.value = clampRowIndex(rowIndex);
+	return selectedRowIndex.value;
+};
+
 const deactivateKeyboardGrid = () => {
 	gridMode.value = "inactive";
 	activeRowIndex.value = -1;
@@ -340,6 +346,7 @@ const setActiveGridRow = (rowIndex: number) => {
 	}
 
 	activeRowIndex.value = nextRowIndex;
+	rememberSelectedRow(nextRowIndex);
 	if (gridMode.value === "inactive") {
 		gridMode.value = "row";
 	}
@@ -388,6 +395,7 @@ const moveGridCell = (delta: number) => {
 	const currentIndex = activeCellKey.value ? keys.indexOf(activeCellKey.value) : -1;
 	const nextIndex = Math.max(0, Math.min((currentIndex < 0 ? 0 : currentIndex) + delta, keys.length - 1));
 	activeCellKey.value = keys[nextIndex] ?? null;
+	rememberSelectedRow(activeRowIndex.value);
 	void focusActiveGridTarget();
 	return true;
 };
@@ -413,6 +421,7 @@ const moveGridEntry = (delta: number) => {
 	const nextRowIndex = clampRowIndex(activeRowIndex.value + (delta > 0 ? 1 : -1));
 	if (nextRowIndex >= 0 && nextRowIndex !== activeRowIndex.value) {
 		activeRowIndex.value = nextRowIndex;
+		rememberSelectedRow(nextRowIndex);
 		activeCellKey.value = delta > 0 ? keys[0] ?? null : keys[keys.length - 1] ?? null;
 		void focusActiveGridTarget();
 		return true;
@@ -452,6 +461,7 @@ const openItemHistory = (item: any) => {
 	if (!item) {
 		return false;
 	}
+	rememberSelectedRow(getItemIndex(item));
 	itemHistoryTarget.value = item;
 	itemHistoryDialog.value = true;
 	deactivateKeyboardGrid();
@@ -483,6 +493,7 @@ const enterKeyboardGrid = (
 
 	gridMode.value = options.mode === "cell" ? "cell" : "row";
 	activeRowIndex.value = nextRowIndex;
+	rememberSelectedRow(nextRowIndex);
 	if (gridMode.value === "cell") {
 		const keys = navigableGridColumnKeys.value;
 		activeCellKey.value = options.cellEdge === "last" ? keys[keys.length - 1] || null : keys[0] || null;
@@ -500,6 +511,11 @@ const getActiveGridItem = () => {
 	return items.value?.[activeRowIndex.value] || null;
 };
 
+const getSelectedGridItem = () => {
+	const rowIndex = clampRowIndex(selectedRowIndex.value);
+	return rowIndex >= 0 ? items.value?.[rowIndex] || null : null;
+};
+
 // Watchers
 watch(() => props.displayCurrency, clearFormatCache);
 watch(() => props.pos_profile, clearFormatCache, { deep: true });
@@ -510,9 +526,13 @@ watch(items, () => {
 	const nextRowIndex = clampRowIndex(activeRowIndex.value);
 	if (nextRowIndex < 0) {
 		deactivateKeyboardGrid();
+		selectedRowIndex.value = -1;
 		return;
 	}
 	activeRowIndex.value = nextRowIndex;
+	if (selectedRowIndex.value >= 0) {
+		rememberSelectedRow(selectedRowIndex.value);
+	}
 	void focusActiveGridTarget();
 });
 watch(navigableGridColumnKeys, (keys) => {
@@ -628,6 +648,7 @@ const handleDiscountAmountUpdate = (item: any, newDiscount: any) => {
 };
 
 const handleRowClick = (event: any, item: any) => {
+	rememberSelectedRow(getItemIndex(item));
 	if (isEditableElement(event.target as HTMLElement)) {
 		return;
 	}
@@ -636,6 +657,7 @@ const handleRowClick = (event: any, item: any) => {
 
 const focusItemField = (index: number, field: CartShortcutField, options?: CartFieldFocusOptions) => {
 	deactivateKeyboardGrid();
+	rememberSelectedRow(index);
 	return focusCartItemField(tableContainer.value, index, field, options);
 };
 
@@ -779,6 +801,7 @@ defineExpose({
 	focusItemField,
 	enterKeyboardGrid,
 	getActiveGridItem,
+	getSelectedGridItem,
 });
 </script>
 

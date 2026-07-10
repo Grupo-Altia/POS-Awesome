@@ -15,9 +15,10 @@
 						color="primary"
 						class="pos-themed-input"
 						:label="frappe._('Search, scan or browse item')"
-						hide-details
-						data-pos-keyboard-target="item-search"
-						:model-value="searchInput"
+							hide-details
+							data-pos-keyboard-target="item-search"
+							data-pos-arrow-enters-invoice-grid
+							:model-value="searchInput"
 						@update:model-value="
 							(val) => {
 								$emit('update:searchInput', val);
