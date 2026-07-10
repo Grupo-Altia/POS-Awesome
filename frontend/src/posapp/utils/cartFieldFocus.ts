@@ -20,7 +20,7 @@ export interface CartFieldFocusOptions {
 }
 
 const FIELD_SELECTORS: Record<CartGridColumnKey, string> = {
-	qty: '[data-column-key="qty"] .posa-cart-table__qty-display',
+	qty: '[data-column-key="qty"] .posa-cart-table__qty-input-shell',
 	uom: '[data-column-key="uom"] .posa-cart-table__editor-display',
 	rate: '[data-column-key="rate"] .posa-cart-table__editor-display',
 	discount_percentage: '[data-column-key="discount_percentage"] .posa-cart-table__editor-display',

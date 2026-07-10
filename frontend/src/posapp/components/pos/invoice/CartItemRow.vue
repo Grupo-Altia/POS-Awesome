@@ -83,61 +83,39 @@
 
 			<!-- Quantity Column -->
 			<td v-else-if="column.key === 'qty'" v-bind="getCellAttrs('qty', 'text-center')">
-				<div class="posa-cart-table__qty-counter" :class="{ 'rtl-layout': isRTL }">
-					<v-btn
-						:disabled="disableDecrement"
-						size="small"
-						variant="flat"
-						class="posa-cart-table__qty-btn posa-cart-table__qty-btn--minus minus-btn qty-control-btn"
-						@click.stop="handleMinusClick"
-						:aria-label="__('Decrease quantity')"
-					>
-						<v-icon size="small">mdi-minus</v-icon>
-					</v-btn>
-					<div
-						v-if="!isEditingQty"
-						class="posa-cart-table__qty-display amount-value number-field-rtl"
-						:class="{
-							'negative-number': isNegative(item.qty),
-							'large-number': qtyLength > 6,
-						}"
-						:data-length="qtyLength"
-						:title="formatFloat(item.qty, hideQtyDecimals ? 0 : undefined)"
-						@click.stop="openQtyEdit"
-						tabindex="0"
-						data-pos-keyboard-target="cart-qty"
-						role="button"
-						:aria-label="__('Edit quantity')"
-						@keydown.enter.prevent="openQtyEdit"
-						@keydown.space.prevent="openQtyEdit"
-					>
-						{{ formatFloat(item.qty, hideQtyDecimals ? 0 : undefined) }}
-					</div>
+				<div
+					class="posa-cart-table__qty-input-shell amount-value number-field-rtl"
+					:class="{
+						'negative-number': isNegative(item.qty),
+						'large-number': qtyLength > 6,
+						'rtl-layout': isRTL,
+					}"
+					:data-length="qtyLength"
+					:title="formatFloat(item.qty, hideQtyDecimals ? 0 : undefined)"
+					tabindex="0"
+					data-pos-keyboard-target="cart-qty"
+					role="button"
+					:aria-label="__('Edit quantity')"
+					@click.stop="focusQtyInput"
+					@keydown.enter.prevent="focusQtyInput"
+					@keydown.space.prevent="focusQtyInput"
+				>
 					<v-text-field
-						v-else
-						v-model="editingQtyValue"
+						:model-value="editingQtyValue"
 						density="compact"
 						variant="outlined"
-						class="posa-cart-table__qty-input"
+						class="posa-cart-table__qty-input posa-cart-table__qty-input--direct"
+						@update:model-value="handleQtyInputUpdate"
+						@focus="handleQtyFocus"
 						@blur="closeQtyEdit"
-						@keydown.enter.prevent="closeQtyEdit({ focusDiscountPercent: true })"
-						@keydown.esc.prevent="cancelQtyEdit"
+						@keydown.enter.stop.prevent="closeQtyEdit({ focusDiscountPercent: true })"
+						@keydown.esc.stop.prevent="cancelQtyEdit"
 						@click.stop
 						ref="qtyInput"
-						:autofocus="true"
 						type="number"
+						inputmode="decimal"
 						:disabled="disableInput"
 					></v-text-field>
-					<v-btn
-						:disabled="disableIncrement"
-						size="small"
-						variant="flat"
-						class="posa-cart-table__qty-btn posa-cart-table__qty-btn--plus plus-btn qty-control-btn"
-						@click.stop="$emit('add-one', item)"
-						:aria-label="__('Increase quantity')"
-					>
-						<v-icon size="small">mdi-plus</v-icon>
-					</v-btn>
 				</div>
 			</td>
 
@@ -405,7 +383,7 @@
 </template>
 
 <script setup>
-import { computed, nextTick, ref } from "vue";
+import { computed, nextTick, ref, watch } from "vue";
 import {
 	getCartGridCellId,
 	getCartGridRowId,
@@ -473,8 +451,8 @@ const emit = defineEmits([
 
 const __ = window.__ || ((text) => text);
 
-const isEditingQty = ref(false);
 const editingQtyValue = ref("");
+const isEditingQty = ref(false);
 const isEditingUom = ref(false);
 const isEditingRate = ref(false);
 const editingRateValue = ref("");
@@ -552,21 +530,6 @@ function getCellAttrs(key, baseClass = "") {
 	};
 }
 
-const disableDecrement = computed(
-	() =>
-		!!props.item.posa_is_replace ||
-		(props.isReturnInvoice &&
-			(props.item.is_free_item || props.item.posa_is_offer || props.item.posa_is_replace)),
-);
-
-const disableIncrement = computed(
-	() =>
-		!!props.item.posa_is_replace ||
-		props.item.disable_increment ||
-		(props.isReturnInvoice &&
-			(props.item.is_free_item || props.item.posa_is_offer || props.item.posa_is_replace)),
-);
-
 const disableInput = computed(
 	() =>
 		props.isReturnInvoice &&
@@ -586,13 +549,46 @@ const disableDiscountEdit = computed(
 		!!props.item.posa_offer_applied,
 );
 
-function openQtyEdit() {
+const getQtyInputElement = () =>
+	qtyInput.value?.$el?.querySelector?.("input") || qtyInput.value;
+
+const formatQtyInputValue = () => {
+	const qty = Number(props.item.qty ?? 0);
+	if (!Number.isFinite(qty)) {
+		return "";
+	}
+	if (props.hideQtyDecimals) {
+		return String(Math.round(qty));
+	}
+	return String(qty);
+};
+
+watch(
+	() => [props.item.qty, props.hideQtyDecimals],
+	() => {
+		if (!isEditingQty.value) {
+			editingQtyValue.value = formatQtyInputValue();
+		}
+	},
+	{ immediate: true },
+);
+
+function focusQtyInput() {
 	if (disableInput.value) return;
-	isEditingQty.value = true;
-	editingQtyValue.value = "";
 	nextTick(() => {
-		qtyInput.value?.focus();
+		const target = getQtyInputElement();
+		target?.focus?.();
+		target?.select?.();
 	});
+}
+
+function handleQtyFocus() {
+	isEditingQty.value = true;
+	editingQtyValue.value = formatQtyInputValue();
+}
+
+function handleQtyInputUpdate(value) {
+	editingQtyValue.value = value ?? "";
 }
 
 function openUomEdit() {
@@ -611,11 +607,15 @@ function closeQtyEdit(options = {}) {
 			const newQty = parseFloat(editingQtyValue.value);
 			// Emit event to update parent state
 			const val = !newQty || newQty <= 0 ? 1 : newQty;
-			emit("update-qty", props.item, val);
-			didUpdate = true;
+			if (val !== props.item.qty) {
+				emit("update-qty", props.item, val);
+				didUpdate = true;
+			}
+			editingQtyValue.value = String(val);
+		} else {
+			editingQtyValue.value = formatQtyInputValue();
 		}
 		isEditingQty.value = false;
-		editingQtyValue.value = "";
 		if (didUpdate && options?.focusDiscountPercent) {
 			emit("qty-edit-submitted", props.item);
 		}
@@ -624,11 +624,8 @@ function closeQtyEdit(options = {}) {
 
 function cancelQtyEdit() {
 	isEditingQty.value = false;
-	editingQtyValue.value = "";
-}
-
-function handleMinusClick() {
-	emit("minus-click", props.item);
+	editingQtyValue.value = formatQtyInputValue();
+	getQtyInputElement()?.blur?.();
 }
 
 function changeUom(direction) {
@@ -804,7 +801,7 @@ td {
 
 /* Keyboard focus styles */
 /* Keyboard focus styles */
-.posa-cart-table__qty-display:focus-visible,
+.posa-cart-table__qty-input-shell:focus-visible,
 .posa-cart-table__editor-display:focus-visible {
 	outline: 2px solid var(--pos-primary);
 	outline-offset: 2px;

@@ -202,6 +202,7 @@ Implementation notes:
 - The table derives navigable cells from the currently rendered responsive columns.
 - Navigable cells are quantity, UOM, discount %, discount amount, rate, offer action, delete action, and expand action when visible.
 - Read-only name, price-list-rate, and amount cells are skipped.
+- Quantity now renders as a direct numeric input instead of the previous minus/value/plus counter, while still using the same cart quantity update path.
 
 Verification:
 
