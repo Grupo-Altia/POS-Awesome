@@ -7,7 +7,10 @@ import { defineStore } from "pinia";
 import { ref, computed, watch } from "vue";
 import type { Item, POSProfile } from "../types/models";
 import itemService from "../services/itemService";
-import { refreshBootstrapSnapshotFromCacheState } from "../../offline/index";
+import {
+	getItemsLastSync,
+	refreshBootstrapSnapshotFromCacheState,
+} from "../../offline/index";
 
 // Composables
 import { useItemsCache } from "../composables/pos/items/store/useItemsCache";
@@ -123,6 +126,7 @@ export const useItemsStore = defineStore("items", () => {
 	const searchTerm = ref("");
 	const itemGroup = ref("ALL");
 	const lastSearch = ref("");
+	const lastItemCatalogSyncTime = ref<string | null>(null);
 	const posProfile = ref<POSProfile | null>(null);
 	const customer = ref<string | null>(null);
 	const customerPriceList = ref<string | null>(null);
@@ -680,6 +684,7 @@ export const useItemsStore = defineStore("items", () => {
 		posProfile.value = profile;
 		customer.value = cust;
 		customerPriceList.value = priceList;
+		lastItemCatalogSyncTime.value = getItemsLastSync();
 
 		await loadItemGroups(posProfile.value);
 		await assessCacheHealth();
@@ -792,9 +797,16 @@ export const useItemsStore = defineStore("items", () => {
 			totalItemCount,
 			itemsLoaded,
 			items,
-		).catch((error) => {
-			console.error("Failed to trigger background sync:", error);
-		});
+		)
+			.then(() => {
+				const lastSync = getItemsLastSync();
+				if (lastSync) {
+					lastItemCatalogSyncTime.value = lastSync;
+				}
+			})
+			.catch((error) => {
+				console.error("Failed to trigger background sync:", error);
+			});
 	};
 
 	const loadItems = async (options: LoadItemsOptions = {}) => {
@@ -922,6 +934,9 @@ export const useItemsStore = defineStore("items", () => {
 			cachedPagination.value.loading = false;
 			setItems(fetchedItems);
 			itemsLoaded.value = true;
+			if (!searchValue && fetchedItems.length > 0) {
+				lastItemCatalogSyncTime.value = new Date().toISOString();
+			}
 
 			const shouldCacheFetchedItems =
 				!limitSearchEnabled.value &&
@@ -1703,6 +1718,7 @@ export const useItemsStore = defineStore("items", () => {
 		searchTerm,
 		itemGroup,
 		lastSearch,
+		lastItemCatalogSyncTime,
 		posProfile,
 		customer,
 		customerPriceList,

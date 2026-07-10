@@ -592,7 +592,9 @@ const syncItemsCount = computed(() => {
 const showSearchSyncProgress = computed(() => isBackgroundLoading.value && items.value.length > 0);
 
 const lastSyncTimeLabel = computed(() => {
-	const lastSync = itemSync.last_background_sync_time?.value;
+	const lastSync =
+		itemSync.last_background_sync_time?.value ||
+		itemsIntegration.lastItemCatalogSyncTime?.value;
 	if (!lastSync) return __("Never");
 	const parsed = new Date(lastSync);
 	return Number.isNaN(parsed.getTime()) ? __("Never") : parsed.toLocaleTimeString();
