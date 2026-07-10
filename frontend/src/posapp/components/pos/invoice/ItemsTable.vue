@@ -149,6 +149,7 @@ import { useFormatters } from "../../../composables/core/useFormatters";
 import { useRtl } from "../../../composables/core/useRtl";
 import {
 	activateCartGridCell,
+	getCartGridCellTarget,
 	focusCartItemField,
 	focusCartGridCell,
 	focusCartGridRow,
@@ -407,7 +408,14 @@ const moveGridEntry = (delta: number) => {
 		return false;
 	}
 
-	const keys = navigableGridColumnKeys.value.filter(isCartGridDirectEditColumnKey);
+	const getEditableKeysForRow = (rowIndex: number) =>
+		navigableGridColumnKeys.value.filter(
+			(key) =>
+				isCartGridDirectEditColumnKey(key) &&
+				Boolean(getCartGridCellTarget(tableContainer.value, rowIndex, key)),
+		);
+
+	const keys = getEditableKeysForRow(activeRowIndex.value);
 	if (!keys.length) {
 		return moveGridCell(delta);
 	}
@@ -422,9 +430,14 @@ const moveGridEntry = (delta: number) => {
 
 	const nextRowIndex = clampRowIndex(activeRowIndex.value + (delta > 0 ? 1 : -1));
 	if (nextRowIndex >= 0 && nextRowIndex !== activeRowIndex.value) {
+		const nextRowKeys = getEditableKeysForRow(nextRowIndex);
+		if (!nextRowKeys.length) {
+			void focusActiveGridTarget();
+			return false;
+		}
 		activeRowIndex.value = nextRowIndex;
 		rememberSelectedRow(nextRowIndex);
-		activeCellKey.value = delta > 0 ? keys[0] ?? null : keys[keys.length - 1] ?? null;
+		activeCellKey.value = delta > 0 ? nextRowKeys[0] ?? null : nextRowKeys[nextRowKeys.length - 1] ?? null;
 		void focusActiveGridTarget();
 		return true;
 	}

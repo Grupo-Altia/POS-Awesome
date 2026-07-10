@@ -195,7 +195,10 @@ export const useItemsSelectorSearch = ({
 
 		const searchTerm = scannedCode || vm.first_search;
 		await scannerInput.ensureScaleBarcodeSettings();
-		if (!vm.displayedItems.length || !searchTerm) {
+		const displayedItems = Array.isArray(vm.displayedItems)
+			? vm.displayedItems
+			: [];
+		if (!displayedItems.length || !searchTerm) {
 			return;
 		}
 
@@ -205,7 +208,7 @@ export const useItemsSelectorSearch = ({
 		vm.search = search;
 
 		const qty = Number(get_item_qty(searchTerm));
-		const new_item = { ...vm.displayedItems[0] };
+		const new_item = { ...displayedItems[0] };
 		new_item.qty = flt(qty);
 		if (isScaleBarcode) {
 			new_item._barcode_qty = true;

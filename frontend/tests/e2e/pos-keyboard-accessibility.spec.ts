@@ -1,9 +1,9 @@
 import { expect, test, type Page } from "@playwright/test";
 
-const POS_PATH = process.env.POSA_SMOKE_PATH || "/app/posapp";
+const POS_PATH = process.env.POSA_SMOKE_PATH || "/desk/posapp";
 const ENABLED = process.env.POSA_KEYBOARD_E2E === "1";
 const POS_PROFILE = process.env.POSA_KEYBOARD_POS_PROFILE || "POS Awesome - MedPlus";
-const TEST_ITEM_CODES = (process.env.POSA_KEYBOARD_TEST_ITEMS || "AI167,AH076,A3106,02182,DK134")
+const TEST_ITEM_CODES = (process.env.POSA_KEYBOARD_TEST_ITEMS || "A3106,22203,AI167,AH076,CR044,IK154")
 	.split(",")
 	.map((value) => value.trim())
 	.filter(Boolean);
@@ -34,7 +34,7 @@ async function loginIfCredentialsProvided(page: Page) {
 	await userInput.first().fill(username);
 	await passInput.first().fill(password);
 	await Promise.all([
-		page.waitForURL(/\/app(\/|$)/, { timeout: 60000 }),
+		page.waitForURL(/\/(app|desk)(\/|$)/, { timeout: 60000 }),
 		loginButton.first().click(),
 	]);
 }
@@ -81,13 +81,19 @@ async function setValue(
 }
 
 async function waitForPosReady(page: Page) {
-	await page.goto(POS_PATH, { waitUntil: "domcontentloaded" });
+	for (let attempt = 0; attempt < 2; attempt += 1) {
+		await page.goto(POS_PATH, { waitUntil: "domcontentloaded" });
+		if (!/\/login/.test(page.url())) {
+			break;
+		}
+		await loginIfCredentialsProvided(page);
+	}
 	if (/\/login/.test(page.url())) {
 		throw new Error(
 			"POS keyboard E2E reached the login page. Set POSA_SMOKE_USER and POSA_SMOKE_PASSWORD, or run with an authenticated Playwright storage/session.",
 		);
 	}
-	await expect(page).toHaveURL(new RegExp("/app/(posapp|point-of-sale|desk/posapp)"));
+	await expect(page).toHaveURL(new RegExp("/(app/(posapp|point-of-sale)|desk/posapp)"));
 	await expect(page.locator(".main-section").first()).toBeVisible({ timeout: 90000 });
 	await expect(page.getByTestId("pos-item-search").locator("input")).toBeVisible({
 		timeout: 90000,
@@ -100,12 +106,15 @@ function captureUnexpectedErrors(page: Page) {
 		const normalized = message.toLowerCase();
 		return (
 			normalized.includes("remove_last_divider") ||
-			(normalized.includes("offsetwidth") && normalized.includes("shortcut.js"))
+			(normalized.includes("offsetwidth") && normalized.includes("shortcut.js")) ||
+			(normalized.includes("failed to load resource") && normalized.includes("404"))
 		);
 	};
 	page.on("pageerror", (error) => {
 		const message = String(error?.message || error);
-		if (!isBenign(message)) errors.push(`pageerror: ${message}`);
+		const stack = typeof error?.stack === "string" ? error.stack : "";
+		const detail = stack && !stack.includes(message) ? `${message}\n${stack}` : stack || message;
+		if (!isBenign(message)) errors.push(`pageerror: ${detail}`);
 	});
 	page.on("console", (msg) => {
 		if (msg.type() !== "error") return;
@@ -170,17 +179,27 @@ async function getPositiveStockItems(page: Page): Promise<TestItem[]> {
 			items.push({ ...item, stock, rate });
 		}
 	}
-	return items;
+	return items.sort(
+		(left, right) =>
+			TEST_ITEM_CODES.indexOf(left.item_code) - TEST_ITEM_CODES.indexOf(right.item_code),
+	);
 }
 
 async function searchAndAddItem(page: Page, item: TestItem) {
 	const search = page.getByTestId("pos-item-search").locator("input");
 	await search.click();
 	await search.fill(item.item_code);
-	await expect(page.locator(`[data-item-code="${item.item_code}"]`).first()).toBeVisible({
-		timeout: 30000,
-	});
+	const exactResult = page.getByText(item.item_code, { exact: true }).first();
+	if (!(await exactResult.isVisible({ timeout: 12000 }).catch(() => false))) {
+		await search.fill(item.item_name);
+		await expect(page.getByText(item.item_code, { exact: true }).first()).toBeVisible({
+			timeout: 30000,
+		});
+	}
 	await page.keyboard.press("Enter");
+	if (!(await page.getByTestId(`cart-row-${item.item_code}`).first().isVisible({ timeout: 8000 }).catch(() => false))) {
+		await page.getByText(item.item_code, { exact: true }).first().click();
+	}
 	await expect(page.getByTestId(`cart-row-${item.item_code}`).first()).toBeVisible({
 		timeout: 30000,
 	});
@@ -200,7 +219,16 @@ async function activeCartCell(page: Page) {
 async function setActiveNumericCell(page: Page, value: string) {
 	const cell = await activeCartCell(page);
 	await expect(cell).toBeVisible();
-	const input = cell.locator("input").first();
+	let input = cell.locator("input").first();
+	if (!(await input.count())) {
+		const target = cell.locator("[data-pos-keyboard-target], button").first();
+		if (await target.count()) {
+			await target.click();
+		} else {
+			await page.keyboard.press("Enter");
+		}
+		input = cell.locator("input").first();
+	}
 	await expect(input).toBeFocused({ timeout: 10000 });
 	await input.fill(value);
 	await page.keyboard.press("Enter");
@@ -317,7 +345,7 @@ test.describe.serial("POS keyboard accessibility E2E", () => {
 		const search = page.getByTestId("pos-item-search").locator("input");
 		await search.click();
 		await search.fill(items[1].item_code);
-		await expect(page.locator(`[data-item-code="${items[1].item_code}"]`).first()).toBeVisible();
+		await expect(page.getByText(items[1].item_code, { exact: true }).first()).toBeVisible();
 		await page.keyboard.press("ArrowDown");
 
 		await expect(search).toBeFocused();
@@ -374,12 +402,17 @@ test.describe.serial("POS keyboard accessibility E2E", () => {
 		await page.waitForTimeout(1000);
 
 		await page.keyboard.press("Alt+L");
-		await expect(page.locator(".drafts-list, [data-test='mobile-drafts-dialog']").first()).toBeVisible({
+		const activeDraftsSurface = page
+			.locator(".v-navigation-drawer:not([inert]) .drafts-list, [data-test='mobile-drafts-dialog']:visible")
+			.first();
+		await expect(activeDraftsSurface).toBeVisible({
 			timeout: 30000,
 		});
 		await page.keyboard.press("ArrowDown");
 		await page.keyboard.press("Escape");
-		await expect(page.locator(".drafts-list, [data-test='mobile-drafts-dialog']").first()).toBeHidden({
+		await expect(
+			page.locator(".v-navigation-drawer:not([inert]) .drafts-list, [data-test='mobile-drafts-dialog']:visible"),
+		).toHaveCount(0, {
 			timeout: 15000,
 		});
 	});

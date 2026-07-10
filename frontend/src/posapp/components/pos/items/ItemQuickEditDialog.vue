@@ -5,7 +5,12 @@
 		persistent
 		@update:model-value="emit('update:modelValue', $event)"
 	>
-		<v-card class="item-quick-edit pos-themed-card" data-testid="item-quick-edit-modal">
+		<v-card
+			class="item-quick-edit pos-themed-card"
+			data-testid="item-quick-edit-modal"
+			tabindex="0"
+			@keydown.esc.prevent="close"
+		>
 			<v-card-title class="item-quick-edit__title">
 				<div>
 					<div class="text-h6">{{ __("Item Quick Edit") }}</div>
@@ -77,6 +82,7 @@
 								</v-col>
 								<v-col cols="12" md="8">
 									<v-text-field
+										ref="nameField"
 										v-model="form.item_name"
 										data-testid="item-quick-edit-name"
 										:label="__('Name')"
@@ -84,10 +90,12 @@
 										variant="outlined"
 										:rules="[(v) => !!v || __('* Required')]"
 										:disabled="!loaded"
+										@keydown.tab.exact.prevent="focusShortName"
 									></v-text-field>
 								</v-col>
 								<v-col cols="12" md="6">
 									<v-text-field
+										ref="shortNameField"
 										v-model="form.retailmind_short_name"
 										data-testid="item-quick-edit-short-name"
 										:label="__('Short Name')"
@@ -283,6 +291,8 @@ const emit = defineEmits<{
 }>();
 
 const lookupField = ref<any>(null);
+const nameField = ref<any>(null);
+const shortNameField = ref<any>(null);
 const formRef = ref<any>(null);
 const lookupValue = ref("");
 const loading = ref(false);
@@ -352,6 +362,22 @@ const focusLookup = () => {
 	});
 };
 
+const focusName = () => {
+	nextTick(() => {
+		const input = nameField.value?.$el?.querySelector?.("input");
+		input?.focus?.();
+		input?.select?.();
+	});
+};
+
+const focusShortName = () => {
+	nextTick(() => {
+		const input = shortNameField.value?.$el?.querySelector?.("input");
+		input?.focus?.();
+		input?.select?.();
+	});
+};
+
 const loadItem = async (value: string) => {
 	const query = String(value || "").trim();
 	if (!query || !props.posProfile) {
@@ -374,6 +400,7 @@ const loadItem = async (value: string) => {
 		canSave.value = Boolean(payload?.can_save);
 		loaded.value = true;
 		lookupValue.value = form.item_code || query;
+		focusName();
 	} catch (error: any) {
 		resetForm();
 		lookupValue.value = query;

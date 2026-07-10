@@ -191,7 +191,7 @@
 </template>
 
 <script setup>
-import { computed, nextTick, ref, watch } from "vue";
+import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from "vue";
 import { storeToRefs } from "pinia";
 import { loadItemSelectorSettings } from "../../../utils/itemSelectorSettings";
 import { useResponsive } from "../../../composables/core/useResponsive";
@@ -447,6 +447,15 @@ function closeDraftsSurface() {
 	mobileDraftsDialog.value = false;
 }
 
+function handleGlobalDraftsKeydown(event) {
+	if (event.key !== "Escape" || (!desktopDraftsDrawer.value && !mobileDraftsDialog.value)) {
+		return;
+	}
+	event.preventDefault();
+	event.stopPropagation();
+	closeDraftsSurface();
+}
+
 async function focusDraftsSurface() {
 	await nextTick();
 	await new Promise((resolve) => {
@@ -533,6 +542,14 @@ function handleResumeDraft(draft) {
 	closeDraftsSurface();
 	emit("resume-parked-order", draft);
 }
+
+onMounted(() => {
+	window.addEventListener("keydown", handleGlobalDraftsKeydown, true);
+});
+
+onBeforeUnmount(() => {
+	window.removeEventListener("keydown", handleGlobalDraftsKeydown, true);
+});
 
 defineExpose({
 	focusAdditionalDiscountField,

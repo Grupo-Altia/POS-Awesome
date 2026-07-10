@@ -648,10 +648,10 @@ const setDefaultKeyboardTarget = async () => {
 		return;
 	}
 	const preferred: HTMLElement | null =
+		targets.find((target) => target.getAttribute("role") === "tab" && target.textContent?.includes(activeTab.value === "details" ? __("Item Details") : __("Sales History"))) ||
 		(activeTab.value === "sales"
 			? targets.find((target) => target.dataset.itemHistoryKey === "history-row-0") || null
 			: null) ||
-		targets.find((target) => target.getAttribute("role") === "tab" && target.textContent?.includes(activeTab.value === "details" ? __("Item Details") : __("Sales History"))) ||
 		targets[0] ||
 		null;
 	setKeyboardTarget(preferred);

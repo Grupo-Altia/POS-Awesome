@@ -361,3 +361,22 @@ Verification:
 - `yarn playwright test --config=playwright.config.ts --list`
 - `yarn vitest run tests/invoiceShortcuts.spec.ts tests/keyboardNavigation.spec.ts tests/cartFieldFocus.spec.ts tests/cartItemRowKeyboard.spec.ts tests/itemHeader.spec.ts`
 - Local opt-in Playwright execution reached the login page and stopped with the expected setup error because no Playwright credentials/session were configured in this shell.
+
+## 2026-07-10 Credentialed Keyboard E2E Hardening
+
+Issues resolved:
+
+- Cart rows were hidden by an over-broad CSS rule targeting every `tr[data-testid]` in the cart table.
+- Product search `Enter` could throw when `displayedItems` was momentarily undefined during search reset.
+- Keyboard grid entry could land on Rate even when the POS Profile disallowed rate editing.
+- Item history modal opened with the bounding box on the first sales row, so `ArrowRight` + `Enter` opened invoice view instead of switching tabs.
+- Item Quick Edit had unreliable initial focus and Tab movement between the Name and Short Name fields.
+- Drafts drawer Escape behavior was not reliable when focus stayed outside the drawer after global shortcut open.
+- The Playwright harness now uses the local `/desk/posapp` route, retries through login when needed, records page error stacks, and targets the active drafts drawer/dialog instead of retained off-canvas content.
+
+Verification:
+
+- `yarn build`
+- `/Users/mac/anaconda3/bin/conda run -n frappe bench --site retailmind.local clear-cache`
+- `POSA_KEYBOARD_E2E=1 POSA_SMOKE_BASE_URL=http://127.0.0.1:8000 POSA_SMOKE_USER=aqib@ai.ai POSA_SMOKE_PASSWORD=alpha123 yarn playwright test --config=playwright.config.ts tests/e2e/pos-keyboard-accessibility.spec.ts --reporter=list`
+- Result: `6 passed (2.3m)`.

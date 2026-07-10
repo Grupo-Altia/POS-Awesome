@@ -608,9 +608,8 @@
 	display: none !important;
 }
 
-/* Hide empty measurement/calculation rows */
-.posa-cart-table tr[data-test-id],
-.posa-cart-table tr[data-testid],
+/* Hide empty measurement/calculation rows without hiding real cart rows. */
+.posa-cart-table tr[data-test-id]:not(.posa-cart-item-row),
 .posa-cart-table tr[class*="measurement"],
 .posa-cart-table tr[class*="placeholder"] {
 	display: none !important;

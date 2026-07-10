@@ -295,6 +295,7 @@
 						data-pos-keyboard-target="cart-rate"
 						role="button"
 						:aria-label="__('Edit rate')"
+						:aria-disabled="disableRateEdit ? 'true' : 'false'"
 						@keydown.enter.prevent="openRateEdit"
 						@keydown.space.prevent="openRateEdit"
 					>
