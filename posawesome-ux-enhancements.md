@@ -518,6 +518,29 @@ Verification:
 - `POSA_KEYBOARD_E2E=1 POSA_SMOKE_BASE_URL=http://127.0.0.1:8000 POSA_SMOKE_USER=aqib@ai.ai POSA_SMOKE_PASSWORD=alpha123 POSA_KEYBOARD_TEST_ITEMS=02017,02016,02249 yarn playwright test --config=playwright.config.ts tests/e2e/pos-keyboard-accessibility.spec.ts -g "product search down arrow stays in product results" --reporter=list`
 - Result: `1 passed (36.5s)`.
 
+## 2026-07-11 Cart Numeric Input Helper Suppression
+
+Issue resolved:
+
+- Cart quantity, rate, and discount editors still used native browser number inputs, which showed spinner controls and browser helper/autofill popovers over the POS grid.
+- Clicking into a populated numeric editor could leave the old value in place, making cashiers manually clear before typing.
+
+Implemented:
+
+- Cart numeric editors now use `type="text"` with `inputmode="decimal"` so numeric keyboards still work without native browser number spinners.
+- Quantity, rate, discount percent, and discount amount editors disable autocomplete, autocorrect, autocapitalize, and spellcheck.
+- POS app shell now suppresses browser input helpers for all POS inputs as they are rendered.
+- First printable key, Backspace, Delete, or paste after entering a numeric editor clears the prior value so the cashier's input overrides it.
+- Added focused regression tests for replacement behavior and helper-disabled field attributes.
+
+Verification:
+
+- `yarn test:unit tests/cartItemRowKeyboard.spec.ts tests/cartFieldFocus.spec.ts tests/invoiceShortcuts.spec.ts`
+- `yarn type-check`
+- `yarn build`
+- `/Users/mac/anaconda3/bin/conda run -n frappe bench --site retailmind.local clear-cache`
+- Browser verification with `arinac`: add item, click quantity, confirmed `type=text`, `inputmode=decimal`, helper attributes disabled, typing `2` replaces old `1` with `2`.
+
 ## 2026-07-11 Item Quick Edit Keyboard Bounding Box
 
 Issue resolved:

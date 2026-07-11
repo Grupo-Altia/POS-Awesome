@@ -13,7 +13,8 @@ const VTextFieldStub = defineComponent({
 		disabled: { type: Boolean, default: false },
 		type: { type: String, default: "text" },
 	},
-	setup(props, { attrs }) {
+	emits: ["update:modelValue", "keydown"],
+	setup(props, { attrs, emit }) {
 		const callAttr = (name: string, ...args: unknown[]) => {
 			const handler = attrs[name] as
 				| ((...handlerArgs: unknown[]) => void)
@@ -34,11 +35,13 @@ const VTextFieldStub = defineComponent({
 				disabled: props.disabled,
 				onInput: (event: Event) => {
 					const value = (event.target as HTMLInputElement).value;
+					emit("update:modelValue", value);
 					callAttr("onUpdate:modelValue", value);
 				},
 				onFocus: (event: FocusEvent) => callAttr("onFocus", event),
 				onBlur: (event: FocusEvent) => callAttr("onBlur", event),
 				onKeydown: (event: KeyboardEvent) => {
+					emit("keydown", event);
 					callAttr("onKeydown", event);
 				},
 			});
@@ -96,7 +99,7 @@ describe("CartItemRow keyboard editing", () => {
 		vi.stubGlobal("__", (value: string) => value);
 		const onQtyEditSubmitted = vi.fn();
 		const wrapper = mountRow({ qty: 1 }, { onQtyEditSubmitted });
-		const input = wrapper.get('input[type="number"]');
+		const input = wrapper.get('input[inputmode="decimal"]');
 
 		await input.trigger("focus");
 		await input.setValue("1");
@@ -109,7 +112,9 @@ describe("CartItemRow keyboard editing", () => {
 	it("keeps the existing quantity visible when the quantity input receives focus", async () => {
 		vi.stubGlobal("__", (value: string) => value);
 		const wrapper = mountRow({ qty: 2 });
-		const input = wrapper.get<HTMLInputElement>('input[type="number"]');
+		const input = wrapper.get<HTMLInputElement>(
+			'input[inputmode="decimal"]',
+		);
 
 		expect(input.element.value).toBe("2");
 		await input.trigger("focus");
@@ -130,7 +135,43 @@ describe("CartItemRow keyboard editing", () => {
 		await wrapper.vm.$nextTick();
 
 		expect(
-			wrapper.get<HTMLInputElement>('input[type="number"]').element.value,
+			wrapper.get<HTMLInputElement>('input[inputmode="decimal"]').element
+				.value,
 		).toBe("2");
+	});
+
+	it("replaces the existing quantity with the first typed value", async () => {
+		vi.stubGlobal("__", (value: string) => value);
+		const wrapper = mountRow({ qty: 2 });
+		const input = wrapper.get<HTMLInputElement>(
+			'input[inputmode="decimal"]',
+		);
+
+		await input.trigger("focus");
+		await input.trigger("keydown", { key: "5" });
+
+		expect(input.element.value).toBe("");
+	});
+
+	it("renders cart numeric editors without browser number widgets or autocomplete", async () => {
+		vi.stubGlobal("__", (value: string) => value);
+		const wrapper = mountRow(
+			{ discount_percentage: 2, discount_amount: 0, price_list_rate: 10 },
+			{ visibleColumns: [{ key: "discount_percentage" }] },
+		);
+
+		await wrapper
+			.get('[data-pos-keyboard-target="cart-discount-percent"]')
+			.trigger("click");
+		await wrapper.vm.$nextTick();
+
+		const input = wrapper.get<HTMLInputElement>(
+			'input[inputmode="decimal"]',
+		);
+		expect(input.attributes("type")).toBe("text");
+		expect(input.attributes("autocomplete")).toBe("off");
+		expect(input.attributes("autocorrect")).toBe("off");
+		expect(input.attributes("autocapitalize")).toBe("off");
+		expect(input.attributes("spellcheck")).toBe("false");
 	});
 });

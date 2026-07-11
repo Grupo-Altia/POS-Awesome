@@ -109,12 +109,18 @@
 						@update:model-value="handleQtyInputUpdate"
 						@focus="handleQtyFocus"
 						@blur="closeQtyEdit"
+						@keydown="handleQtyKeydown"
 						@keydown.enter.stop.prevent="submitQtyEdit"
 						@keydown.esc.stop.prevent="cancelQtyEdit"
+						@paste="handleQtyPaste"
 						@click.stop
 						ref="qtyInput"
-						type="number"
+						type="text"
 						inputmode="decimal"
+						autocomplete="off"
+						autocorrect="off"
+						autocapitalize="off"
+						:spellcheck="false"
 						:disabled="disableInput"
 					></v-text-field>
 				</div>
@@ -232,12 +238,19 @@
 						variant="outlined"
 						class="posa-cart-table__editor-input"
 						@blur="closeDiscountPercentEdit"
+						@keydown="handleDiscountPercentKeydown"
 						@keydown.enter.prevent="submitDiscountPercentEdit"
 						@keydown.esc.prevent="cancelDiscountPercentEdit"
+						@paste="handleDiscountPercentPaste"
 						@click.stop
 						ref="discountPercentInput"
 						:autofocus="true"
-						type="number"
+						type="text"
+						inputmode="decimal"
+						autocomplete="off"
+						autocorrect="off"
+						autocapitalize="off"
+						:spellcheck="false"
 						:disabled="disableDiscountEdit"
 					></v-text-field>
 				</div>
@@ -273,12 +286,19 @@
 						variant="outlined"
 						class="posa-cart-table__editor-input"
 						@blur="closeDiscountAmountEdit"
+						@keydown="handleDiscountAmountKeydown"
 						@keydown.enter.prevent="submitDiscountAmountEdit"
 						@keydown.esc.prevent="cancelDiscountAmountEdit"
+						@paste="handleDiscountAmountPaste"
 						@click.stop
 						ref="discountAmountInput"
 						:autofocus="true"
-						type="number"
+						type="text"
+						inputmode="decimal"
+						autocomplete="off"
+						autocorrect="off"
+						autocapitalize="off"
+						:spellcheck="false"
 						:disabled="disableDiscountEdit"
 					></v-text-field>
 				</div>
@@ -311,12 +331,19 @@
 						variant="outlined"
 						class="posa-cart-table__editor-input"
 						@blur="closeRateEdit"
+						@keydown="handleRateKeydown"
 						@keydown.enter.prevent="submitRateEdit"
 						@keydown.esc.prevent="cancelRateEdit"
+						@paste="handleRatePaste"
 						@click.stop
 						ref="rateInput"
 						:autofocus="true"
-						type="number"
+						type="text"
+						inputmode="decimal"
+						autocomplete="off"
+						autocorrect="off"
+						autocapitalize="off"
+						:spellcheck="false"
 						:disabled="disableRateEdit"
 					></v-text-field>
 				</div>
@@ -461,6 +488,10 @@ const isEditingDiscountPercent = ref(false);
 const editingDiscountPercentValue = ref("");
 const isEditingDiscountAmount = ref(false);
 const editingDiscountAmountValue = ref("");
+const replaceQtyOnNextInput = ref(false);
+const replaceRateOnNextInput = ref(false);
+const replaceDiscountPercentOnNextInput = ref(false);
+const replaceDiscountAmountOnNextInput = ref(false);
 
 const qtyInput = ref(null);
 const rateInput = ref(null);
@@ -563,6 +594,41 @@ const focusAndSelectTextField = (fieldRef) => {
 	});
 };
 
+const shouldReplaceEditorValueForKey = (event) => {
+	if (!event || event.altKey || event.ctrlKey || event.metaKey) {
+		return false;
+	}
+	const key = event.key || "";
+	return key.length === 1 || key === "Backspace" || key === "Delete";
+};
+
+const clearEditorForReplacement = (event, valueRef, replaceFlagRef) => {
+	if (!replaceFlagRef.value || !shouldReplaceEditorValueForKey(event)) {
+		return;
+	}
+	replaceFlagRef.value = false;
+	valueRef.value = "";
+	const target = event.target;
+	if (target && typeof target.value !== "undefined") {
+		target.value = "";
+	}
+	if (event.key === "Backspace" || event.key === "Delete") {
+		event.preventDefault?.();
+	}
+};
+
+const clearEditorForPasteReplacement = (event, valueRef, replaceFlagRef) => {
+	if (!replaceFlagRef.value) {
+		return;
+	}
+	replaceFlagRef.value = false;
+	valueRef.value = "";
+	const target = event?.target;
+	if (target && typeof target.value !== "undefined") {
+		target.value = "";
+	}
+};
+
 const formatQtyInputValue = () => {
 	const qty = Number(props.item.qty ?? 0);
 	if (!Number.isFinite(qty)) {
@@ -587,6 +653,7 @@ watch(
 function focusQtyInput() {
 	if (disableInput.value) return;
 	editingQtyValue.value = formatQtyInputValue();
+	replaceQtyOnNextInput.value = true;
 	nextTick(() => {
 		const target = getQtyInputElement();
 		target?.focus?.();
@@ -596,13 +663,23 @@ function focusQtyInput() {
 
 function handleQtyFocus() {
 	isEditingQty.value = true;
+	replaceQtyOnNextInput.value = true;
 	if (editingQtyValue.value === "" || editingQtyValue.value == null) {
 		editingQtyValue.value = formatQtyInputValue();
 	}
+	nextTick(() => getQtyInputElement()?.select?.());
 }
 
 function handleQtyInputUpdate(value) {
 	editingQtyValue.value = value ?? "";
+}
+
+function handleQtyKeydown(event) {
+	clearEditorForReplacement(event, editingQtyValue, replaceQtyOnNextInput);
+}
+
+function handleQtyPaste(event) {
+	clearEditorForPasteReplacement(event, editingQtyValue, replaceQtyOnNextInput);
 }
 
 function openUomEdit() {
@@ -616,6 +693,7 @@ function openUomEdit() {
 
 function closeQtyEdit() {
 	if (isEditingQty.value) {
+		replaceQtyOnNextInput.value = false;
 		if (editingQtyValue.value !== "" && editingQtyValue.value != null) {
 			const newQty = parseFloat(editingQtyValue.value);
 			// Emit event to update parent state
@@ -638,6 +716,7 @@ function submitQtyEdit() {
 
 function cancelQtyEdit() {
 	isEditingQty.value = false;
+	replaceQtyOnNextInput.value = false;
 	editingQtyValue.value = formatQtyInputValue();
 	getQtyInputElement()?.blur?.();
 }
@@ -672,12 +751,14 @@ function handleUomSelect(newUom) {
 function openRateEdit() {
 	if (disableRateEdit.value) return;
 	isEditingRate.value = true;
+	replaceRateOnNextInput.value = true;
 	editingRateValue.value = String(Number(props.item.rate ?? 0));
 	focusAndSelectTextField(rateInput);
 }
 
 function closeRateEdit() {
 	if (isEditingRate.value) {
+		replaceRateOnNextInput.value = false;
 		if (editingRateValue.value !== "" && editingRateValue.value != null) {
 			const newRate = parseFloat(editingRateValue.value);
 			if (Number.isFinite(newRate) && newRate !== props.item.rate) {
@@ -699,12 +780,22 @@ function submitRateEdit() {
 
 function cancelRateEdit() {
 	isEditingRate.value = false;
+	replaceRateOnNextInput.value = false;
 	editingRateValue.value = String(Number(props.item.rate ?? 0));
+}
+
+function handleRateKeydown(event) {
+	clearEditorForReplacement(event, editingRateValue, replaceRateOnNextInput);
+}
+
+function handleRatePaste(event) {
+	clearEditorForPasteReplacement(event, editingRateValue, replaceRateOnNextInput);
 }
 
 function openDiscountPercentEdit() {
 	if (disableDiscountEdit.value) return;
 	isEditingDiscountPercent.value = true;
+	replaceDiscountPercentOnNextInput.value = true;
 	editingDiscountPercentValue.value = String(
 		Number(
 			props.item.discount_percentage ||
@@ -718,6 +809,7 @@ function openDiscountPercentEdit() {
 
 function closeDiscountPercentEdit() {
 	if (isEditingDiscountPercent.value) {
+		replaceDiscountPercentOnNextInput.value = false;
 		if (editingDiscountPercentValue.value !== "" && editingDiscountPercentValue.value != null) {
 			const newDiscount = parseFloat(editingDiscountPercentValue.value);
 			if (Number.isFinite(newDiscount) && newDiscount !== props.item.discount_percentage) {
@@ -736,18 +828,29 @@ function submitDiscountPercentEdit() {
 
 function cancelDiscountPercentEdit() {
 	isEditingDiscountPercent.value = false;
+	replaceDiscountPercentOnNextInput.value = false;
 	editingDiscountPercentValue.value = String(Number(props.item.discount_percentage || 0));
+}
+
+function handleDiscountPercentKeydown(event) {
+	clearEditorForReplacement(event, editingDiscountPercentValue, replaceDiscountPercentOnNextInput);
+}
+
+function handleDiscountPercentPaste(event) {
+	clearEditorForPasteReplacement(event, editingDiscountPercentValue, replaceDiscountPercentOnNextInput);
 }
 
 function openDiscountAmountEdit() {
 	if (disableDiscountEdit.value) return;
 	isEditingDiscountAmount.value = true;
+	replaceDiscountAmountOnNextInput.value = true;
 	editingDiscountAmountValue.value = String(Number(props.item.discount_amount || 0));
 	focusAndSelectTextField(discountAmountInput);
 }
 
 function closeDiscountAmountEdit() {
 	if (isEditingDiscountAmount.value) {
+		replaceDiscountAmountOnNextInput.value = false;
 		if (editingDiscountAmountValue.value !== "" && editingDiscountAmountValue.value != null) {
 			const newDiscount = parseFloat(editingDiscountAmountValue.value);
 			if (Number.isFinite(newDiscount) && newDiscount !== props.item.discount_amount) {
@@ -766,7 +869,16 @@ function submitDiscountAmountEdit() {
 
 function cancelDiscountAmountEdit() {
 	isEditingDiscountAmount.value = false;
+	replaceDiscountAmountOnNextInput.value = false;
 	editingDiscountAmountValue.value = String(Number(props.item.discount_amount || 0));
+}
+
+function handleDiscountAmountKeydown(event) {
+	clearEditorForReplacement(event, editingDiscountAmountValue, replaceDiscountAmountOnNextInput);
+}
+
+function handleDiscountAmountPaste(event) {
+	clearEditorForPasteReplacement(event, editingDiscountAmountValue, replaceDiscountAmountOnNextInput);
 }
 </script>
 
