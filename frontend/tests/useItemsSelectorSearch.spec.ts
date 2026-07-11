@@ -32,7 +32,9 @@ describe("useItemsSelectorSearch", () => {
 					item_code: "ITEM-001",
 					item_name: "Item 001",
 					stock_uom: "Nos",
-					item_barcode: [{ barcode: "BOX-001", uom: "Box", posa_uom: "Nos" }],
+					item_barcode: [
+						{ barcode: "BOX-001", uom: "Box", posa_uom: "Nos" },
+					],
 				},
 			],
 			flags: {},
@@ -110,7 +112,7 @@ describe("useItemsSelectorSearch", () => {
 		expect(vm.search).toBe("");
 	});
 
-	it("prioritizes search over highlighted selection when enter is pressed in limit search mode", async () => {
+	it("selects the highlighted item when enter is pressed in limit search mode", async () => {
 		const searchItems = vi.fn().mockResolvedValue([]);
 		const selectHighlightedItem = vi.fn();
 		const preventDefault = vi.fn();
@@ -140,8 +142,8 @@ describe("useItemsSelectorSearch", () => {
 		await Promise.resolve();
 
 		expect(preventDefault).toHaveBeenCalled();
-		expect(searchItems).toHaveBeenCalledWith("abcd");
-		expect(selectHighlightedItem).not.toHaveBeenCalled();
+		expect(searchItems).not.toHaveBeenCalled();
+		expect(selectHighlightedItem).toHaveBeenCalledTimes(1);
 	});
 
 	it("selects the highlighted item when enter is pressed with a highlighted ref index", () => {

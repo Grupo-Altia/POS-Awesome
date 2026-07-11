@@ -472,6 +472,12 @@ test.describe.serial("POS keyboard accessibility E2E", () => {
 
 		await expect(search).toBeFocused();
 		await expectNoActiveInvoiceGrid(page);
+		await page.keyboard.press("Enter");
+		await expect(
+			page.getByTestId(`cart-row-${items[1].item_code}`).first(),
+		).toBeVisible({
+			timeout: 30000,
+		});
 	});
 
 	test("operator can add items and edit invoice grid fully from keyboard", async ({

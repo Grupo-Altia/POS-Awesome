@@ -405,3 +405,23 @@ Verification:
 - Result: `1 passed (54.9s)`.
 - `POSA_KEYBOARD_E2E=1 POSA_SMOKE_BASE_URL=http://127.0.0.1:8000 POSA_SMOKE_USER=aqib@ai.ai POSA_SMOKE_PASSWORD=alpha123 yarn playwright test --config=playwright.config.ts tests/e2e/pos-keyboard-accessibility.spec.ts --reporter=list`
 - Result: `6 passed (3.0m)`.
+
+## 2026-07-11 Product Search Enter Selection Fix
+
+Issue resolved:
+
+- When a cashier searched products, used `ArrowDown` to highlight a result, and pressed `Enter`, the highlighted product was not added if the POS search path was in limit-search mode. Mouse click still worked because it used the row click path directly.
+
+Implemented:
+
+- Product search `Enter` now selects the currently highlighted result before falling back to running another search.
+- Added unit coverage for highlighted-result `Enter` selection in limit-search mode.
+- Extended the real-browser keyboard test to press `Enter` after `ArrowDown` and expect the selected product to appear in the invoice item table.
+
+Verification:
+
+- `yarn test:unit tests/useItemsSelectorSearch.spec.ts`
+- `yarn type-check`
+- `yarn build`
+- `/Users/mac/anaconda3/bin/conda run -n frappe bench --site retailmind.local clear-cache`
+- Attempted focused Playwright run for the product search keyboard scenario; the local test browser failed before the new assertion because the POS item index returned `No items found` for the fixture item `A3106`.
