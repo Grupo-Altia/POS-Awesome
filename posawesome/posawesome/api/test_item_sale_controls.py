@@ -15,6 +15,7 @@ class FakeMeta:
             "retailmind_non_discountable",
             "retailmind_controlled_item",
             "retailmind_short_name",
+            "buying_price_list",
         }
 
 
@@ -24,6 +25,11 @@ def _install_frappe_stub():
     frappe_module.throw = lambda message: (_ for _ in ()).throw(Exception(message))
     frappe_module.get_meta = lambda doctype: FakeMeta()
     frappe_module.get_all = lambda *args, **kwargs: []
+    frappe_module.db = types.SimpleNamespace(
+        get_value=lambda *args, **kwargs: None,
+        get_single_value=lambda *args, **kwargs: None,
+        exists=lambda *args, **kwargs: False,
+    )
     sys.modules["frappe"] = frappe_module
 
     frappe_utils = types.ModuleType("frappe.utils")
@@ -104,6 +110,38 @@ class TestItemSaleControls(unittest.TestCase):
         )
 
         self.assertEqual(errors, [])
+
+    def test_below_trade_price_blocks_sale(self):
+        errors = self.controls.collect_below_buying_price_errors(
+            [
+                {
+                    "item_code": "LOW",
+                    "item_name": "Below Cost",
+                    "qty": 1,
+                    "rate": 10,
+                    "trade_price": 12.75,
+                }
+            ]
+        )
+
+        self.assertEqual(errors[0]["reason"], "below_buying_price")
+        self.assertEqual(errors[0]["policy"], "block")
+
+    def test_buying_price_sale_control_queries_price_list_when_row_has_no_trade_price(self):
+        self.frappe.db.get_single_value = lambda *args, **kwargs: "Standard Buying"
+        self.frappe.get_all = lambda *args, **kwargs: [
+            {
+                "item_code": "LOW",
+                "price_list_rate": 12.75,
+                "uom": "Nos",
+            }
+        ]
+
+        errors = self.controls.collect_below_buying_price_errors(
+            [{"item_code": "LOW", "item_name": "Below Cost", "qty": 1, "rate": 10}]
+        )
+
+        self.assertEqual(errors[0]["reason"], "below_buying_price")
 
 
 if __name__ == "__main__":

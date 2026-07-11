@@ -6,7 +6,7 @@ const POS_PROFILE =
 	process.env.POSA_KEYBOARD_POS_PROFILE || "POS Awesome - MedPlus";
 const TEST_ITEM_CODES = (
 	process.env.POSA_KEYBOARD_TEST_ITEMS ||
-	"A3106,22203,AI167,AH076,CR044,IK154"
+	"02017,02016,02249,A3106,22203,AI167,AH076,CR044,IK154"
 )
 	.split(",")
 	.map((value) => value.trim())
@@ -17,6 +17,10 @@ type TestItem = {
 	item_name: string;
 	stock: number;
 	rate: number;
+};
+
+type LossGuardItem = TestItem & {
+	buyingRate: number;
 };
 
 test.skip(
@@ -137,6 +141,9 @@ async function waitForPosReady(page: Page) {
 	).toBeVisible({
 		timeout: 90000,
 	});
+	await expect(page.locator(".loading-overlay")).toHaveCount(0, {
+		timeout: 90000,
+	});
 }
 
 function captureUnexpectedErrors(page: Page) {
@@ -145,6 +152,7 @@ function captureUnexpectedErrors(page: Page) {
 		const normalized = message.toLowerCase();
 		return (
 			normalized.includes("remove_last_divider") ||
+			normalized.includes("request was cancelled") ||
 			(normalized.includes("offsetwidth") &&
 				normalized.includes("shortcut.js")) ||
 			(normalized.includes("failed to load resource") &&
@@ -226,6 +234,33 @@ async function getPositiveStockItems(page: Page): Promise<TestItem[]> {
 	);
 }
 
+async function getLossGuardItem(page: Page): Promise<LossGuardItem | null> {
+	const candidates = await getPositiveStockItems(page);
+	for (const item of candidates) {
+		const buyingRows = await callFrappe<Array<{ price_list_rate: number }>>(
+			page,
+			"frappe.client.get_list",
+			{
+				doctype: "Item Price",
+				filters: { item_code: item.item_code, buying: 1 },
+				fields: ["price_list_rate", "modified"],
+				order_by: "modified desc",
+				limit_page_length: 5,
+			},
+		);
+		const buyingRate = Math.max(
+			0,
+			...(buyingRows || []).map((row) =>
+				Number(row.price_list_rate || 0),
+			),
+		);
+		if (buyingRate > 0 && item.rate > buyingRate) {
+			return { ...item, buyingRate };
+		}
+	}
+	return null;
+}
+
 async function searchAndAddItem(page: Page, item: TestItem) {
 	const search = page.getByTestId("pos-item-search").locator("input");
 	await search.click();
@@ -271,6 +306,35 @@ async function searchAndAddItem(page: Page, item: TestItem) {
 	});
 }
 
+async function keyboardSearchAndAddItem(page: Page, item: TestItem) {
+	await expect(page.locator(".loading-overlay")).toHaveCount(0, {
+		timeout: 90000,
+	});
+	const search = page.getByTestId("pos-item-search").locator("input");
+	const itemRow = page.getByTestId(`pos-item-row-${item.item_code}`).first();
+	const queries = [
+		item.item_code,
+		item.item_name,
+		item.item_name?.split(/\s+/)[0],
+	].filter(Boolean);
+
+	for (const query of queries) {
+		await search.focus();
+		await search.fill(String(query));
+		await page.keyboard.press("Enter");
+		if (await itemRow.isVisible({ timeout: 8000 }).catch(() => false)) {
+			await page.keyboard.press("ArrowDown");
+			await page.keyboard.press("Enter");
+			await expect(
+				page.getByTestId(`cart-row-${item.item_code}`).first(),
+			).toBeVisible({ timeout: 30000 });
+			return;
+		}
+	}
+
+	throw new Error(`POS keyboard search did not show ${item.item_code}`);
+}
+
 async function enterInvoiceGrid(page: Page) {
 	await page.keyboard.press("Alt+ArrowRight");
 	await expect(
@@ -282,6 +346,23 @@ async function enterInvoiceGrid(page: Page) {
 
 async function activeCartCell(page: Page) {
 	return page.locator(".posa-cart-item-cell--keyboard-active").first();
+}
+
+async function moveActiveCartCellToColumn(page: Page, columnKey: string) {
+	for (let attempt = 0; attempt < 12; attempt += 1) {
+		const cell = await activeCartCell(page);
+		if (
+			(await cell.getAttribute("data-column-key").catch(() => null)) ===
+			columnKey
+		) {
+			return;
+		}
+		await page.keyboard.press("ArrowRight");
+	}
+	await expect(await activeCartCell(page)).toHaveAttribute(
+		"data-column-key",
+		columnKey,
+	);
 }
 
 async function setActiveNumericCell(page: Page, value: string) {
@@ -529,6 +610,73 @@ test.describe.serial("POS keyboard accessibility E2E", () => {
 		await expect(page.getByTestId("item-history-modal")).toBeHidden({
 			timeout: 15000,
 		});
+	});
+
+	test("below buying price sale turns row red and blocks keyboard submit", async ({
+		page,
+	}) => {
+		const item = await getLossGuardItem(page);
+		expect(
+			item,
+			`Need one positive-stock item with a buying Item Price below selling rate from ${TEST_ITEM_CODES.join(", ")}`,
+		).not.toBeNull();
+		const lossItem = item!;
+
+		await page.evaluate(() => {
+			localStorage.setItem(
+				"posawesome_selected_columns",
+				JSON.stringify(["price_list_rate", "discount_percentage"]),
+			);
+		});
+		await waitForPosReady(page);
+		await keyboardSearchAndAddItem(page, lossItem);
+
+		const lossDiscountPercent = Math.min(
+			95,
+			Math.ceil((1 - lossItem.buyingRate / lossItem.rate) * 100) + 2,
+		);
+		await enterInvoiceGrid(page);
+		await page.keyboard.press("ArrowRight");
+		await moveActiveCartCellToColumn(page, "discount_percentage");
+		await page.keyboard.press("Enter");
+		const discountInput = (await activeCartCell(page))
+			.locator("input")
+			.first();
+		await expect(discountInput).toBeFocused({ timeout: 10000 });
+		await page.keyboard.press("Control+A");
+		await page.keyboard.type(String(lossDiscountPercent));
+		await page.keyboard.press("Enter");
+
+		const cartRow = page
+			.getByTestId(`cart-row-${lossItem.item_code}`)
+			.first();
+		await expect(cartRow).toHaveClass(/posa-cart-item-row--loss-risk/, {
+			timeout: 15000,
+		});
+
+		await page.keyboard.press("Alt+X");
+		await expect(
+			page.locator(".v-dialog").filter({ hasText: /Open Payments/i }),
+		).toBeVisible({ timeout: 15000 });
+		await page.keyboard.press("Enter");
+		await expect(page.getByTestId("payment-root")).toBeVisible({
+			timeout: 30000,
+		});
+		await expect
+			.poll(
+				() =>
+					capturedErrors.some((message) =>
+						/below buying\/trade price/i.test(message),
+					),
+				{ timeout: 30000 },
+			)
+			.toBe(true);
+		capturedErrors = capturedErrors.filter(
+			(message) =>
+				!/below buying\/trade price|status of 417|EXPECTATION FAILED|Network request failed|Error submitting invoice|Submission failed propagate/i.test(
+					message,
+				),
+		);
 	});
 
 	test("item quick edit opens from selected cart row and is keyboard reachable", async ({

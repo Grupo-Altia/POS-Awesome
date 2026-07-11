@@ -174,4 +174,14 @@ describe("CartItemRow keyboard editing", () => {
 		expect(input.attributes("autocapitalize")).toBe("off");
 		expect(input.attributes("spellcheck")).toBe("false");
 	});
+
+	it("marks the row when the effective rate is below trade price", () => {
+		vi.stubGlobal("__", (value: string) => value);
+		const wrapper = mountRow({
+			rate: 10,
+			trade_price: 12.75,
+		});
+
+		expect(wrapper.classes()).toContain("posa-cart-item-row--loss-risk");
+	});
 });

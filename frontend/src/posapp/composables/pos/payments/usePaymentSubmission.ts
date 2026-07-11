@@ -12,6 +12,7 @@ import { parseBooleanSetting } from "../../../utils/stock";
 import { resolvePosDocumentDoctype } from "../../../utils/posDocumentMode";
 import { toCompanyCurrency } from "../../../utils/erpnextCurrency";
 import { shouldApplyReturnRefundCap } from "../../../utils/paymentInitialization";
+import { findLossRiskItems } from "../../../utils/lossPrevention";
 
 declare const frappe: any;
 declare const __: (_str: string, _args?: any[]) => string;
@@ -139,7 +140,11 @@ export function usePaymentSubmission(options: PaymentSubmissionOptions) {
 		return true;
 	};
 
-	const validateStockBeforeOnlineSubmission = async (doc: any, profile: any, type: string) => {
+	const validateStockBeforeOnlineSubmission = async (
+		doc: any,
+		profile: any,
+		type: string,
+	) => {
 		if (!shouldValidateStockForSubmission(doc, type)) {
 			return;
 		}
@@ -392,7 +397,9 @@ export function usePaymentSubmission(options: PaymentSubmissionOptions) {
 			return { amount: 0, points: 0 };
 		}
 
-		const existingPoints = Math.trunc(formatFloat(doc?.loyalty_points || 0, prec));
+		const existingPoints = Math.trunc(
+			formatFloat(doc?.loyalty_points || 0, prec),
+		);
 		const explicitAmountMatchesDoc =
 			Math.abs(requestedAmount - docAmount) < 1 / 10 ** prec;
 		if (
@@ -408,7 +415,10 @@ export function usePaymentSubmission(options: PaymentSubmissionOptions) {
 			return { amount: 0, points: 0 };
 		}
 
-		const baseAmount = toCompanyCurrency(currencyContext(doc), loyaltyAmount);
+		const baseAmount = toCompanyCurrency(
+			currencyContext(doc),
+			loyaltyAmount,
+		);
 		const loyaltyPoints = Math.trunc(baseAmount / conversionFactor);
 		if (loyaltyPoints <= 0) {
 			return { amount: 0, points: 0 };
@@ -432,6 +442,31 @@ export function usePaymentSubmission(options: PaymentSubmissionOptions) {
 		const diff = unref(diff_payment) || 0;
 		const writeOffAmount = getEffectiveWriteOffAmount(doc, profile, diff);
 
+		const storeItemsSource = stores?.invoiceStore?.items;
+		const liveCartItems = Array.isArray(storeItemsSource)
+			? storeItemsSource
+			: Array.isArray(storeItemsSource?.value)
+				? storeItemsSource.value
+				: [];
+		const docLossRiskItems = findLossRiskItems(doc?.items || []);
+		const lossRiskItems = docLossRiskItems.length
+			? docLossRiskItems
+			: findLossRiskItems(liveCartItems);
+		if (lossRiskItems.length) {
+			const first = lossRiskItems[0]!;
+			throw new Error(
+				__(
+					"Cannot submit invoice because {0} is selling at {1}, below {2} {3}.",
+					[
+						first.itemName || first.itemCode,
+						formatFloat(first.sellingRate, prec),
+						first.costLabel,
+						formatFloat(first.costRate, prec),
+					],
+				),
+			);
+		}
+
 		// 1. Ensure return payments are negative
 		if (doc.is_return) {
 			ensureReturnPaymentsAreNegative();
@@ -445,7 +480,10 @@ export function usePaymentSubmission(options: PaymentSubmissionOptions) {
 				(doc.payments || []).forEach((p: any) => {
 					refund += Math.abs(formatFloat(p.amount, prec));
 				});
-				const refundable = formatFloat(doc.posa_refundable_amount, prec);
+				const refundable = formatFloat(
+					doc.posa_refundable_amount,
+					prec,
+				);
 				if (refund > refundable + 0.001) {
 					throw new Error(
 						__(
@@ -1085,10 +1123,16 @@ export function usePaymentSubmission(options: PaymentSubmissionOptions) {
 				});
 				const submittedTitle =
 					submittedDocumentType === "Sales Order"
-						? __("Sales Order {0} is Submitted", [responseInvoiceName])
+						? __("Sales Order {0} is Submitted", [
+								responseInvoiceName,
+							])
 						: submittedDocumentType === "Quotation"
-							? __("Quotation {0} is Submitted", [responseInvoiceName])
-							: __("Invoice {0} is Submitted", [responseInvoiceName]);
+							? __("Quotation {0} is Submitted", [
+									responseInvoiceName,
+								])
+							: __("Invoice {0} is Submitted", [
+									responseInvoiceName,
+								]);
 				stores?.toastStore?.show(
 					hasPostSubmitPaymentWork
 						? {

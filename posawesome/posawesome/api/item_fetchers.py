@@ -89,6 +89,7 @@ def _fetch_item_prices(
     query = """
         SELECT
             item_code,
+            price_list,
             price_list_rate,
             currency,
             uom,
@@ -96,6 +97,7 @@ def _fetch_item_prices(
         FROM (
             SELECT
                 item_code,
+                price_list,
                 price_list_rate,
                 currency,
                 uom,
@@ -179,6 +181,7 @@ def _fetch_item_meta(item_codes: Tuple[str, ...]):
         "allow_negative_stock",
         "purchase_uom",
         "standard_rate",
+        "last_purchase_rate",
     ]
     if frappe.db.has_column("Item", "default_bom"):
         fields.append("default_bom")
@@ -470,6 +473,7 @@ def get_bom_costs(meta_rows: Sequence[frappe._dict], ttl: Optional[int] = None):
 @dataclass(frozen=True)
 class ItemLookupData:
     price_map: Dict[str, Dict[str, frappe._dict]]
+    buying_price_map: Dict[str, Dict[str, frappe._dict]]
     stock_map: Dict[str, float]
     meta_map: Dict[str, frappe._dict]
     uom_map: Dict[str, List[Dict[str, Any]]]
@@ -528,6 +532,9 @@ def merge_item_row(
     price_row = _select_price(
         lookup_data.price_map.get(item_code, {}), item.get("uom"), meta.get("stock_uom")
     )
+    buying_price_row = _select_price(
+        lookup_data.buying_price_map.get(item_code, {}), item.get("uom"), meta.get("stock_uom")
+    )
     price_currency = price_row.get("currency") if price_row else None
 
     batch_rows = lookup_data.batch_map.get(item_code, [])
@@ -547,6 +554,10 @@ def merge_item_row(
             "purchase_uom": meta.get("purchase_uom"),
             "standard_rate": meta.get("standard_rate"),
             "valuation_rate": meta.get("valuation_rate"),
+            "last_purchase_rate": meta.get("last_purchase_rate"),
+            "trade_price": buying_price_row.get("price_list_rate") if buying_price_row else None,
+            "buying_rate": buying_price_row.get("price_list_rate") if buying_price_row else None,
+            "buying_price_list": buying_price_row.get("price_list") if buying_price_row else None,
             "default_bom": meta.get("default_bom"),
             "batch_no_data": batch_rows,
             "serial_no_data": lookup_data.serial_map.get(item_code, []),
@@ -592,7 +603,7 @@ class ItemDetailAggregator:
         self.cache_ttl = self._resolve_ttl()
         self.today = nowdate()
         self.warehouse = pos_profile.get("warehouse")
-        self.price_list_currency = self._determine_price_list_currency()
+        self.price_list_currency = self._determine_price_list_currency(self.price_list)
         self.exchange_rate = self._compute_exchange_rate()
 
     def _resolve_ttl(self) -> Optional[int]:
@@ -606,13 +617,25 @@ class ItemDetailAggregator:
         except Exception:
             return None
 
-    def _determine_price_list_currency(self) -> Optional[str]:
+    def _determine_price_list_currency(self, price_list: Optional[str]) -> Optional[str]:
         """Resolve the currency backing the active selling price list."""
 
-        if not self.price_list:
+        if not price_list:
             return self.pos_profile.get("currency")
-        return frappe.db.get_value("Price List", self.price_list, "currency") or self.pos_profile.get(
+        return frappe.db.get_value("Price List", price_list, "currency") or self.pos_profile.get(
             "currency"
+        )
+
+    def _resolve_buying_price_list(self) -> Optional[str]:
+        """Resolve the buying/trade price list used as POS loss floor."""
+
+        profile_buying = self.pos_profile.get("buying_price_list")
+        if profile_buying:
+            return profile_buying
+        return (
+            frappe.db.get_single_value("Buying Settings", "buying_price_list")
+            or frappe.db.get_value("Price List", {"buying": 1}, "name")
+            or ("Standard Buying" if frappe.db.exists("Price List", "Standard Buying") else None)
         )
 
     def _compute_exchange_rate(self) -> float:
@@ -643,7 +666,7 @@ class ItemDetailAggregator:
 
         item_codes_tuple = _normalize_codes(item_codes)
         if not item_codes_tuple:
-            return ItemLookupData({}, {}, {}, {}, {}, {}, {}, {})
+            return ItemLookupData({}, {}, {}, {}, {}, {}, {}, {}, {})
 
         use_cache = bool(self.pos_profile.get("posa_use_server_cache"))
 
@@ -664,6 +687,28 @@ class ItemDetailAggregator:
                     self.price_list_currency or self.pos_profile.get("currency"),
                     item_codes_tuple,
                     self.customer or "",
+                    self.today,
+                )
+
+        buying_price_list = self._resolve_buying_price_list()
+        buying_price_currency = self._determine_price_list_currency(buying_price_list)
+        buying_price_rows = []
+        if buying_price_list:
+            if use_cache:
+                buying_price_rows = get_item_prices(
+                    buying_price_list,
+                    buying_price_currency or self.pos_profile.get("currency"),
+                    item_codes_tuple,
+                    None,
+                    today=self.today,
+                    ttl=self.cache_ttl,
+                )
+            else:
+                buying_price_rows = _fetch_item_prices(
+                    buying_price_list,
+                    buying_price_currency or self.pos_profile.get("currency"),
+                    item_codes_tuple,
+                    "",
                     self.today,
                 )
 
@@ -701,6 +746,10 @@ class ItemDetailAggregator:
         price_map: Dict[str, Dict[str, frappe._dict]] = {}
         for row in price_rows:
             price_map.setdefault(row.item_code, {})[row.get("uom") or "None"] = row
+
+        buying_price_map: Dict[str, Dict[str, frappe._dict]] = {}
+        for row in buying_price_rows:
+            buying_price_map.setdefault(row.item_code, {})[row.get("uom") or "None"] = row
 
         stock_map = {row.item_code: row.actual_qty for row in stock_rows}
         meta_map = {row.name: row for row in meta_rows}
@@ -743,6 +792,7 @@ class ItemDetailAggregator:
 
         return ItemLookupData(
             price_map=price_map,
+            buying_price_map=buying_price_map,
             stock_map=stock_map,
             meta_map=meta_map,
             uom_map=uom_map,

@@ -76,6 +76,41 @@ describe("usePaymentSubmission", () => {
 		]);
 	});
 
+	it("blocks submission validation when a sale row is below trade price", async () => {
+		const invoiceDoc = ref<any>({
+			is_return: 0,
+			items: [
+				{
+					item_code: "02017",
+					item_name: "ARINAC FORT",
+					qty: 1,
+					rate: 10,
+					trade_price: 12.75,
+				},
+			],
+			payments: [{ mode_of_payment: "Cash", amount: 10, type: "Cash" }],
+			rounded_total: 10,
+			grand_total: 10,
+		});
+
+		const { validateSubmission } = usePaymentSubmission({
+			invoiceDoc,
+			posProfile: ref({ posa_allow_partial_payment: 0 }),
+			stockSettings: ref({}),
+			invoiceType: ref("Invoice"),
+			formatFloat: (value) => Number(value || 0),
+			stores: {
+				toastStore: { show: vi.fn() },
+			},
+			diff_payment: ref(0) as any,
+			isCashback: ref(true),
+		});
+
+		await expect(validateSubmission(true)).rejects.toThrow(
+			/below Trade Price/i,
+		);
+	});
+
 	it("defers print and schedules background wait when invoice submission is queued", async () => {
 		const invoiceService = (
 			await import("../src/posapp/services/invoiceService")

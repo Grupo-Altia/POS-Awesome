@@ -506,6 +506,33 @@ Implemented:
 - Invoice-grid arrow entry now explicitly ignores events originating from the item search field.
 - Virtual table row metadata now resolves Vuetify row wrappers before attaching `data-item-code`, `aria-selected`, and row highlight state.
 - Added regression coverage to ensure invoice shortcuts do not steal arrows from item search and row metadata is generated for virtual table wrapper items.
+
+## 2026-07-11 Below Buying Price Loss Guard
+
+Issue:
+
+- Cashiers could apply a line discount that made the effective selling rate lower than the buying/trade price.
+- The POS had no immediate visual warning and no submit-time block for this loss-making sale scenario.
+
+Implemented:
+
+- POS item search rows now carry `trade_price`/`buying_rate` from the active buying price list, matching the Item Quick Edit trade-price source.
+- Cart rows turn red as soon as the effective row rate falls below trade price/buying rate.
+- Payment validation blocks submission before offline save or online server submit when any sale row is below the buying floor.
+- POSAwesome backend item sale controls now also block below-buying-price submissions, so stale clients/direct POSAwesome submits cannot bypass the rule.
+- Added unit tests for the shared loss calculation, cart row red state, payment validation block, backend sale control, and a Playwright keyboard-flow scenario.
+
+Verification:
+
+- `yarn --cwd frontend test:unit tests/lossPrevention.spec.ts tests/cartItemRowKeyboard.spec.ts tests/usePaymentSubmission.spec.ts`
+- `yarn --cwd frontend type-check`
+- `yarn --cwd frontend build`
+- `PYTHONPATH=/Users/mac/frappe-bench/apps/frappe:/Users/mac/frappe-bench/apps/erpnext:/Users/mac/frappe-bench/apps/posawesome /Users/mac/anaconda3/bin/conda run -n frappe python -m unittest posawesome.posawesome.api.test_item_sale_controls`
+- `PYTHONPATH=/Users/mac/frappe-bench/apps/frappe:/Users/mac/frappe-bench/apps/erpnext:/Users/mac/frappe-bench/apps/posawesome /Users/mac/anaconda3/bin/conda run -n frappe python -m py_compile posawesome/posawesome/api/item_fetchers.py posawesome/posawesome/api/item_sale_controls.py`
+- `PYTHONPATH=/Users/mac/frappe-bench/apps/frappe:/Users/mac/frappe-bench/apps/erpnext:/Users/mac/frappe-bench/apps/posawesome /Users/mac/anaconda3/bin/conda run -n frappe bench --site retailmind.local clear-cache`
+- `POSA_KEYBOARD_E2E=1 POSA_SMOKE_BASE_URL=http://127.0.0.1:8000 POSA_SMOKE_USER=aqib@ai.ai POSA_SMOKE_PASSWORD=alpha123 POSA_KEYBOARD_TEST_ITEMS=02017,02016,02249 yarn --cwd frontend playwright test --config=playwright.config.ts tests/e2e/pos-keyboard-accessibility.spec.ts -g "below buying price sale turns row red and blocks keyboard submit" --reporter=list`
+- Result: targeted Playwright scenario passed; backend guard blocked `ARINAC FORT TAB 100"S` at rate `12.3` below buying/trade price `12.75`.
+
 - Updated the Playwright helper to press `Enter` after filling item search, matching limited-search cashier workflow.
 
 Verification:

@@ -414,6 +414,7 @@
 <script setup>
 import { computed, nextTick, ref, watch } from "vue";
 import { getCartGridCellId, getCartGridRowId } from "../../../utils/cartFieldFocus";
+import { getItemLossRisk } from "../../../utils/lossPrevention";
 
 defineOptions({
 	name: "CartItemRow",
@@ -506,6 +507,13 @@ const memoDeps = computed(() => {
 		props.item.amount,
 		props.item.discount_amount,
 		props.item.discount_percentage,
+		props.item.trade_price,
+		props.item.buying_price,
+		props.item.buying_rate,
+		props.item.last_buying_rate,
+		props.item.last_purchase_rate,
+		props.item.valuation_rate,
+		props.item.manufacturing_cost,
 		props.item.uom,
 		props.item.item_name,
 		props.item.name_overridden,
@@ -535,10 +543,13 @@ const qtyLength = computed(() => String(Math.abs(props.item.qty || 0)).replace("
 
 const rowDomId = computed(() => (props.rowIndex >= 0 ? getCartGridRowId(props.rowIndex) : undefined));
 
+const lossRisk = computed(() => getItemLossRisk(props.item));
+
 const rowClasses = computed(() => ({
 	"posa-cart-item-row--keyboard-active": props.activeRow,
 	"posa-cart-item-row--keyboard-row": props.activeRow && props.keyboardMode === "row",
 	"posa-cart-item-row--keyboard-cell": props.activeRow && props.keyboardMode === "cell",
+	"posa-cart-item-row--loss-risk": Boolean(lossRisk.value),
 }));
 
 function isKeyboardCellActive(key) {
@@ -975,5 +986,20 @@ td {
 .posa-cart-item-cell--keyboard-active > div {
 	position: relative;
 	z-index: 3;
+}
+
+.posa-cart-item-row--loss-risk > td {
+	background: #fee2e2 !important;
+	color: #7f1d1d;
+}
+
+.posa-cart-item-row--loss-risk {
+	outline: 3px solid #ef4444;
+	outline-offset: -3px;
+}
+
+.posa-cart-item-row--loss-risk.posa-cart-item-row--keyboard-active > td,
+.posa-cart-item-row--loss-risk .posa-cart-item-cell--keyboard-active {
+	background: #fecaca !important;
 }
 </style>
