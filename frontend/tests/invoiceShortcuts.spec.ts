@@ -217,6 +217,34 @@ describe("invoiceShortcuts", () => {
 		expect(event.defaultPrevented).toBe(false);
 	});
 
+	it("does not steal plain arrow keys from the item search field", async () => {
+		const vm = createVm();
+		const shell = document.createElement("div");
+		shell.className = "search-field-shell";
+		const field = document.createElement("div");
+		field.setAttribute("data-pos-keyboard-target", "item-search");
+		const input = document.createElement("input");
+		field.appendChild(input);
+		shell.appendChild(field);
+		document.body.appendChild(shell);
+		const event = new KeyboardEvent("keydown", {
+			key: "ArrowDown",
+			code: "ArrowDown",
+			bubbles: true,
+			cancelable: true,
+		});
+		Object.defineProperty(event, "target", {
+			value: input,
+			configurable: true,
+		});
+
+		await (invoiceShortcuts as any).handleInvoiceShortcut.call(vm, event);
+
+		expect(vm.enterInvoiceItemsGrid).not.toHaveBeenCalled();
+		expect(event.defaultPrevented).toBe(false);
+		shell.remove();
+	});
+
 	it("uses plain arrow keys from marked search fields to enter invoice table grid mode", async () => {
 		const vm = createVm();
 		const shell = document.createElement("div");
@@ -237,7 +265,10 @@ describe("invoiceShortcuts", () => {
 
 		await (invoiceShortcuts as any).handleInvoiceShortcut.call(vm, event);
 
-		expect(vm.eventBus.emit).toHaveBeenCalledWith("set_compact_panel", "invoice");
+		expect(vm.eventBus.emit).toHaveBeenCalledWith(
+			"set_compact_panel",
+			"invoice",
+		);
 		expect(vm.enterInvoiceItemsGrid).toHaveBeenCalledTimes(1);
 		expect(event.defaultPrevented).toBe(true);
 		shell.remove();

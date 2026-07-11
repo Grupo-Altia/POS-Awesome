@@ -50,6 +50,14 @@ const isArrowEntrySearchTarget = (target: EventTarget | null) => {
 	const element = target as HTMLElement | null;
 	return Boolean(element?.closest?.("[data-pos-arrow-enters-invoice-grid]"));
 };
+const isItemSearchTarget = (target: EventTarget | null) => {
+	const element = target as HTMLElement | null;
+	return Boolean(
+		element?.closest?.(
+			"[data-pos-keyboard-target='item-search'], [data-testid='pos-item-search'], .search-field-shell",
+		),
+	);
+};
 const isElementVisible = (element: HTMLElement) => {
 	if (typeof window === "undefined") {
 		return false;
@@ -67,9 +75,9 @@ const hasVisibleOverlay = () => {
 	if (typeof document === "undefined") {
 		return false;
 	}
-	return Array.from(document.querySelectorAll<HTMLElement>(".v-overlay__content")).some(
-		isElementVisible,
-	);
+	return Array.from(
+		document.querySelectorAll<HTMLElement>(".v-overlay__content"),
+	).some(isElementVisible);
 };
 const shouldEnterInvoiceGridFromArrow = (event: KeyboardEvent) => {
 	if (
@@ -85,6 +93,9 @@ const shouldEnterInvoiceGridFromArrow = (event: KeyboardEvent) => {
 	if (target?.closest?.(".posa-items-table-container, .v-overlay__content")) {
 		return false;
 	}
+	if (isItemSearchTarget(target)) {
+		return false;
+	}
 	return !isTextEditingTarget(target) || isArrowEntrySearchTarget(target);
 };
 const invoiceGridEntryOptionsFromArrow = (key: string, count: number) => {
@@ -93,7 +104,8 @@ const invoiceGridEntryOptionsFromArrow = (key: string, count: number) => {
 		return {
 			rowIndex,
 			mode: "cell" as const,
-			cellEdge: key === "ArrowLeft" ? ("last" as const) : ("first" as const),
+			cellEdge:
+				key === "ArrowLeft" ? ("last" as const) : ("first" as const),
 		};
 	}
 	return { rowIndex, mode: "row" as const };
@@ -121,8 +133,8 @@ interface InvoiceShortcutsVm {
 		triggerItemSearchFocus: () => void;
 		selectTopItem: () => void;
 		toggleItemSettings: () => void;
-		};
-		$refs: {
+	};
+	$refs: {
 		actionToolbar?: {
 			focusSearch?: () => void;
 		};
@@ -139,24 +151,24 @@ interface InvoiceShortcutsVm {
 		itemSearchField?: {
 			focus?: () => void;
 			$el?: { querySelector?: (_s: string) => { focus?: () => void } };
-			};
-			itemsTableRef?: {
-				focusItemField?: (_index: number, _field: ShortcutField) => void;
-				enterKeyboardGrid?: (_options?: {
-					rowIndex?: number;
-					mode?: "row" | "cell";
-					cellEdge?: "first" | "last";
-				}) => boolean;
-			};
-			itemsTable?: {
-				focusItemField?: (_index: number, _field: ShortcutField) => void;
-				enterKeyboardGrid?: (_options?: {
-					rowIndex?: number;
-					mode?: "row" | "cell";
-					cellEdge?: "first" | "last";
-				}) => boolean;
-			};
 		};
+		itemsTableRef?: {
+			focusItemField?: (_index: number, _field: ShortcutField) => void;
+			enterKeyboardGrid?: (_options?: {
+				rowIndex?: number;
+				mode?: "row" | "cell";
+				cellEdge?: "first" | "last";
+			}) => boolean;
+		};
+		itemsTable?: {
+			focusItemField?: (_index: number, _field: ShortcutField) => void;
+			enterKeyboardGrid?: (_options?: {
+				rowIndex?: number;
+				mode?: "row" | "cell";
+				cellEdge?: "first" | "last";
+			}) => boolean;
+		};
+	};
 	items?: Array<Record<string, unknown>>;
 	invoice_doc?: {
 		rounded_total?: number;
@@ -198,16 +210,16 @@ interface InvoiceShortcutsVm {
 	};
 	confirmPaymentSubmission: (
 		_initialAmount?: number,
-		) => Promise<number | null>;
-		getShortcutPaymentAmount: () => number;
-		focusItemTableField: (_field: ShortcutField) => void;
-		enterInvoiceItemsGrid: (_options?: {
-			rowIndex?: number;
-			mode?: "row" | "cell";
-			cellEdge?: "first" | "last";
-		}) => void;
-		enterInvoiceItemsGridFromArrow?: (_key?: string) => void;
-	}
+	) => Promise<number | null>;
+	getShortcutPaymentAmount: () => number;
+	focusItemTableField: (_field: ShortcutField) => void;
+	enterInvoiceItemsGrid: (_options?: {
+		rowIndex?: number;
+		mode?: "row" | "cell";
+		cellEdge?: "first" | "last";
+	}) => void;
+	enterInvoiceItemsGridFromArrow?: (_key?: string) => void;
+}
 
 const invoiceShortcuts: Record<string, unknown> & ThisType<InvoiceShortcutsVm> =
 	{
@@ -218,16 +230,18 @@ const invoiceShortcuts: Record<string, unknown> & ThisType<InvoiceShortcutsVm> =
 
 			const key = event.key;
 
-				if (shouldEnterInvoiceGridFromArrow(event)) {
-					const count = this.items?.length || 0;
-					if (!count) {
-						return;
-					}
-					consumeEvent(event);
-					showCompactPanel(this.eventBus, "invoice");
-					this.enterInvoiceItemsGrid(invoiceGridEntryOptionsFromArrow(key, count));
+			if (shouldEnterInvoiceGridFromArrow(event)) {
+				const count = this.items?.length || 0;
+				if (!count) {
 					return;
 				}
+				consumeEvent(event);
+				showCompactPanel(this.eventBus, "invoice");
+				this.enterInvoiceItemsGrid(
+					invoiceGridEntryOptionsFromArrow(key, count),
+				);
+				return;
+			}
 
 			if (key === "F12") {
 				consumeEvent(event);
@@ -519,25 +533,34 @@ const invoiceShortcuts: Record<string, unknown> & ThisType<InvoiceShortcutsVm> =
 				this.$refs.itemsTable?.focusItemField?.(index, field);
 		},
 
-			enterInvoiceItemsGrid(options?: { rowIndex?: number; mode?: "row" | "cell"; cellEdge?: "first" | "last" }) {
-				const count = this.items?.length || 0;
-				if (!count) {
-					return;
-				}
+		enterInvoiceItemsGrid(options?: {
+			rowIndex?: number;
+			mode?: "row" | "cell";
+			cellEdge?: "first" | "last";
+		}) {
+			const count = this.items?.length || 0;
+			if (!count) {
+				return;
+			}
 
-				const resolvedOptions = options || { rowIndex: count - 1, mode: "row" as const };
-				this.$refs.itemsTableRef?.enterKeyboardGrid?.(resolvedOptions) ||
-					this.$refs.itemsTable?.enterKeyboardGrid?.(resolvedOptions);
-			},
+			const resolvedOptions = options || {
+				rowIndex: count - 1,
+				mode: "row" as const,
+			};
+			this.$refs.itemsTableRef?.enterKeyboardGrid?.(resolvedOptions) ||
+				this.$refs.itemsTable?.enterKeyboardGrid?.(resolvedOptions);
+		},
 
-			enterInvoiceItemsGridFromArrow(key?: string) {
-				const count = this.items?.length || 0;
-				if (!count) {
-					return;
-				}
+		enterInvoiceItemsGridFromArrow(key?: string) {
+			const count = this.items?.length || 0;
+			if (!count) {
+				return;
+			}
 
-				this.enterInvoiceItemsGrid(invoiceGridEntryOptionsFromArrow(key || "ArrowUp", count));
-			},
+			this.enterInvoiceItemsGrid(
+				invoiceGridEntryOptionsFromArrow(key || "ArrowUp", count),
+			);
+		},
 	};
 
 export default invoiceShortcuts;

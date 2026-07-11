@@ -6,7 +6,7 @@
 				:cols="posProfile.posa_input_qty ? 8 : 12"
 				:sm="posProfile.posa_input_qty ? 9 : 12"
 			>
-				<div class="search-field-shell">
+				<div class="search-field-shell" @keydown.capture="handleSearchKeydownCapture">
 					<v-text-field
 						density="compact"
 						clearable
@@ -15,10 +15,10 @@
 						color="primary"
 						class="pos-themed-input"
 						:label="frappe._('Search, scan or browse item')"
-							hide-details
-							data-pos-keyboard-target="item-search"
-							data-testid="pos-item-search"
-							:model-value="searchInput"
+						hide-details
+						data-pos-keyboard-target="item-search"
+						data-testid="pos-item-search"
+						:model-value="searchInput"
 						@update:model-value="
 							(val) => {
 								$emit('update:searchInput', val);
@@ -237,10 +237,21 @@ const handleSearchEscape = (event) => {
 };
 
 const handleSearchKeydown = (event) => {
+	if (event?.__posaSearchKeyHandled) {
+		return;
+	}
 	if (event?.key === "Escape") {
 		handleSearchEscape(event);
 		return;
 	}
+	emit("search-keydown", event);
+};
+
+const handleSearchKeydownCapture = (event) => {
+	if (event?.key !== "ArrowDown" && event?.key !== "ArrowUp") {
+		return;
+	}
+	event.__posaSearchKeyHandled = true;
 	emit("search-keydown", event);
 };
 

@@ -491,6 +491,28 @@ Verification:
 - `yarn type-check`
 - `yarn build`
 
+## 2026-07-11 Product Search Arrow-Key Regression Fix
+
+Issue resolved:
+
+- After the invoice-grid keyboard work, `ArrowDown` / `ArrowUp` from the item search field could be intercepted by the broader POS keyboard layer instead of staying in product results.
+- This made searched products impossible to select from the keyboard in the normal cashier flow.
+
+Implemented:
+
+- Item search now captures `ArrowDown` / `ArrowUp` on the DOM wrapper around the search input and sends those events directly to item-result navigation.
+- The regular search keydown handler skips already-captured arrow events so a single key press cannot move the result highlight twice.
+- Invoice-grid arrow entry now explicitly ignores events originating from the item search field.
+- Added regression coverage to ensure invoice shortcuts do not steal arrows from item search.
+
+Verification:
+
+- `yarn test:unit tests/itemHeader.spec.ts tests/invoiceShortcuts.spec.ts tests/useItemsSelectorFocus.spec.ts tests/itemSelectorHighlightBindings.spec.ts tests/useItemsSelectorDisplayBindings.spec.ts tests/useItemsSelectorSearch.spec.ts`
+- `yarn type-check`
+- `yarn build`
+- `/Users/mac/anaconda3/bin/conda run -n frappe bench --site retailmind.local clear-cache`
+- Attempted focused Playwright search-arrow test with provided credentials; it reached POS, but the helper failed before the arrow assertion because the limited-search test helper filled exact item text without triggering the limit-search result query.
+
 ## 2026-07-11 Item Quick Edit Keyboard Bounding Box
 
 Issue resolved:
