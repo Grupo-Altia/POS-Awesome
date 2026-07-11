@@ -497,21 +497,26 @@ Issue resolved:
 
 - After the invoice-grid keyboard work, `ArrowDown` / `ArrowUp` from the item search field could be intercepted by the broader POS keyboard layer instead of staying in product results.
 - This made searched products impossible to select from the keyboard in the normal cashier flow.
+- The item selector internally selected the correct result, but the virtual table row did not receive `data-item-code`, so the visible teal highlight was not applied.
 
 Implemented:
 
 - Item search now captures `ArrowDown` / `ArrowUp` on the DOM wrapper around the search input and sends those events directly to item-result navigation.
 - The regular search keydown handler skips already-captured arrow events so a single key press cannot move the result highlight twice.
 - Invoice-grid arrow entry now explicitly ignores events originating from the item search field.
-- Added regression coverage to ensure invoice shortcuts do not steal arrows from item search.
+- Virtual table row metadata now resolves Vuetify row wrappers before attaching `data-item-code`, `aria-selected`, and row highlight state.
+- Added regression coverage to ensure invoice shortcuts do not steal arrows from item search and row metadata is generated for virtual table wrapper items.
+- Updated the Playwright helper to press `Enter` after filling item search, matching limited-search cashier workflow.
 
 Verification:
 
-- `yarn test:unit tests/itemHeader.spec.ts tests/invoiceShortcuts.spec.ts tests/useItemsSelectorFocus.spec.ts tests/itemSelectorHighlightBindings.spec.ts tests/useItemsSelectorDisplayBindings.spec.ts tests/useItemsSelectorSearch.spec.ts`
+- `yarn test:unit tests/itemSelectorHighlightBindings.spec.ts tests/useItemsSelectorDisplayBindings.spec.ts tests/useItemsSelectorSearch.spec.ts tests/useItemsSelectorFocus.spec.ts tests/invoiceShortcuts.spec.ts`
 - `yarn type-check`
 - `yarn build`
 - `/Users/mac/anaconda3/bin/conda run -n frappe bench --site retailmind.local clear-cache`
-- Attempted focused Playwright search-arrow test with provided credentials; it reached POS, but the helper failed before the arrow assertion because the limited-search test helper filled exact item text without triggering the limit-search result query.
+- Manual browser verification with `arinac`: press `Enter` to search, `ArrowDown` highlights item `02017`, `Enter` adds it to cart.
+- `POSA_KEYBOARD_E2E=1 POSA_SMOKE_BASE_URL=http://127.0.0.1:8000 POSA_SMOKE_USER=aqib@ai.ai POSA_SMOKE_PASSWORD=alpha123 POSA_KEYBOARD_TEST_ITEMS=02017,02016,02249 yarn playwright test --config=playwright.config.ts tests/e2e/pos-keyboard-accessibility.spec.ts -g "product search down arrow stays in product results" --reporter=list`
+- Result: `1 passed (36.5s)`.
 
 ## 2026-07-11 Item Quick Edit Keyboard Bounding Box
 

@@ -58,4 +58,26 @@ describe("item selector highlight bindings", () => {
 			tabindex: 0,
 		});
 	});
+
+	it("resolves virtual table row wrapper items before building row metadata", () => {
+		const item = { item_code: "02017" };
+		const itemSelection = {
+			getItemRowProps: vi.fn(() => ({
+				"aria-selected": "true",
+				class: { "item-row-highlighted": true },
+			})),
+		};
+
+		const props = buildSelectorRowProps(itemSelection as any, {
+			item: { raw: item },
+		});
+
+		expect(itemSelection.getItemRowProps).toHaveBeenCalledWith(item);
+		expect(props).toMatchObject({
+			"aria-selected": "true",
+			"data-item-code": "02017",
+			"data-testid": "pos-item-row-02017",
+			class: { "item-row-highlighted": true },
+		});
+	});
 });

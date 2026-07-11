@@ -236,6 +236,7 @@ async function searchAndAddItem(page: Page, item: TestItem) {
 	while (Date.now() < deadline && !found) {
 		for (const query of queries) {
 			await search.fill(query);
+			await page.keyboard.press("Enter");
 			if (
 				await exactResult
 					.isVisible({ timeout: 5000 })
@@ -449,6 +450,7 @@ test.describe.serial("POS keyboard accessibility E2E", () => {
 		const search = page.getByTestId("pos-item-search").locator("input");
 		await search.click();
 		await search.fill(items[1].item_code);
+		await page.keyboard.press("Enter");
 		await expect(
 			page.getByText(items[1].item_code, { exact: true }).first(),
 		).toBeVisible();
@@ -545,13 +547,21 @@ test.describe.serial("POS keyboard accessibility E2E", () => {
 		).toHaveValue(items[0].item_code, {
 			timeout: 30000,
 		});
-		await expect(page.locator(".posa-quick-edit-keyboard-box").first()).toBeVisible();
+		await expect(
+			page.locator(".posa-quick-edit-keyboard-box").first(),
+		).toBeVisible();
 		await page.keyboard.press("Enter");
-		await expect(page.getByTestId("item-quick-edit-name").locator("input")).toBeFocused();
+		await expect(
+			page.getByTestId("item-quick-edit-name").locator("input"),
+		).toBeFocused();
 		await page.keyboard.press("Enter");
-		await expect(page.locator(".posa-quick-edit-keyboard-box").first()).toBeVisible();
+		await expect(
+			page.locator(".posa-quick-edit-keyboard-box").first(),
+		).toBeVisible();
 		await page.keyboard.press("ArrowDown");
-		await expect(page.locator(".posa-quick-edit-keyboard-box").first()).toBeVisible();
+		await expect(
+			page.locator(".posa-quick-edit-keyboard-box").first(),
+		).toBeVisible();
 		await page.keyboard.press("Escape");
 		await expect(page.getByTestId("item-quick-edit-modal")).toBeHidden({
 			timeout: 15000,
