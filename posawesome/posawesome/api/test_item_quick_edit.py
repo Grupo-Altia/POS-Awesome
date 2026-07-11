@@ -39,5 +39,23 @@ class TestItemQuickEditSupplierMapping(unittest.TestCase):
             )
 
 
+class TestItemQuickEditPosRow(unittest.TestCase):
+    def test_build_pos_item_row_uses_retail_rate_without_catalog_search(self):
+        row = item_quick_edit._build_pos_item_row(
+            {
+                "name": "ITEM-001",
+                "item_code": "ITEM-001",
+                "item_name": "Test Item",
+                "stock_uom": "Nos",
+                "retail_price": 10,
+            }
+        )
+
+        self.assertEqual(row["item_code"], "ITEM-001")
+        self.assertEqual(row["uom"], "Nos")
+        self.assertEqual(row["rate"], 10)
+        self.assertEqual(row["price_list_rate"], 10)
+
+
 if __name__ == "__main__":
     unittest.main()

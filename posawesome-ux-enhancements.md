@@ -543,3 +543,23 @@ Verification:
 - `yarn playwright test --config=playwright.config.ts --list`
 - `yarn build`
 - `/Users/mac/anaconda3/bin/conda run -n frappe bench build --app posawesome`
+
+## 2026-07-11 Item Quick Edit Save Timeout Fix
+
+Issue resolved:
+
+- The Item Quick Edit modal could keep spinning and report a request timeout when pressing Update.
+- The item write completed, but the save response tried to rebuild `pos_item` through the full POS catalog search path.
+- That response path also attempted to JSON serialize the full POS Profile dict, including datetime fields, which can fail before the browser receives a clean response.
+
+Implemented:
+
+- Split the quick-edit item payload builder from the full modal loader so save no longer reloads options after committing.
+- Replaced the post-save POS catalog search with a lightweight `pos_item` row built directly from the saved item payload and retail rate.
+- Added regression coverage for the lightweight row builder so cart/catalog refresh still receives `rate`, `price_list_rate`, and `uom`.
+
+Verification:
+
+- `PYTHONPATH=/Users/mac/frappe-bench/apps/frappe:/Users/mac/frappe-bench/apps/erpnext:/Users/mac/frappe-bench/apps/posawesome /Users/mac/anaconda3/bin/conda run -n frappe python -m unittest posawesome.posawesome.api.test_item_quick_edit`
+- `/Users/mac/anaconda3/bin/conda run -n frappe bench --site retailmind.local execute posawesome.posawesome.api.item_quick_edit.save_item_quick_edit --kwargs "{'data': {'item_code':'A3106','barcode':'CF','item_name':'PANADOL CF TAB 1','description':'PANADOL CF TAB','item_group':'Medicines','brand':'\\u0000','max_discount':0,'standard_rate':10,'retailmind_units_per_pack':100,'retailmind_old_pos_generic_code':'0','retailmind_old_pos_generic_name':'.','retailmind_old_pos_pack':'1','primary_supplier':'MULLER & PHIPPS PAKISTAN FSD.DEPOT (1013)','selling_price_list':'Standard Selling','buying_price_list':'Standard Buying','retail_price':10,'trade_price':9,'pos_profile':'POS Awesome - MedPlus'}}"`
+- Result: live save for `A3106` returned successfully in about 6 seconds with updated `item` and lightweight `pos_item` payload.

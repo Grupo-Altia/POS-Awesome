@@ -5,7 +5,6 @@ from frappe import _
 from frappe.utils import cint, flt
 
 from posawesome.posawesome.api.employees import _get_user_doc, _is_pos_supervisor
-from posawesome.posawesome.api.item_processing.search import get_items
 from posawesome.posawesome.api.item_sale_controls import (
     CONTROLLED_FIELD,
     LOCKED_FIELD,
@@ -236,25 +235,7 @@ def _get_options():
     }
 
 
-def _get_pos_item_row(item_code, profile, price_list=None):
-    rows = (
-        get_items(
-            json.dumps(profile),
-            price_list=price_list or profile.get("selling_price_list"),
-            item_group="",
-            search_value=item_code,
-            limit=20,
-            include_description=True,
-        )
-        or []
-    )
-    return next((row for row in rows if row.get("item_code") == item_code), None)
-
-
-@frappe.whitelist()
-def get_item_quick_edit(item_code=None, barcode=None, pos_profile=None):
-    profile, _profile_json = _ensure_pos_profile(pos_profile)
-    resolved_item_code = _resolve_item_code(item_code=item_code, barcode=barcode)
+def _get_item_quick_edit_item(resolved_item_code, profile):
     item = frappe.db.get_value("Item", resolved_item_code, _item_fields(), as_dict=True)
     if not item:
         frappe.throw(_("Item was not found."))
@@ -283,6 +264,36 @@ def get_item_quick_edit(item_code=None, barcode=None, pos_profile=None):
             ),
         }
     )
+    return item
+
+
+def _build_pos_item_row(item):
+    if not item:
+        return None
+
+    row = dict(item)
+    item_code = row.get("item_code") or row.get("name")
+    if item_code:
+        row["item_code"] = item_code
+
+    retail_price = row.get("retail_price")
+    if retail_price in (None, ""):
+        retail_price = row.get("standard_rate")
+    if retail_price not in (None, ""):
+        row["price_list_rate"] = flt(retail_price)
+        row["rate"] = flt(retail_price)
+
+    stock_uom = row.get("stock_uom")
+    if stock_uom and not row.get("uom"):
+        row["uom"] = stock_uom
+    return row
+
+
+@frappe.whitelist()
+def get_item_quick_edit(item_code=None, barcode=None, pos_profile=None):
+    profile, _profile_json = _ensure_pos_profile(pos_profile)
+    resolved_item_code = _resolve_item_code(item_code=item_code, barcode=barcode)
+    item = _get_item_quick_edit_item(resolved_item_code, profile)
 
     return {
         "item": item,
@@ -385,10 +396,5 @@ def save_item_quick_edit(data):
     frappe.clear_cache(doctype="Item")
     frappe.db.commit()
 
-    return {
-        "item": get_item_quick_edit(
-            item_code=item_doc.name,
-            pos_profile=profile,
-        ).get("item"),
-        "pos_item": _get_pos_item_row(item_doc.name, profile, price_list=selling_price_list),
-    }
+    item = _get_item_quick_edit_item(item_doc.name, profile)
+    return {"item": item, "pos_item": _build_pos_item_row(item)}
