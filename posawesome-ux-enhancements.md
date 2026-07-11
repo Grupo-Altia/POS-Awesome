@@ -445,3 +445,26 @@ Verification:
 - `yarn type-check`
 - `yarn build`
 - `/Users/mac/anaconda3/bin/conda run -n frappe bench --site retailmind.local clear-cache`
+
+## 2026-07-11 Item Quick Edit Trade Discount Field
+
+Issue resolved:
+
+- The Item Quick Edit modal was missing the old-POS percentage field shown between Retail Price and Trade Price.
+- Cashiers could edit retail and trade prices, but could not enter the retail-to-trade percentage difference directly.
+
+Implemented:
+
+- Added a transient `Discount %` pricing field between Retail Price and Trade Price.
+- The field is calculated as `(retail price - trade price) / retail price * 100`.
+- Editing the percentage updates Trade Price using `retail price * (1 - discount / 100)`.
+- Editing Retail Price or Trade Price recalculates the displayed percentage.
+- The backend save payload still persists only real pricing fields: retail price and trade price.
+
+Verification:
+
+- `yarn test:unit tests/itemQuickEditPricing.spec.ts`
+- `yarn type-check`
+- `yarn lint`
+- `yarn build`
+- `/Users/mac/anaconda3/bin/conda run -n frappe bench build --app posawesome`

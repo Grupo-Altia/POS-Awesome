@@ -159,9 +159,9 @@
 						<div class="item-quick-edit__section">
 							<div class="item-quick-edit__section-title">{{ __("Pricing") }}</div>
 							<v-row dense>
-								<v-col cols="12" md="6">
+								<v-col cols="12" md="4">
 									<v-text-field
-										v-model.number="form.retail_price"
+										:model-value="form.retail_price"
 										data-testid="item-quick-edit-retail-price"
 										:label="__('Retail Price')"
 										type="number"
@@ -171,11 +171,28 @@
 										variant="outlined"
 										prefix="Rs"
 										:disabled="!loaded"
+										@update:model-value="handleRetailPriceUpdate"
 									></v-text-field>
 								</v-col>
-								<v-col cols="12" md="6">
+								<v-col cols="12" md="4">
 									<v-text-field
-										v-model.number="form.trade_price"
+										:model-value="form.trade_discount_percent"
+										data-testid="item-quick-edit-trade-discount"
+										:label="__('Discount')"
+										type="number"
+										min="0"
+										max="100"
+										step="0.01"
+										density="compact"
+										variant="outlined"
+										suffix="%"
+										:disabled="!loaded"
+										@update:model-value="handleTradeDiscountUpdate"
+									></v-text-field>
+								</v-col>
+								<v-col cols="12" md="4">
+									<v-text-field
+										:model-value="form.trade_price"
 										:label="__('Trade Price')"
 										type="number"
 										min="0"
@@ -184,6 +201,7 @@
 										variant="outlined"
 										prefix="Rs"
 										:disabled="!loaded"
+										@update:model-value="handleTradePriceUpdate"
 									></v-text-field>
 								</v-col>
 								<v-col cols="12" md="6">
@@ -268,6 +286,11 @@
 <script setup lang="ts">
 import { nextTick, reactive, ref, watch } from "vue";
 import itemService from "../../../services/itemService";
+import {
+	calculateTradeDiscountPercent,
+	calculateTradePriceFromDiscount,
+	toNullableNumber,
+} from "./itemQuickEditPricing";
 
 declare const __: (_text: string, _args?: any[]) => string;
 
@@ -314,6 +337,7 @@ const blankForm = () => ({
 	barcode: "",
 	primary_supplier: "",
 	retail_price: null as number | null,
+	trade_discount_percent: null as number | null,
 	trade_price: null as number | null,
 	selling_price_list: "",
 	buying_price_list: "",
@@ -378,6 +402,28 @@ const focusShortName = () => {
 	});
 };
 
+const syncTradeDiscountFromPrices = () => {
+	form.trade_discount_percent = calculateTradeDiscountPercent(form.retail_price, form.trade_price);
+};
+
+const handleRetailPriceUpdate = (value: unknown) => {
+	form.retail_price = toNullableNumber(value);
+	syncTradeDiscountFromPrices();
+};
+
+const handleTradePriceUpdate = (value: unknown) => {
+	form.trade_price = toNullableNumber(value);
+	syncTradeDiscountFromPrices();
+};
+
+const handleTradeDiscountUpdate = (value: unknown) => {
+	form.trade_discount_percent = toNullableNumber(value);
+	const tradePrice = calculateTradePriceFromDiscount(form.retail_price, form.trade_discount_percent);
+	if (tradePrice !== null) {
+		form.trade_price = tradePrice;
+	}
+};
+
 const loadItem = async (value: string) => {
 	const query = String(value || "").trim();
 	if (!query || !props.posProfile) {
@@ -395,6 +441,7 @@ const loadItem = async (value: string) => {
 		});
 		const item = normalizeItem(payload?.item || {});
 		Object.assign(form, blankForm(), item);
+		syncTradeDiscountFromPrices();
 		options.item_groups = payload?.options?.item_groups || [];
 		options.suppliers = payload?.options?.suppliers || [];
 		canSave.value = Boolean(payload?.can_save);
@@ -425,8 +472,9 @@ const save = async () => {
 	saving.value = true;
 	errorMessage.value = "";
 	try {
+		const { trade_discount_percent: _tradeDiscountPercent, ...formPayload } = form;
 		const payload = await itemService.saveItemQuickEditData({
-			...form,
+			...formPayload,
 			pos_profile: props.posProfile,
 			cashier: props.cashier,
 			retailmind_controlled_item: form.retailmind_controlled_item ? 1 : 0,
