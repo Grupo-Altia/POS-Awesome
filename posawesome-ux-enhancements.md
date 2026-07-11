@@ -490,3 +490,29 @@ Verification:
 - `yarn test:unit tests/cartItemRowKeyboard.spec.ts tests/cartFieldFocus.spec.ts`
 - `yarn type-check`
 - `yarn build`
+
+## 2026-07-11 Item Quick Edit Keyboard Bounding Box
+
+Issue resolved:
+
+- Item Quick Edit fields were reachable by mouse and Tab, but the modal did not support the POS spatial keyboard UX.
+- Arrow keys inside the modal behaved like normal input caret/menu movement instead of showing and moving the bounding box.
+
+Implemented:
+
+- Added modal-local keyboard target state for lookup, load, identity fields, pricing fields, controls, close, cancel, and update.
+- The modal now opens loaded items with a visible bounding box on Name instead of silently entering field edit mode.
+- Plain arrow keys show/move the bounding box from anywhere in the modal.
+- `Enter` on a boxed field enters edit mode and selects the field value.
+- `Enter` while editing commits the field value, blurs the input, and returns control to the bounding box.
+- `Escape` leaves edit mode first, then closes the modal when already in bounding-box mode.
+- Extended the POS keyboard Playwright suite to assert the quick-edit bounding-box flow.
+
+Verification:
+
+- `yarn test:unit tests/itemQuickEditPricing.spec.ts`
+- `yarn type-check`
+- `yarn lint`
+- `yarn playwright test --config=playwright.config.ts --list`
+- `yarn build`
+- `/Users/mac/anaconda3/bin/conda run -n frappe bench build --app posawesome`
