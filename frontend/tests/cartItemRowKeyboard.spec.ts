@@ -45,7 +45,10 @@ const VTextFieldStub = defineComponent({
 	},
 });
 
-const mountRow = (itemOverrides: Record<string, unknown> = {}, listeners = {}) =>
+const mountRow = (
+	itemOverrides: Record<string, unknown> = {},
+	propsOverrides: Record<string, unknown> = {},
+) =>
 	mount(CartItemRow, {
 		props: {
 			item: {
@@ -61,14 +64,14 @@ const mountRow = (itemOverrides: Record<string, unknown> = {}, listeners = {}) =
 				...itemOverrides,
 			},
 			visibleColumns: [{ key: "qty" }],
-			posProfile: {},
+			posProfile: { posa_allow_user_to_edit_item_discount: true },
 			formatFloat: (value: unknown) => String(value ?? ""),
 			formatCurrency: (value: unknown) => String(value ?? ""),
 			currencySymbol: () => "Rs",
 			isNumber: () => true,
 			isNegative: (value: unknown) => Number(value) < 0,
 			rowIndex: 0,
-			...listeners,
+			...propsOverrides,
 		},
 		global: {
 			components: {
@@ -101,5 +104,33 @@ describe("CartItemRow keyboard editing", () => {
 
 		expect(wrapper.emitted("update-qty")).toBeUndefined();
 		expect(onQtyEditSubmitted).toHaveBeenCalled();
+	});
+
+	it("keeps the existing quantity visible when the quantity input receives focus", async () => {
+		vi.stubGlobal("__", (value: string) => value);
+		const wrapper = mountRow({ qty: 2 });
+		const input = wrapper.get<HTMLInputElement>('input[type="number"]');
+
+		expect(input.element.value).toBe("2");
+		await input.trigger("focus");
+
+		expect(input.element.value).toBe("2");
+	});
+
+	it("opens discount percentage editing with the current value populated", async () => {
+		vi.stubGlobal("__", (value: string) => value);
+		const wrapper = mountRow(
+			{ discount_percentage: 2, discount_amount: 0, price_list_rate: 10 },
+			{ visibleColumns: [{ key: "discount_percentage" }] },
+		);
+
+		await wrapper
+			.get('[data-pos-keyboard-target="cart-discount-percent"]')
+			.trigger("click");
+		await wrapper.vm.$nextTick();
+
+		expect(
+			wrapper.get<HTMLInputElement>('input[type="number"]').element.value,
+		).toBe("2");
 	});
 });

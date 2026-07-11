@@ -69,8 +69,12 @@
 					@rate-edit-submitted="(submittedItem) => handleGridEditorSubmitted(submittedItem, 'rate')"
 					@update-discount-percent="handleDiscountPercentUpdate"
 					@update-discount-amount="handleDiscountAmountUpdate"
-					@discount-percent-edit-submitted="(submittedItem) => handleGridEditorSubmitted(submittedItem, 'discount_percentage')"
-					@discount-amount-edit-submitted="(submittedItem) => handleGridEditorSubmitted(submittedItem, 'discount_amount')"
+					@discount-percent-edit-submitted="
+						(submittedItem) => handleGridEditorSubmitted(submittedItem, 'discount_percentage')
+					"
+					@discount-amount-edit-submitted="
+						(submittedItem) => handleGridEditorSubmitted(submittedItem, 'discount_amount')
+					"
 					@open-name-dialog="openNameDialog"
 					@reset-item-name="resetItemName"
 					@toggle-offer="toggleOffer"
@@ -273,9 +277,7 @@ const dynamicHeaderProps = computed(() => ({
 }));
 
 const finalVisibleColumns = computed(() => [...responsiveHeaders.value, DATA_TABLE_EXPAND_COLUMN]);
-const navigableGridColumnKeys = computed(() =>
-	getNavigableCartColumnKeys(finalVisibleColumns.value),
-);
+const navigableGridColumnKeys = computed(() => getNavigableCartColumnKeys(finalVisibleColumns.value));
 const gridContainerClasses = computed(() => ({
 	"posa-cart-grid-active": gridMode.value !== "inactive",
 	"posa-cart-grid-row-mode": gridMode.value === "row",
@@ -326,7 +328,8 @@ const deactivateKeyboardGrid = () => {
 	activeCellKey.value = null;
 };
 
-const focusActiveGridTarget = async () => {
+const focusActiveGridTarget = async (options: { activateDirectEdit?: boolean } = {}) => {
+	const activateDirectEdit = options.activateDirectEdit !== false;
 	await nextTick();
 	window.setTimeout(() => {
 		if (gridMode.value === "row") {
@@ -335,7 +338,7 @@ const focusActiveGridTarget = async () => {
 		}
 		if (gridMode.value === "cell" && activeCellKey.value) {
 			focusCartGridCell(tableContainer.value, activeRowIndex.value, activeCellKey.value, {
-				activate: isCartGridDirectEditColumnKey(activeCellKey.value),
+				activate: activateDirectEdit && isCartGridDirectEditColumnKey(activeCellKey.value),
 			});
 		}
 	}, 0);
@@ -364,9 +367,7 @@ const enterGridCellMode = (preferredCellKey?: CartGridColumnKey | null) => {
 	}
 
 	const nextCellKey =
-		preferredCellKey && keys.includes(preferredCellKey)
-			? preferredCellKey
-			: keys[0] ?? null;
+		preferredCellKey && keys.includes(preferredCellKey) ? preferredCellKey : (keys[0] ?? null);
 	if (!nextCellKey) {
 		return false;
 	}
@@ -437,7 +438,8 @@ const moveGridEntry = (delta: number) => {
 		}
 		activeRowIndex.value = nextRowIndex;
 		rememberSelectedRow(nextRowIndex);
-		activeCellKey.value = delta > 0 ? nextRowKeys[0] ?? null : nextRowKeys[nextRowKeys.length - 1] ?? null;
+		activeCellKey.value =
+			delta > 0 ? (nextRowKeys[0] ?? null) : (nextRowKeys[nextRowKeys.length - 1] ?? null);
 		void focusActiveGridTarget();
 		return true;
 	}
@@ -484,6 +486,21 @@ const advanceGridEntryFromItem = (item: any, fromCellKey: CartGridColumnKey, del
 	rememberSelectedRow(rowIndex);
 	activeCellKey.value = fromCellKey;
 	void commitActiveGridEditorAndMoveEntry(delta);
+	return true;
+};
+
+const stayOnGridEntryFromItem = (item: any, fromCellKey: CartGridColumnKey) => {
+	const rowIndex = getItemIndex(item);
+	if (rowIndex < 0) {
+		eventBus?.emit("focus_item_search");
+		return false;
+	}
+
+	gridMode.value = "cell";
+	activeRowIndex.value = rowIndex;
+	rememberSelectedRow(rowIndex);
+	activeCellKey.value = fromCellKey;
+	void focusActiveGridTarget({ activateDirectEdit: false });
 	return true;
 };
 
@@ -639,6 +656,10 @@ const handleQtyEditSubmitted = (item: any) => {
 };
 
 const handleGridEditorSubmitted = (item: any, fromCellKey: CartGridColumnKey) => {
+	if (fromCellKey === "discount_percentage" || fromCellKey === "discount_amount") {
+		stayOnGridEntryFromItem(item, fromCellKey);
+		return;
+	}
 	advanceGridEntryFromItem(item, fromCellKey);
 };
 
@@ -694,26 +715,26 @@ const handleGridKeydown = (event: KeyboardEvent) => {
 	if (
 		gridMode.value === "inactive" &&
 		isArrowNavigationKey(event.key) &&
-			!event.defaultPrevented &&
-			!event.altKey &&
-			!event.ctrlKey &&
-			!event.metaKey &&
-			!isEditableElement(event.target as HTMLElement)
-		) {
+		!event.defaultPrevented &&
+		!event.altKey &&
+		!event.ctrlKey &&
+		!event.metaKey &&
+		!isEditableElement(event.target as HTMLElement)
+	) {
 		event.preventDefault();
 		event.stopPropagation();
-			const targetRowIndex = getRowIndexFromEvent(event);
-			const count = items.value?.length || 0;
-			const fallbackRowIndex = event.key === "ArrowDown" ? 0 : count - 1;
-			const rowIndex = targetRowIndex >= 0 ? targetRowIndex : fallbackRowIndex;
-			const mode = event.key === "ArrowLeft" || event.key === "ArrowRight" ? "cell" : "row";
-			enterKeyboardGrid({
-				rowIndex,
-				mode,
-				cellEdge: event.key === "ArrowLeft" ? "last" : "first",
-			});
-			return;
-		}
+		const targetRowIndex = getRowIndexFromEvent(event);
+		const count = items.value?.length || 0;
+		const fallbackRowIndex = event.key === "ArrowDown" ? 0 : count - 1;
+		const rowIndex = targetRowIndex >= 0 ? targetRowIndex : fallbackRowIndex;
+		const mode = event.key === "ArrowLeft" || event.key === "ArrowRight" ? "cell" : "row";
+		enterKeyboardGrid({
+			rowIndex,
+			mode,
+			cellEdge: event.key === "ArrowLeft" ? "last" : "first",
+		});
+		return;
+	}
 
 	if (
 		gridMode.value === "inactive" ||

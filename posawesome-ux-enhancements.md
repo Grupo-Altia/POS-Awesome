@@ -468,3 +468,25 @@ Verification:
 - `yarn lint`
 - `yarn build`
 - `/Users/mac/anaconda3/bin/conda run -n frappe bench build --app posawesome`
+
+## 2026-07-11 Cart Editor Keyboard Value Flow
+
+Issue resolved:
+
+- Quantity, rate, and discount editors could open with a blank field while the keyboard bounding box was active, making cashiers lose sight of the current value before typing.
+- Pressing `Enter` after editing discount advanced away from the discount cell, even though the desired workflow is to keep the discount cell selected and return arrow keys to bounding-box navigation.
+
+Implemented:
+
+- Cart row direct editors now seed their input value from the current item state before focusing/selecting the field.
+- Quantity focus no longer clears the visible value.
+- Rate, discount percent, and discount amount editors reset to the current item value on submit/cancel instead of blanking.
+- Discount editor submit now keeps the bounding box on the same discount cell, while quantity and rate continue advancing through the normal entry flow.
+- Added unit coverage for quantity focus preserving the visible value and discount percent editing opening with the current value.
+
+Verification:
+
+- `yarn prettier --write src/posapp/components/pos/invoice/CartItemRow.vue src/posapp/components/pos/invoice/ItemsTable.vue src/posapp/components/pos/items/ItemQuickEditDialog.vue tests/cartItemRowKeyboard.spec.ts`
+- `yarn test:unit tests/cartItemRowKeyboard.spec.ts tests/cartFieldFocus.spec.ts`
+- `yarn type-check`
+- `yarn build`

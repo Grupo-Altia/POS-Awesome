@@ -168,22 +168,6 @@ function captureUnexpectedErrors(page: Page) {
 	return errors;
 }
 
-async function tabUntilFocused(page: Page, target: LocatorLike, maxTabs = 12) {
-	for (let index = 0; index < maxTabs; index += 1) {
-		if (
-			await target
-				.evaluate((node) => node === document.activeElement)
-				.catch(() => false)
-		) {
-			return;
-		}
-		await page.keyboard.press("Tab");
-	}
-	await expect(target).toBeFocused();
-}
-
-type LocatorLike = ReturnType<Page["locator"]>;
-
 async function getPositiveStockItems(page: Page): Promise<TestItem[]> {
 	const items: TestItem[] = [];
 	for (const code of TEST_ITEM_CODES) {
@@ -561,14 +545,13 @@ test.describe.serial("POS keyboard accessibility E2E", () => {
 		).toHaveValue(items[0].item_code, {
 			timeout: 30000,
 		});
-		await tabUntilFocused(
-			page,
-			page.getByTestId("item-quick-edit-name").locator("input"),
-		);
-		await tabUntilFocused(
-			page,
-			page.getByTestId("item-quick-edit-short-name").locator("input"),
-		);
+		await expect(page.locator(".posa-quick-edit-keyboard-box").first()).toBeVisible();
+		await page.keyboard.press("Enter");
+		await expect(page.getByTestId("item-quick-edit-name").locator("input")).toBeFocused();
+		await page.keyboard.press("Enter");
+		await expect(page.locator(".posa-quick-edit-keyboard-box").first()).toBeVisible();
+		await page.keyboard.press("ArrowDown");
+		await expect(page.locator(".posa-quick-edit-keyboard-box").first()).toBeVisible();
 		await page.keyboard.press("Escape");
 		await expect(page.getByTestId("item-quick-edit-modal")).toBeHidden({
 			timeout: 15000,

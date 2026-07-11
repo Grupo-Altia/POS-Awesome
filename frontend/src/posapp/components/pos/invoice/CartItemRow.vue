@@ -369,27 +369,24 @@
 				v-else-if="column.key === 'data-table-expand'"
 				v-bind="getCellAttrs('data-table-expand', 'text-center')"
 			>
-					<v-btn
-						icon
-						size="small"
-						variant="text"
-						class="posa-cart-table__expand-btn"
-						@click.stop="$emit('toggle-expand')"
-						:aria-label="__('Open item sales history and details')"
-					>
-						<v-icon size="small">mdi-chart-line</v-icon>
-					</v-btn>
-				</td>
+				<v-btn
+					icon
+					size="small"
+					variant="text"
+					class="posa-cart-table__expand-btn"
+					@click.stop="$emit('toggle-expand')"
+					:aria-label="__('Open item sales history and details')"
+				>
+					<v-icon size="small">mdi-chart-line</v-icon>
+				</v-btn>
+			</td>
 		</template>
 	</tr>
 </template>
 
 <script setup>
 import { computed, nextTick, ref, watch } from "vue";
-import {
-	getCartGridCellId,
-	getCartGridRowId,
-} from "../../../utils/cartFieldFocus";
+import { getCartGridCellId, getCartGridRowId } from "../../../utils/cartFieldFocus";
 
 defineOptions({
 	name: "CartItemRow",
@@ -505,9 +502,7 @@ const memoDeps = computed(() => {
 
 const qtyLength = computed(() => String(Math.abs(props.item.qty || 0)).replace(".", "").length);
 
-const rowDomId = computed(() =>
-	props.rowIndex >= 0 ? getCartGridRowId(props.rowIndex) : undefined,
-);
+const rowDomId = computed(() => (props.rowIndex >= 0 ? getCartGridRowId(props.rowIndex) : undefined));
 
 const rowClasses = computed(() => ({
 	"posa-cart-item-row--keyboard-active": props.activeRow,
@@ -555,8 +550,18 @@ const disableDiscountEdit = computed(
 		!!props.item.retailmind_non_discountable,
 );
 
-const getQtyInputElement = () =>
-	qtyInput.value?.$el?.querySelector?.("input") || qtyInput.value;
+const getQtyInputElement = () => qtyInput.value?.$el?.querySelector?.("input") || qtyInput.value;
+
+const getTextFieldInputElement = (fieldRef) =>
+	fieldRef.value?.$el?.querySelector?.("input") || fieldRef.value;
+
+const focusAndSelectTextField = (fieldRef) => {
+	nextTick(() => {
+		const target = getTextFieldInputElement(fieldRef);
+		target?.focus?.();
+		target?.select?.();
+	});
+};
 
 const formatQtyInputValue = () => {
 	const qty = Number(props.item.qty ?? 0);
@@ -581,6 +586,7 @@ watch(
 
 function focusQtyInput() {
 	if (disableInput.value) return;
+	editingQtyValue.value = formatQtyInputValue();
 	nextTick(() => {
 		const target = getQtyInputElement();
 		target?.focus?.();
@@ -590,7 +596,9 @@ function focusQtyInput() {
 
 function handleQtyFocus() {
 	isEditingQty.value = true;
-	editingQtyValue.value = "";
+	if (editingQtyValue.value === "" || editingQtyValue.value == null) {
+		editingQtyValue.value = formatQtyInputValue();
+	}
 }
 
 function handleQtyInputUpdate(value) {
@@ -664,10 +672,8 @@ function handleUomSelect(newUom) {
 function openRateEdit() {
 	if (disableRateEdit.value) return;
 	isEditingRate.value = true;
-	editingRateValue.value = "";
-	nextTick(() => {
-		rateInput.value?.focus();
-	});
+	editingRateValue.value = String(Number(props.item.rate ?? 0));
+	focusAndSelectTextField(rateInput);
 }
 
 function closeRateEdit() {
@@ -682,7 +688,7 @@ function closeRateEdit() {
 			}
 		}
 		isEditingRate.value = false;
-		editingRateValue.value = "";
+		editingRateValue.value = String(Number(props.item.rate ?? 0));
 	}
 }
 
@@ -693,16 +699,21 @@ function submitRateEdit() {
 
 function cancelRateEdit() {
 	isEditingRate.value = false;
-	editingRateValue.value = "";
+	editingRateValue.value = String(Number(props.item.rate ?? 0));
 }
 
 function openDiscountPercentEdit() {
 	if (disableDiscountEdit.value) return;
 	isEditingDiscountPercent.value = true;
-	editingDiscountPercentValue.value = "";
-	nextTick(() => {
-		discountPercentInput.value?.focus();
-	});
+	editingDiscountPercentValue.value = String(
+		Number(
+			props.item.discount_percentage ||
+				(props.item.price_list_rate
+					? (props.item.discount_amount / props.item.price_list_rate) * 100
+					: 0),
+		),
+	);
+	focusAndSelectTextField(discountPercentInput);
 }
 
 function closeDiscountPercentEdit() {
@@ -714,7 +725,7 @@ function closeDiscountPercentEdit() {
 			}
 		}
 		isEditingDiscountPercent.value = false;
-		editingDiscountPercentValue.value = "";
+		editingDiscountPercentValue.value = String(Number(props.item.discount_percentage || 0));
 	}
 }
 
@@ -725,16 +736,14 @@ function submitDiscountPercentEdit() {
 
 function cancelDiscountPercentEdit() {
 	isEditingDiscountPercent.value = false;
-	editingDiscountPercentValue.value = "";
+	editingDiscountPercentValue.value = String(Number(props.item.discount_percentage || 0));
 }
 
 function openDiscountAmountEdit() {
 	if (disableDiscountEdit.value) return;
 	isEditingDiscountAmount.value = true;
-	editingDiscountAmountValue.value = "";
-	nextTick(() => {
-		discountAmountInput.value?.focus();
-	});
+	editingDiscountAmountValue.value = String(Number(props.item.discount_amount || 0));
+	focusAndSelectTextField(discountAmountInput);
 }
 
 function closeDiscountAmountEdit() {
@@ -746,7 +755,7 @@ function closeDiscountAmountEdit() {
 			}
 		}
 		isEditingDiscountAmount.value = false;
-		editingDiscountAmountValue.value = "";
+		editingDiscountAmountValue.value = String(Number(props.item.discount_amount || 0));
 	}
 }
 
@@ -757,7 +766,7 @@ function submitDiscountAmountEdit() {
 
 function cancelDiscountAmountEdit() {
 	isEditingDiscountAmount.value = false;
-	editingDiscountAmountValue.value = "";
+	editingDiscountAmountValue.value = String(Number(props.item.discount_amount || 0));
 }
 </script>
 
