@@ -8,6 +8,31 @@ describe("useItemSelection fly animation", () => {
 		document.body.innerHTML = "";
 	});
 
+	it("marks exactly the highlighted row as selected", () => {
+		const itemSelection = useItemSelection();
+		itemSelection.registerContext({
+			displayedItems: [
+				{ item_code: "ITEM-001" },
+				{ item_code: "ITEM-002" },
+			],
+		});
+
+		itemSelection.navigateHighlightedItem(1);
+
+		expect(
+			itemSelection.getItemRowProps({ item_code: "ITEM-001" }),
+		).toEqual({
+			"aria-selected": "true",
+			class: { "item-row-highlighted": true },
+		});
+		expect(
+			itemSelection.getItemRowProps({ item_code: "ITEM-002" }),
+		).toEqual({
+			"aria-selected": "false",
+			class: { "item-row-highlighted": false },
+		});
+	});
+
 	it("targets the cart top-center anchor instead of the selector-side table", async () => {
 		const selectorTable = document.createElement("div");
 		selectorTable.className = "items-table-container";

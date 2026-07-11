@@ -425,3 +425,23 @@ Verification:
 - `yarn build`
 - `/Users/mac/anaconda3/bin/conda run -n frappe bench --site retailmind.local clear-cache`
 - Attempted focused Playwright run for the product search keyboard scenario; the local test browser failed before the new assertion because the POS item index returned `No items found` for the fixture item `A3106`.
+
+## 2026-07-11 Product Search Highlight Scrolling Fix
+
+Issue resolved:
+
+- In the searched product list, repeated `ArrowDown` / `ArrowUp` navigation could move the highlighted item out of view without scrolling.
+- Fast arrow-key navigation could leave multiple visible rows styled as selected because the virtualized table reused DOM rows.
+
+Implemented:
+
+- Product result rows now explicitly expose selected and unselected state through row props instead of only adding a class to the active row.
+- The list view now receives the active highlighted item code, removes stale highlight classes from recycled rows, and scrolls the active row into view after each highlight change.
+- Added unit coverage for selected/unselected row props and selector row metadata.
+
+Verification:
+
+- `yarn test:unit tests/itemSelectorHighlightBindings.spec.ts tests/useItemsSelectorDisplayBindings.spec.ts tests/useItemSelectionFlyAnimation.spec.ts`
+- `yarn type-check`
+- `yarn build`
+- `/Users/mac/anaconda3/bin/conda run -n frappe bench --site retailmind.local clear-cache`

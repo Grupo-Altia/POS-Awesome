@@ -54,10 +54,7 @@ export function useItemSelection() {
 			return;
 		}
 
-		Object.defineProperties(
-			ctx,
-			Object.getOwnPropertyDescriptors(context),
-		);
+		Object.defineProperties(ctx, Object.getOwnPropertyDescriptors(context));
 	}
 
 	// --- Highlighting Logic ---
@@ -147,7 +144,11 @@ export function useItemSelection() {
 	}
 
 	function getItemRowProps(item: unknown) {
-		return isItemHighlighted(item) ? { class: "item-row-highlighted" } : {};
+		const highlighted = isItemHighlighted(item);
+		return {
+			"aria-selected": highlighted ? "true" : "false",
+			class: { "item-row-highlighted": highlighted },
+		};
 	}
 
 	// --- Selection Logic ---
@@ -224,7 +225,10 @@ export function useItemSelection() {
 		const selectorContainer = document.querySelector(
 			".items-table-container",
 		) as HTMLElement | null;
-		return { target: selectorContainer, cleanup: null as (() => void) | null };
+		return {
+			target: selectorContainer,
+			cleanup: null as (() => void) | null,
+		};
 	}
 
 	function triggerFlyAnimation(event: MouseEvent, isRow = false) {
