@@ -25,6 +25,7 @@ def _install_stubs():
     frappe_utils = types.ModuleType("frappe.utils")
     frappe_utils.cint = lambda value=0: int(value or 0)
     frappe_utils.cstr = str
+    frappe_utils.flt = lambda value=0, *args, **kwargs: float(value or 0)
     frappe_utils.get_datetime = lambda value: value
     frappe_utils.add_days = lambda date_value, days: f"{date_value}:{days}"
     frappe_utils.nowdate = lambda: "2026-07-08"

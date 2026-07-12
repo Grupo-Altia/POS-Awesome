@@ -129,6 +129,7 @@ class TestItemFetchers(unittest.TestCase):
     def test_merge_item_row_exposes_bom_cost_metadata(self):
         lookup = self.module.ItemLookupData(
             price_map={},
+            buying_price_map={},
             stock_map={},
             meta_map={"ITEM-001": AttrDict({"name": "ITEM-001", "stock_uom": "Nos"})},
             uom_map={},

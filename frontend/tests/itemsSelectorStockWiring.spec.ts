@@ -155,6 +155,7 @@ vi.mock("../src/posapp/composables/pos/items/useItemAddition", () => ({
 
 vi.mock("../src/posapp/composables/pos/items/useItemSelection", () => ({
 	useItemSelection: () => ({
+		highlightedItemCode: ref(null),
 		registerContext: vi.fn(),
 		clearHighlightedItem: vi.fn(),
 		syncHighlightedItem: vi.fn(),
