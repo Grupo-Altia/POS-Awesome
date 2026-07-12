@@ -244,6 +244,38 @@ describe("useItemAddition new line behavior", () => {
 		expect(context.items[1].qty).toBe(1);
 	});
 
+	it("appends distinct Counter Grid items in entry order", async () => {
+		const api = useItemAddition();
+		const invoiceStore = useInvoiceStore();
+		const context = {
+			...createContext(false),
+			invoiceStore,
+			appendNewItems: true,
+			currency_precision: 2,
+			flt: (value: any) => Number(value),
+		} as any;
+		Object.defineProperty(context, "items", {
+			get: () => invoiceStore.items,
+		});
+
+		const first = createItem();
+		await api.prepareItemForCart(first, 1, context);
+		await api.addItem(first, context);
+
+		const second = {
+			...createItem(),
+			item_code: "ITEM-002",
+			item_name: "Second Item",
+		};
+		await api.prepareItemForCart(second, 1, context);
+		await api.addItem(second, context);
+
+		expect(invoiceStore.items.map((item) => item.item_code)).toEqual([
+			"ITEM-001",
+			"ITEM-002",
+		]);
+	});
+
 	it("auto-selects the FEFO batch and applies its batch price on add", async () => {
 		const api = useItemAddition();
 		const context = createContext(false) as any;

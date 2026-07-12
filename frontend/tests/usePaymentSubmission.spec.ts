@@ -5,7 +5,10 @@ import { usePaymentSubmission } from "../src/posapp/composables/pos/payments/use
 import { ApiEnvelopeError } from "../src/posapp/services/api";
 
 vi.mock("../src/offline/index", () => ({
+	enqueueInvoiceOutboxEntry: vi.fn(async () => ({})),
 	isOffline: vi.fn(() => false),
+	persistInvoiceIntentJournal: vi.fn(() => "test-request-id"),
+	removeInvoiceOutboxEntry: vi.fn(async () => 1),
 	saveOfflineInvoice: vi.fn(),
 	updateLocalStock: vi.fn(),
 }));
@@ -651,15 +654,33 @@ describe("usePaymentSubmission", () => {
 		expect(submittedDoc.base_write_off_amount).toBe(2800);
 	});
 
-	it("reuses the same client request id across repeated invoice submit attempts", async () => {
+	it("reuses one identity after an ambiguous timeout and Submit & Print retry", async () => {
 		const invoiceService = (
 			await import("../src/posapp/services/invoiceService")
 		).default;
-		(invoiceService.submitInvoice as any).mockResolvedValue({
-			name: "ACC-SINV-0100",
-			doctype: "Sales Invoice",
-			docstatus: 1,
-		});
+		const offlineModule = await import("../src/offline/index");
+		(invoiceService.submitInvoice as any)
+			.mockRejectedValueOnce(
+				new ApiEnvelopeError({
+					ok: false,
+					data: null,
+					error: {
+						code: "TIMEOUT",
+						message: "Request timed out",
+						retryable: true,
+					},
+					requestId: "transport-timeout-001",
+					serverTime: null,
+				}),
+			)
+			.mockResolvedValueOnce({
+				name: "ACC-SINV-0100",
+				doctype: "Sales Invoice",
+				docstatus: 1,
+			});
+		const consoleError = vi
+			.spyOn(console, "error")
+			.mockImplementation(() => undefined);
 
 		const invoiceDoc = ref<any>({
 			name: "ACC-SINV-0100",
@@ -697,15 +718,19 @@ describe("usePaymentSubmission", () => {
 			diff_payment: ref(0),
 		});
 
-		await submitInvoice(false, {
-			onFinishNavigation: vi.fn(),
-		});
-		await submitInvoice(false, {
+		await expect(
+			submitInvoice(false, {
+				onFinishNavigation: vi.fn(),
+			}),
+		).rejects.toThrow("Request timed out");
+		await submitInvoice(true, {
 			onFinishNavigation: vi.fn(),
 		});
 
+		const firstData = (invoiceService.submitInvoice as any).mock.calls[0][0];
 		const firstSubmittedDoc = (invoiceService.submitInvoice as any).mock
 			.calls[0][1];
+		const secondData = (invoiceService.submitInvoice as any).mock.calls[1][0];
 		const secondSubmittedDoc = (invoiceService.submitInvoice as any).mock
 			.calls[1][1];
 
@@ -718,6 +743,31 @@ describe("usePaymentSubmission", () => {
 		expect(invoiceDoc.value.posa_client_request_id).toBe(
 			firstSubmittedDoc.posa_client_request_id,
 		);
+		expect(firstData).toEqual(
+			expect.objectContaining({
+				idempotency_key: firstSubmittedDoc.posa_client_request_id,
+				client_request_id: firstSubmittedDoc.posa_client_request_id,
+			}),
+		);
+		expect(secondData).toEqual(
+			expect.objectContaining({
+				idempotency_key: firstSubmittedDoc.posa_client_request_id,
+				client_request_id: firstSubmittedDoc.posa_client_request_id,
+			}),
+		);
+		expect(offlineModule.enqueueInvoiceOutboxEntry).toHaveBeenCalledTimes(2);
+		expect(offlineModule.enqueueInvoiceOutboxEntry).toHaveBeenNthCalledWith(
+			1,
+			expect.objectContaining({
+				invoice: expect.objectContaining({
+					posa_client_request_id: firstSubmittedDoc.posa_client_request_id,
+				}),
+			}),
+		);
+		expect(offlineModule.removeInvoiceOutboxEntry).toHaveBeenCalledWith(
+			firstSubmittedDoc.posa_client_request_id,
+		);
+		consoleError.mockRestore();
 	});
 
 	it("normalizes loyalty redemption fields before online submit", async () => {

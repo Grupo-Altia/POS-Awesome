@@ -1,9 +1,97 @@
 <template>
 	<v-card
 		class="cards sticky-summary-card mb-0 py-2 px-3 rounded-lg pos-themed-card"
-		:class="{ 'sticky-summary-card--dock-safe': useCompactSaleDock }"
+		:class="{
+			'sticky-summary-card--dock-safe': useCompactSaleDock && !isCounterGrid,
+			'counter-grid-summary-card': isCounterGrid,
+		}"
 	>
-		<v-row dense class="summary-content">
+		<div v-if="isCounterGrid" class="counter-grid-summary" data-testid="counter-grid-summary">
+			<div class="counter-grid-summary__metrics">
+				<div class="counter-grid-summary__metric">
+					<span>{{ __("Gross") }}</span>
+					<strong>{{ currencySymbol(displayCurrency) }}{{ formatCurrency(grossTotal) }}</strong>
+				</div>
+				<div class="counter-grid-summary__metric">
+					<span>{{ __("Item discount") }}</span>
+					<strong
+						>{{ currencySymbol(displayCurrency)
+						}}{{ formatCurrency(total_items_discount_amount) }}</strong
+					>
+				</div>
+				<div class="counter-grid-summary__metric counter-grid-summary__metric--qty">
+					<span>{{ __("Quantity") }}</span>
+					<strong>{{ formatFloat(total_qty, hide_qty_decimals ? 0 : undefined) }}</strong>
+				</div>
+				<div class="counter-grid-summary__discount">
+					<v-text-field
+						v-if="!pos_profile.posa_use_percentage_discount"
+						ref="additionalDiscountField"
+						v-model="additionalDiscountDisplay"
+						@update:model-value="handleAdditionalDiscountUpdate"
+						@focus="handleAdditionalDiscountFocus"
+						@blur="handleAdditionalDiscountBlur"
+						:label="frappe._('Additional Discount')"
+						variant="outlined"
+						density="compact"
+						hide-details
+						:prefix="currencySymbol(pos_profile.currency)"
+						:disabled="
+							!pos_profile.posa_allow_user_to_edit_additional_discount ||
+							!!discount_percentage_offer_name
+						"
+					/>
+					<v-text-field
+						v-else
+						ref="additionalDiscountField"
+						v-model="additionalDiscountPercentageDisplay"
+						@update:model-value="handleAdditionalDiscountPercentageUpdate"
+						@change="$emit('update_discount_umount')"
+						@focus="handleAdditionalDiscountPercentageFocus"
+						@blur="handleAdditionalDiscountPercentageBlur"
+						:rules="[isNumber]"
+						:label="frappe._('Additional Discount')"
+						suffix="%"
+						variant="outlined"
+						density="compact"
+						hide-details
+						:disabled="
+							!pos_profile.posa_allow_user_to_edit_additional_discount ||
+							!!discount_percentage_offer_name
+						"
+					/>
+				</div>
+				<div class="counter-grid-summary__metric counter-grid-summary__metric--total">
+					<span>{{ __("Net total") }}</span>
+					<strong>{{ currencySymbol(displayCurrency) }}{{ formatCurrency(subtotal) }}</strong>
+				</div>
+			</div>
+
+			<InvoiceActionButtons
+				presentation="counter-grid"
+				:pos_profile="pos_profile"
+				:saveLoading="saveLoading"
+				:loadDraftsLoading="loadDraftsLoading"
+				:selectOrderLoading="selectOrderLoading"
+				:cancelLoading="cancelLoading"
+				:invoiceManagementLoading="invoiceManagementLoading"
+				:returnsLoading="returnsLoading"
+				:printLoading="printLoading"
+				:paymentLoading="paymentLoading"
+				:customerDisplayLoading="customerDisplayLoading"
+				@save-and-clear="handleSaveAndClear"
+				@load-drafts="handleLoadDrafts"
+				@select-order="handleSelectOrder"
+				@cancel-sale="handleCancelSale"
+				@open-invoice-management="handleOpenInvoiceManagement"
+				@open-returns="handleOpenReturns"
+				@print-draft="handlePrintDraft"
+				@show-payment="handleShowPayment"
+				@open-customer-display="handleOpenCustomerDisplay"
+			/>
+		</div>
+
+		<v-row v-else dense class="summary-content">
 			<v-col
 				v-if="!useCompactSaleDock || showReturnDiscountAlert"
 				cols="12"
@@ -93,7 +181,6 @@
 					:saveLoading="saveLoading"
 					:loadDraftsLoading="loadDraftsLoading"
 					:selectOrderLoading="selectOrderLoading"
-					:selectPurchaseOrderLoading="selectPurchaseOrderLoading"
 					:cancelLoading="cancelLoading"
 					:invoiceManagementLoading="invoiceManagementLoading"
 					:returnsLoading="returnsLoading"
@@ -211,11 +298,16 @@ defineOptions({
 });
 
 const props = defineProps({
+	presentation: {
+		type: String,
+		default: "classic",
+	},
 	pos_profile: Object,
 	total_qty: [Number, String],
 	additional_discount: Number,
 	additional_discount_percentage: Number,
 	total_items_discount_amount: Number,
+	grossTotal: Number,
 	subtotal: Number,
 	displayCurrency: String,
 	formatFloat: Function,
@@ -266,6 +358,7 @@ const additionalDiscountDisplay = ref(normalizeAdditionalDiscountDisplay(props.a
 const additionalDiscountPercentageDisplay = ref(
 	normalizeDiscountDisplay(props.additional_discount_percentage),
 );
+const isCounterGrid = computed(() => props.presentation === "counter-grid");
 const useCompactSaleDock = computed(() => responsive.windowWidth.value < 1100);
 const showDesktopDrafts = computed(() => Boolean(responsive.isDesktop.value));
 const showReturnDiscountAlert = computed(
@@ -590,6 +683,78 @@ defineExpose({
 	transition: all 0.3s ease;
 }
 
+.counter-grid-summary-card {
+	position: static;
+	padding: 8px 10px !important;
+	border-top: 1px solid var(--pos-border);
+	border-radius: 0 !important;
+	box-shadow: none;
+}
+
+.counter-grid-summary {
+	display: grid;
+	gap: 8px;
+}
+
+.counter-grid-summary__metrics {
+	display: grid;
+	grid-template-columns:
+		minmax(112px, 1fr) minmax(118px, 1fr) minmax(76px, 0.65fr)
+		minmax(178px, 1.35fr) minmax(150px, 1.2fr);
+	gap: 6px;
+	min-width: 0;
+}
+
+.counter-grid-summary__metric {
+	display: flex;
+	min-width: 0;
+	height: 48px;
+	padding: 5px 9px;
+	flex-direction: column;
+	justify-content: center;
+	border: 1px solid var(--pos-border);
+	border-radius: 4px;
+	background: var(--pos-surface-muted);
+}
+
+.counter-grid-summary__metric span {
+	font-size: 0.68rem;
+	font-weight: 600;
+	color: var(--pos-text-secondary);
+}
+
+.counter-grid-summary__metric strong {
+	overflow: hidden;
+	font-size: 0.94rem;
+	font-variant-numeric: tabular-nums;
+	text-overflow: ellipsis;
+	white-space: nowrap;
+}
+
+.counter-grid-summary__metric--total {
+	border-color: rgba(var(--v-theme-success), 0.42);
+	background: rgba(var(--v-theme-success), 0.09);
+}
+
+.counter-grid-summary__metric--total strong {
+	font-size: 1.05rem;
+	color: rgb(var(--v-theme-success));
+}
+
+.counter-grid-summary__discount {
+	min-width: 0;
+}
+
+.counter-grid-summary__discount :deep(.v-field) {
+	height: 48px;
+	background: rgb(var(--v-theme-surface));
+}
+
+.counter-grid-summary__discount :deep(.v-field__input) {
+	min-height: 48px;
+	font-variant-numeric: tabular-nums;
+}
+
 .sticky-summary-card {
 	position: sticky;
 	bottom: 0;
@@ -629,7 +794,7 @@ defineExpose({
 	font-size: 0.72rem;
 	font-weight: 700;
 	text-transform: uppercase;
-	letter-spacing: 0.08em;
+	letter-spacing: 0;
 	color: var(--pos-text-secondary);
 }
 

@@ -49,6 +49,7 @@ export function useItemAddition() {
 		return Number.isFinite(numeric) ? numeric : fallback;
 	};
 	const qtyOrOne = (value: any) => toFiniteNumber(value, 0) || 1;
+	const newItemInsertIndex = (context: any) => (context?.appendNewItems ? -1 : 0);
 
 	const callSetBatchQty = (
 		context: any,
@@ -270,11 +271,14 @@ export function useItemAddition() {
 
 		// 2. Process Additions
 		if (currentItems.length) {
-			const addedItems = context.invoiceStore.addItems(currentItems, 0); // Prepend to top
+			const insertIndex = newItemInsertIndex(context);
+			const existingItemCount = context.items.length;
+			const addedItems = context.invoiceStore.addItems(currentItems, insertIndex);
+			const firstAddedIndex = insertIndex < 0 ? existingItemCount : 0;
 
 			addedItems.forEach((item, index) => {
 				const resolvers = currentResolvers[index] || []; // Array of resolvers
-				refreshMergeCacheEntry(context, item, 0);
+				refreshMergeCacheEntry(context, item, firstAddedIndex + index);
 				// Benchmark note: Use preloaded batch data to avoid extra fetches on auto-assign.
 				if (shouldAutoSetBatch(context, item)) {
 					callSetBatchQty(context, item, null, false);
@@ -324,9 +328,12 @@ export function useItemAddition() {
 		});
 
 		if (context.invoiceStore) {
-			const added = context.invoiceStore.addItems(splitItems, 0);
-			added.forEach((line: any) => {
-				refreshMergeCacheEntry(context, line, 0);
+			const insertIndex = newItemInsertIndex(context);
+			const existingItemCount = context.items.length;
+			const added = context.invoiceStore.addItems(splitItems, insertIndex);
+			const firstAddedIndex = insertIndex < 0 ? existingItemCount : 0;
+			added.forEach((line: any, index: number) => {
+				refreshMergeCacheEntry(context, line, firstAddedIndex + index);
 				runAsyncTask(() => expandBundle(line, context), "expand_bundle");
 				handleItemExpansion(line, context);
 			});
@@ -335,8 +342,9 @@ export function useItemAddition() {
 			}
 		} else {
 			splitItems.forEach((line: any) => {
-				context.items.unshift(line);
-				refreshMergeCacheEntry(context, line, 0);
+				if (context.appendNewItems) context.items.push(line);
+				else context.items.unshift(line);
+				refreshMergeCacheEntry(context, line, context.appendNewItems ? context.items.length - 1 : 0);
 				runAsyncTask(() => expandBundle(line, context), "expand_bundle");
 				handleItemExpansion(line, context);
 			});
@@ -666,8 +674,13 @@ export function useItemAddition() {
 							}
 						});
 					} else {
-						context.items.unshift(new_item);
-						refreshMergeCacheEntry(context, new_item, 0);
+						if (context.appendNewItems) context.items.push(new_item);
+						else context.items.unshift(new_item);
+						refreshMergeCacheEntry(
+							context,
+							new_item,
+							context.appendNewItems ? context.items.length - 1 : 0,
+						);
 						runAsyncTask(
 							() => expandBundle(new_item, context),
 							"expand_bundle",
@@ -676,9 +689,14 @@ export function useItemAddition() {
 						// Handle extra items from batch splitting
 						if (extra_items && extra_items.length > 0) {
 							extra_items.forEach((split_item) => {
-								context.items.unshift(split_item);
+								if (context.appendNewItems) context.items.push(split_item);
+								else context.items.unshift(split_item);
 								// Replicate basic setup for split items
-								refreshMergeCacheEntry(context, split_item, 0);
+								refreshMergeCacheEntry(
+									context,
+									split_item,
+									context.appendNewItems ? context.items.length - 1 : 0,
+								);
 								runAsyncTask(
 									() => expandBundle(split_item, context),
 									"expand_bundle",

@@ -14,6 +14,19 @@ def extract_invoice_client_request_id(invoice=None, data=None):
     )
 
 
+def normalize_invoice_request_identity(invoice=None, data=None, client_request_id=None):
+    invoice = invoice if isinstance(invoice, dict) else {}
+    data = data if isinstance(data, dict) else {}
+    request_id = normalize_client_request_id(client_request_id) or extract_invoice_client_request_id(
+        invoice, data
+    )
+    if request_id:
+        invoice["posa_client_request_id"] = request_id
+        data["idempotency_key"] = request_id
+        data["client_request_id"] = request_id
+    return request_id
+
+
 def strip_invoice_client_request_id(payload):
     if isinstance(payload, dict):
         payload.pop("posa_client_request_id", None)

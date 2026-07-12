@@ -1,0 +1,337 @@
+import { expect, test, type Page } from "@playwright/test";
+
+const ENABLED = process.env.POSA_COUNTER_GRID_E2E === "1";
+const POS_PATH = process.env.POSA_SMOKE_PATH || "/desk/posapp";
+const KNOWN_ITEM_CODES = ["02017", "02016", "02249", "A3106", "22203"];
+
+test.skip(
+	!ENABLED,
+	"Set POSA_COUNTER_GRID_E2E=1 to run Counter Grid E2E tests.",
+);
+
+async function waitForPos(page: Page) {
+	await page.goto(POS_PATH, { waitUntil: "domcontentloaded" });
+	if (/\/login/.test(page.url())) {
+		throw new Error(
+			"Counter Grid E2E requires POSA_SMOKE_SID or login credentials.",
+		);
+	}
+	await expect(page.locator(".main-section").first()).toBeVisible({
+		timeout: 90_000,
+	});
+	await expect(page.locator(".loading-overlay")).toHaveCount(0, {
+		timeout: 90_000,
+	});
+}
+
+async function waitForLoadingToSettle(page: Page) {
+	for (let attempt = 0; attempt < 8; attempt += 1) {
+		await expect(page.locator(".loading-overlay")).toHaveCount(0, {
+			timeout: 90_000,
+		});
+		await page.waitForTimeout(750);
+		if ((await page.locator(".loading-overlay").count()) === 0) return;
+	}
+	throw new Error("POS loading overlay did not remain settled.");
+}
+
+async function openCounterSearch(page: Page, query: string) {
+	const entry = page.getByTestId("counter-grid-item-entry");
+	await entry.fill(query);
+	await entry.press("Enter");
+	const search = page.getByTestId("pos-item-search").locator("input");
+	await expect(search).toBeVisible({ timeout: 30_000 });
+	await expect(search).toHaveValue(query);
+	const selector = page.locator(".items-selector-shell--counter-dialog");
+	await expect(selector).toHaveAttribute("data-search-ready-query", query, {
+		timeout: 30_000,
+	});
+	return { entry, search, selector };
+}
+
+async function addKnownItemFromCounterSearch(
+	page: Page,
+	excludedCodes = new Set<string>(),
+) {
+	for (const itemCode of KNOWN_ITEM_CODES) {
+		if (excludedCodes.has(itemCode)) continue;
+		const { search } = await openCounterSearch(page, itemCode);
+		const result = page.getByTestId(`pos-item-row-${itemCode}`);
+		if (await result.isVisible({ timeout: 5_000 }).catch(() => false)) {
+			await expect(result).toHaveAttribute("aria-selected", "true");
+			await expect(search).toBeFocused();
+			await search.press("Enter");
+			const cartRow = page.getByTestId(`cart-row-${itemCode}`).first();
+			await expect(cartRow).toBeVisible({ timeout: 30_000 });
+			return { itemCode, cartRow };
+		}
+		await page.getByRole("button", { name: "Close item search" }).click();
+		await expect(page.getByTestId("counter-grid-item-entry")).toBeFocused();
+	}
+	throw new Error(
+		`No searchable test item found from ${KNOWN_ITEM_CODES.join(", ")}.`,
+	);
+}
+
+test.describe("Counter Grid shell", () => {
+	test("uses Counter Grid at certified desktop widths and Classic below 1024px", async ({
+		page,
+	}) => {
+		await page.setViewportSize({ width: 1366, height: 768 });
+		await waitForPos(page);
+
+		await expect(page.getByTestId("counter-grid-pos")).toBeVisible();
+		await expect(page.getByTestId("counter-grid-item-entry")).toBeVisible();
+		await expect(page.getByTestId("classic-invoice")).toHaveCount(0);
+
+		await page.setViewportSize({ width: 1000, height: 768 });
+		await expect(page.getByTestId("classic-invoice")).toHaveCount(1);
+		await expect(page.getByTestId("counter-grid-pos")).toHaveCount(0);
+		await expect(
+			page.getByTestId("pos-item-search").locator("input"),
+		).toBeVisible({
+			timeout: 30_000,
+		});
+	});
+
+	test("opens modal item search from the blank row and returns focus on close", async ({
+		page,
+	}) => {
+		await page.setViewportSize({ width: 1280, height: 720 });
+		await waitForPos(page);
+
+		const entry = page.getByTestId("counter-grid-item-entry");
+		await expect(page.locator(".loading-overlay")).toHaveCount(0, {
+			timeout: 90_000,
+		});
+		const { search } = await openCounterSearch(page, KNOWN_ITEM_CODES[0]);
+		await expect(search).toBeFocused({ timeout: 10_000 });
+		const pharmacyResults = page.getByTestId(
+			"pharmacy-item-search-results",
+		);
+		await expect(pharmacyResults).toBeVisible();
+		await expect(
+			page.getByTestId("pharmacy-include-zero-stock"),
+		).toBeVisible();
+		const headings = await pharmacyResults
+			.locator("thead th")
+			.allTextContents();
+		for (const heading of [
+			"Code",
+			"Product Name",
+			"Pack",
+			"Company",
+			"Group",
+			"Generic",
+			"R.P",
+			"Rack",
+			"Pack Stock",
+			"Loose",
+		]) {
+			expect(headings).toContain(heading);
+		}
+
+		await page.getByRole("button", { name: "Close item search" }).click();
+		await expect(entry).toBeFocused({ timeout: 15_000 });
+		await expect(entry).toHaveValue(KNOWN_ITEM_CODES[0]);
+	});
+
+	test("highlights only the active pharmacy search result", async ({
+		page,
+	}) => {
+		await page.setViewportSize({ width: 1280, height: 720 });
+		await waitForPos(page);
+
+		await openCounterSearch(page, "panadol");
+		const rows = page.locator('[data-testid^="pos-item-row-"]');
+		await expect(rows.nth(1)).toBeVisible({ timeout: 30_000 });
+		await expect(
+			page.locator(
+				'[data-testid^="pos-item-row-"][aria-selected="true"]',
+			),
+		).toHaveCount(1);
+		await expect(rows.nth(0)).toHaveAttribute("aria-selected", "true");
+		await expect(rows.nth(1)).toHaveAttribute("aria-selected", "false");
+		await expect(rows.nth(1)).not.toHaveClass(/item-row-highlighted/);
+	});
+
+	test("advances through editable cells to the next item row and navigates back", async ({
+		page,
+	}) => {
+		await page.setViewportSize({ width: 1280, height: 720 });
+		await waitForPos(page);
+		const { cartRow } = await addKnownItemFromCounterSearch(page);
+
+		const qtyInput = cartRow
+			.locator('[data-column-key="qty"] input')
+			.first();
+		await expect(qtyInput).toBeFocused({ timeout: 15_000 });
+		await qtyInput.fill("2");
+		await page.keyboard.press("Enter");
+		await expect(cartRow).toHaveAttribute(
+			"data-active-cell-key",
+			"discount_percentage",
+		);
+		await expect(
+			cartRow.locator('[data-column-key="discount_percentage"] input'),
+		).toBeFocused();
+
+		await page.keyboard.press("Enter");
+		await expect(cartRow).toHaveAttribute(
+			"data-active-cell-key",
+			"discount_amount",
+		);
+		await expect(
+			cartRow.locator('[data-column-key="discount_amount"] input'),
+		).toBeFocused();
+
+		await page.keyboard.press("Enter");
+		const entry = page.getByTestId("counter-grid-item-entry");
+		await expect(entry).toBeFocused({ timeout: 15_000 });
+		await page.keyboard.press("Shift+Tab");
+		await expect(cartRow).toHaveAttribute(
+			"data-active-cell-key",
+			"discount_amount",
+		);
+		await expect(
+			cartRow.locator('[data-column-key="discount_amount"] input'),
+		).toBeFocused();
+	});
+
+	test("appends each distinct item below the prior row", async ({ page }) => {
+		await page.setViewportSize({ width: 1366, height: 768 });
+		await waitForPos(page);
+
+		const first = await addKnownItemFromCounterSearch(page);
+		await page.keyboard.press("F2");
+		await expect(page.getByTestId("counter-grid-item-entry")).toBeFocused();
+		const second = await addKnownItemFromCounterSearch(
+			page,
+			new Set([first.itemCode]),
+		);
+
+		const codes = await page
+			.locator(".posa-cart-item-row")
+			.evaluateAll((rows) =>
+				rows.map((row) =>
+					(row.getAttribute("data-testid") || "").replace(
+						"cart-row-",
+						"",
+					),
+				),
+			);
+		expect(codes.slice(0, 2)).toEqual([first.itemCode, second.itemCode]);
+	});
+
+	test("retains cashier, sync, profile, PIN, and operational navigation", async ({
+		page,
+	}) => {
+		await page.setViewportSize({ width: 1280, height: 720 });
+		await waitForPos(page);
+
+		await page.getByRole("button", { name: "Open actions menu" }).click();
+		for (const action of [
+			"switch-cashier",
+			"lock-screen",
+			"sync-offline-sales",
+			"close-shift",
+		]) {
+			await expect(
+				page.locator(`[data-test="quick-action-${action}"]`),
+			).toBeVisible();
+		}
+		await expect(page.locator(".menu-profile-card")).toContainText(
+			"POS Awesome - MedPlus",
+		);
+		await page.keyboard.press("Escape");
+
+		await page
+			.getByRole("button", { name: "Toggle navigation drawer" })
+			.click();
+		const drawer = page.locator(".drawer-custom");
+		await expect(drawer).toBeVisible();
+		const routes = await drawer
+			.locator(".drawer-item-title")
+			.allTextContents();
+		for (const route of [
+			"POS",
+			"Payments",
+			"Purchase Order",
+			"Barcode Printing",
+		]) {
+			expect(routes).toContain(route);
+		}
+
+		await drawer.locator('[data-test="drawer-footer-action"]').click();
+		const settings = page.locator('[data-test="navbar-settings-panel"]');
+		await expect(settings).toBeVisible();
+		await expect(
+			settings.locator(
+				'[data-test="settings-panel-action-refresh-offline-data"]',
+			),
+		).toBeVisible();
+		await expect(
+			settings.locator(
+				'[data-test="settings-panel-action-rebuild-offline-data"]',
+			),
+		).toBeVisible();
+		await settings
+			.locator('[data-test="settings-panel-category-personal"]')
+			.click();
+		const pinAction = settings.locator(
+			'[data-test="settings-panel-action-manage-cashier-pin"]',
+		);
+		await expect(pinAction).toBeVisible();
+		await pinAction.click();
+		await expect(
+			settings.locator('[data-test="settings-panel-detail-view"]'),
+		).toContainText("Current PIN");
+		await expect(
+			settings.locator('[data-test="settings-panel-detail-view"]'),
+		).toContainText("New PIN");
+		await settings
+			.locator('[data-test="navbar-settings-panel-close"]')
+			.click();
+		await expect(settings).toBeHidden();
+	});
+
+	test("keeps the certified shell inside a 1024x768 viewport", async ({
+		page,
+	}) => {
+		await page.setViewportSize({ width: 1024, height: 768 });
+		await waitForPos(page);
+		await expect(page.getByTestId("counter-grid-pos")).toBeVisible();
+		await expect(page.getByTestId("counter-grid-summary")).toBeVisible();
+		for (const testId of [
+			"invoice-action-save-clear",
+			"invoice-action-drafts",
+			"invoice-action-management",
+			"invoice-action-returns",
+			"invoice-action-cancel-sale",
+			"invoice-action-pay",
+		]) {
+			await expect(page.getByTestId(testId)).toBeVisible();
+		}
+		await waitForLoadingToSettle(page);
+		await expect(
+			page.locator(".v-snackbar").filter({ hasText: "Sell Offline" }),
+		).toHaveCount(0);
+		await page.screenshot({
+			path: "test-results/counter-grid-1024x768.png",
+			fullPage: true,
+		});
+
+		const overflow = await page.evaluate(() => ({
+			documentWidth: document.documentElement.scrollWidth,
+			viewportWidth: document.documentElement.clientWidth,
+			documentHeight: document.documentElement.scrollHeight,
+			viewportHeight: document.documentElement.clientHeight,
+		}));
+		expect(overflow.documentWidth).toBeLessThanOrEqual(
+			overflow.viewportWidth + 1,
+		);
+		expect(overflow.documentHeight).toBeLessThanOrEqual(
+			overflow.viewportHeight + 1,
+		);
+	});
+});

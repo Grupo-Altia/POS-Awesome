@@ -23,6 +23,19 @@ def _install_stubs():
     frappe_module.whitelist = lambda *args, **kwargs: (lambda fn: fn)
     sys.modules["frappe"] = frappe_module
 
+    # The offline-sync harness installs namespace stubs with empty package paths,
+    # so load the real shared identity helper explicitly.
+    idempotency_name = "posawesome.posawesome.api.idempotency"
+    idempotency_path = (
+        REPO_ROOT / "posawesome" / "posawesome" / "api" / "idempotency.py"
+    )
+    idempotency_spec = importlib.util.spec_from_file_location(
+        idempotency_name, idempotency_path
+    )
+    idempotency_module = importlib.util.module_from_spec(idempotency_spec)
+    sys.modules[idempotency_name] = idempotency_module
+    idempotency_spec.loader.exec_module(idempotency_module)
+
     creation_module = types.ModuleType("posawesome.posawesome.api.invoice_processing.creation")
     creation_module.submit_invoice = lambda invoice, data, submit_in_background=0: {
         "name": "ACC-SINV-OUTBOX-0001",
@@ -71,6 +84,45 @@ class TestOfflineSyncInvoices(unittest.TestCase):
         self.assertTrue(response["acknowledged"])
         self.assertEqual(response["client_request_id"], "outbox-fixed-001")
         self.assertEqual(response["invoice"]["name"], "ACC-SINV-OUTBOX-0001")
+
+    def test_submit_invoice_outbox_entry_normalizes_conflicting_identity_aliases(self):
+        captured = {}
+        original_submit_invoice = self.module.submit_invoice
+
+        def capture_submit(invoice, data, submit_in_background=0):
+            captured["invoice"] = json.loads(invoice)
+            captured["data"] = json.loads(data)
+            return {
+                "name": "ACC-SINV-OUTBOX-0002",
+                "doctype": "Sales Invoice",
+                "docstatus": 1,
+                "status": 1,
+            }
+
+        self.module.submit_invoice = capture_submit
+        try:
+            self.module.submit_invoice_outbox_entry(
+                client_request_id="outbox-authoritative-002",
+                invoice={"posa_client_request_id": "stale-invoice-id"},
+                data={
+                    "idempotency_key": "stale-idempotency-key",
+                    "client_request_id": "stale-client-id",
+                },
+            )
+        finally:
+            self.module.submit_invoice = original_submit_invoice
+
+        self.assertEqual(
+            captured["invoice"]["posa_client_request_id"],
+            "outbox-authoritative-002",
+        )
+        self.assertEqual(
+            captured["data"],
+            {
+                "idempotency_key": "outbox-authoritative-002",
+                "client_request_id": "outbox-authoritative-002",
+            },
+        )
 
     def test_repair_invoice_outbox_entry_delegates_to_submission_repair(self):
         response = self.module.repair_invoice_outbox_entry(

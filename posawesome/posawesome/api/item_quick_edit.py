@@ -13,15 +13,34 @@ from posawesome.posawesome.api.item_sale_controls import (
     installed_item_control_fields,
     item_has_field,
 )
-from posawesome.posawesome.api.utils import (
-    _ensure_pos_profile,
-    assert_pos_profile_write_allowed,
-)
+from posawesome.posawesome.api.pos_access import get_authorized_pos_item, get_authorized_pos_profile
 
 
 QUICK_EDIT_FLAG = "posa_allow_item_quick_edit"
 PRIVILEGED_ROLES = {"System Manager", "Stock Manager", "Item Manager"}
 SUPPLIER_BRAND_MAPPING_DOCTYPE = "RetailMind Supplier Brand Mapping"
+STANDARD_QUICK_EDIT_FIELDS = frozenset(
+    {
+        "item_name",
+        "description",
+        "item_group",
+        "brand",
+        "max_discount",
+        "standard_rate",
+    }
+)
+OPTIONAL_QUICK_EDIT_FIELDS = (
+    SHORT_NAME_FIELD,
+    CONTROLLED_FIELD,
+    NON_DISCOUNTABLE_FIELD,
+    LOCKED_FIELD,
+    "retailmind_units_per_pack",
+    "retailmind_old_pos_company_code",
+    "retailmind_old_pos_generic_code",
+    "retailmind_old_pos_generic_name",
+    "retailmind_old_pos_pack",
+    "retailmind_old_pos_rack",
+)
 
 
 def _as_dict(data):
@@ -49,16 +68,7 @@ def _item_fields():
         "max_discount",
         "standard_rate",
     ]
-    for field in (
-        SHORT_NAME_FIELD,
-        CONTROLLED_FIELD,
-        NON_DISCOUNTABLE_FIELD,
-        LOCKED_FIELD,
-        "retailmind_units_per_pack",
-        "retailmind_old_pos_generic_code",
-        "retailmind_old_pos_generic_name",
-        "retailmind_old_pos_pack",
-    ):
+    for field in OPTIONAL_QUICK_EDIT_FIELDS:
         if item_has_field(field):
             fields.append(field)
     return fields
@@ -168,6 +178,7 @@ def _upsert_item_price(item_code, price_list, rate, uom=None, buying=False, sell
     existing = frappe.db.exists("Item Price", filters)
     if existing:
         doc = frappe.get_doc("Item Price", existing)
+        doc.check_permission("write")
         doc.price_list_rate = flt(rate)
         doc.buying = 1 if buying else cint(doc.buying)
         doc.selling = 1 if selling else cint(doc.selling)
@@ -186,6 +197,7 @@ def _upsert_item_price(item_code, price_list, rate, uom=None, buying=False, sell
             "selling": 1 if selling else 0,
         }
     )
+    doc.check_permission("create")
     doc.flags.ignore_permissions = True
     doc.insert()
     return doc.name
@@ -196,8 +208,8 @@ def _is_user_privileged(user):
     return bool(roles.intersection(PRIVILEGED_ROLES))
 
 
-def _can_save(profile, cashier=None):
-    user = str(cashier or frappe.session.user or "").strip()
+def _can_save(profile):
+    user = str(frappe.session.user or "").strip()
     if not user or user == "Guest":
         return False
     if _is_user_privileged(user):
@@ -210,9 +222,8 @@ def _can_save(profile, cashier=None):
         return False
 
 
-def _assert_can_save(profile, cashier=None):
-    assert_pos_profile_write_allowed(profile, company=profile.get("company"))
-    if not _can_save(profile, cashier=cashier):
+def _assert_can_save(profile):
+    if not _can_save(profile):
         frappe.throw(_("A POS supervisor with Item Quick Edit enabled is required."))
 
 
@@ -221,6 +232,12 @@ def _get_options():
         "item_groups": frappe.get_all(
             "Item Group",
             filters={"is_group": 0},
+            pluck="name",
+            order_by="name asc",
+            limit_page_length=500,
+        ),
+        "brands": frappe.get_all(
+            "Brand",
             pluck="name",
             order_by="name asc",
             limit_page_length=500,
@@ -291,8 +308,9 @@ def _build_pos_item_row(item):
 
 @frappe.whitelist()
 def get_item_quick_edit(item_code=None, barcode=None, pos_profile=None):
-    profile, _profile_json = _ensure_pos_profile(pos_profile)
+    profile = get_authorized_pos_profile(pos_profile)
     resolved_item_code = _resolve_item_code(item_code=item_code, barcode=barcode)
+    get_authorized_pos_item(resolved_item_code, profile)
     item = _get_item_quick_edit_item(resolved_item_code, profile)
 
     return {
@@ -347,31 +365,19 @@ def _sync_primary_supplier(item_doc, supplier):
 @frappe.whitelist()
 def save_item_quick_edit(data):
     payload = _as_dict(data)
-    profile, _profile_json = _ensure_pos_profile(payload.get("pos_profile"))
-    _assert_can_save(profile, cashier=payload.get("cashier"))
+    profile = get_authorized_pos_profile(payload.get("pos_profile"))
+    _assert_can_save(profile)
 
     item_code = _resolve_item_code(payload.get("item_code"), payload.get("barcode"))
-    item_doc = frappe.get_doc("Item", item_code)
+    item_doc = get_authorized_pos_item(item_code, profile)
+    item_doc.check_permission("write")
     item_doc.flags.ignore_permissions = True
 
-    allowed_fields = {
-        "item_name",
-        "description",
-        "item_group",
-        "brand",
-        "max_discount",
-        "standard_rate",
-        SHORT_NAME_FIELD,
-        CONTROLLED_FIELD,
-        NON_DISCOUNTABLE_FIELD,
-        LOCKED_FIELD,
-        "retailmind_units_per_pack",
-        "retailmind_old_pos_generic_code",
-        "retailmind_old_pos_generic_name",
-        "retailmind_old_pos_pack",
-    }
+    allowed_fields = STANDARD_QUICK_EDIT_FIELDS.union(OPTIONAL_QUICK_EDIT_FIELDS)
     for field in allowed_fields:
-        if field not in payload or (field not in {"item_name", "description", "item_group", "brand", "max_discount", "standard_rate"} and not item_has_field(field)):
+        if field not in payload or (
+            field not in STANDARD_QUICK_EDIT_FIELDS and not item_has_field(field)
+        ):
             continue
         setattr(item_doc, field, payload.get(field))
 
@@ -379,8 +385,8 @@ def save_item_quick_edit(data):
     _sync_primary_supplier(item_doc, payload.get("primary_supplier"))
     item_doc.save()
 
-    selling_price_list = payload.get("selling_price_list") or _resolve_price_list(profile, buying=False)
-    buying_price_list = payload.get("buying_price_list") or _resolve_price_list(profile, buying=True)
+    selling_price_list = _resolve_price_list(profile, buying=False)
+    buying_price_list = _resolve_price_list(profile, buying=True)
     uom = item_doc.stock_uom
 
     if payload.get("retail_price") not in (None, ""):

@@ -331,6 +331,7 @@ fixtures = [
                     "POS Profile-posa_hot_catalog_limit",
                     "POS Profile-posa_fast_counter_positive_stock_only",
                     "POS Profile-posa_allow_item_quick_edit",
+                    "POS Profile-posa_ui_template",
                     "Item-retailmind_short_name",
                     "Item-retailmind_controlled_item",
                     "Item-retailmind_non_discountable",

@@ -1,6 +1,10 @@
 <template>
 	<!-- Main Invoice Wrapper -->
-	<div class="pa-0 invoice-shell">
+	<div
+		class="pa-0 invoice-shell"
+		:class="{ 'invoice-shell--counter-grid': isCounterGridPresentation }"
+		:data-testid="isCounterGridPresentation ? 'counter-grid-invoice' : 'classic-invoice'"
+	>
 		<!-- Cancel Sale Confirmation Dialog -->
 		<CancelSaleDialog v-model="cancel_dialog" @confirm="cancel_invoice" />
 
@@ -8,15 +12,16 @@
 		<v-card
 			ref="invoiceCard"
 			:style="{
-				height: invoiceHeight || 'var(--container-height)',
-				maxHeight: invoiceHeight || 'var(--container-height)',
-				resize: canResizeInvoicePanel() ? 'vertical' : 'none',
-				overflow: 'auto',
+				height: isCounterGridPresentation ? 'auto' : invoiceHeight || 'var(--container-height)',
+				maxHeight: isCounterGridPresentation ? 'none' : invoiceHeight || 'var(--container-height)',
+				resize: !isCounterGridPresentation && canResizeInvoicePanel() ? 'vertical' : 'none',
+				overflow: isCounterGridPresentation ? 'hidden' : 'auto',
 			}"
 			:class="[
 				'cards my-0 py-0 mt-3 resizable invoice-main-card',
 				'pos-themed-card',
 				{ 'return-mode': isReturnInvoice },
+				{ 'invoice-main-card--counter-grid': isCounterGridPresentation },
 			]"
 			@mouseup="saveInvoiceHeight($refs.invoiceCard)"
 			@touchend="saveInvoiceHeight($refs.invoiceCard)"
@@ -192,6 +197,7 @@
 								:toggleOffer="toggleOffer"
 								:changePriceListRate="change_price_list_rate"
 								:isNegative="isNegative"
+								:counter-grid="isCounterGridPresentation"
 								@update:expanded="handleExpandedUpdate"
 								@reorder-items="handleItemReorder"
 								@add-item-from-drag="handleItemDrop"
@@ -200,6 +206,7 @@
 								"
 								@item-dropped="showDropFeedback(false, itemsTableRef)"
 								@view-packed="openPackedItems"
+								@edit-item="openItemQuickEditForItem"
 							/>
 
 							<PackedItemsDialog
@@ -247,11 +254,13 @@
 		<!-- Payment Section -->
 		<InvoiceSummary
 			ref="invoiceSummary"
+			:presentation="presentation"
 			:pos_profile="pos_profile"
 			:total_qty="total_qty"
 			:additional_discount="additional_discount"
 			:additional_discount_percentage="additional_discount_percentage"
 			:total_items_discount_amount="total_items_discount_amount"
+			:grossTotal="Total"
 			:subtotal="subtotal"
 			:displayCurrency="displayCurrency"
 			:formatFloat="formatFloat"
@@ -332,6 +341,12 @@ import {
 export default {
 	name: "POSInvoice",
 	mixins: [format],
+	props: {
+		presentation: {
+			type: String,
+			default: "classic",
+		},
+	},
 	setup() {
 		const instance = getCurrentInstance();
 		const uiStore = useUIStore();
@@ -465,6 +480,9 @@ export default {
 		ItemQuickEditDialog,
 	},
 	computed: {
+		isCounterGridPresentation() {
+			return this.presentation === "counter-grid";
+		},
 		items: {
 			get() {
 				return this.invoiceStore.items;
@@ -580,7 +598,18 @@ export default {
 		},
 
 		focusItemSearchField() {
+			if (this.isCounterGridPresentation) {
+				return this.focusCounterGridEntry();
+			}
 			this.uiStore.triggerItemSearchFocus();
+		},
+
+		focusCounterGridEntry() {
+			return this.$refs.itemsTableRef?.focusCounterGridEntry?.();
+		},
+
+		clearCounterGridEntry() {
+			return this.$refs.itemsTableRef?.clearCounterGridEntry?.();
 		},
 
 		focusCartItemQty(payload = {}) {
@@ -626,6 +655,23 @@ export default {
 			this.item_quick_edit_open = true;
 		},
 
+		openItemWorkspace() {
+			const opened = this.$refs.itemsTableRef?.openSelectedItemWorkspace?.();
+			if (!opened) {
+				this.toastStore.show({
+					title: __("Select an invoice item first"),
+					color: "warning",
+				});
+				this.focusItemSearchField?.();
+			}
+			return opened;
+		},
+
+		openItemQuickEditForItem(item = {}) {
+			this.item_quick_edit_item_code = item?.item_code || this.resolveItemQuickEditCode();
+			this.item_quick_edit_open = true;
+		},
+
 		handleItemQuickEditSaved(payload = {}) {
 			const updatedItem = payload?.pos_item || payload?.item;
 			if (updatedItem?.item_code) {
@@ -639,10 +685,7 @@ export default {
 			}
 
 			const retailPrice =
-				updatedItem?.rate ??
-				updatedItem?.price_list_rate ??
-				masterItem?.retail_price ??
-				null;
+				updatedItem?.rate ?? updatedItem?.price_list_rate ?? masterItem?.retail_price ?? null;
 			const rows = Array.isArray(this.items) ? this.items : [];
 			rows.forEach((row) => {
 				if (row?.item_code !== itemCode || !row?.posa_row_id) {
@@ -1386,6 +1429,75 @@ export default {
 	flex: 1 1 auto;
 	min-height: 0;
 	overflow: auto;
+}
+
+.invoice-shell--counter-grid {
+	height: 100%;
+	width: min(100%, 1560px);
+	margin-inline: auto;
+	overflow: hidden;
+	gap: 8px;
+}
+
+.invoice-shell--counter-grid .invoice-main-card--counter-grid {
+	flex: 1 1 0;
+	height: auto !important;
+	max-height: none !important;
+	min-height: 0;
+	margin-top: 0 !important;
+	border: 0;
+	border-radius: 0;
+	box-shadow: none;
+	overflow: hidden !important;
+}
+
+.invoice-shell--counter-grid .dynamic-padding {
+	padding: 8px 10px;
+	gap: 8px;
+	overflow: hidden;
+}
+
+.invoice-shell--counter-grid .invoice-sections {
+	gap: 8px;
+	overflow: hidden;
+}
+
+.invoice-shell--counter-grid .invoice-top-grid,
+.invoice-shell--counter-grid .invoice-meta-grid {
+	grid-template-columns: repeat(2, minmax(0, 1fr));
+	gap: 8px;
+}
+
+.invoice-shell--counter-grid .invoice-section-card {
+	border-radius: 4px;
+	box-shadow: none;
+	border-color: rgba(var(--v-theme-primary), 0.2);
+}
+
+.invoice-shell--counter-grid .invoice-section-heading {
+	display: none;
+}
+
+.invoice-shell--counter-grid .invoice-items-card {
+	flex: 1 1 auto;
+	min-height: 0;
+	padding-bottom: 0;
+	overflow: hidden;
+}
+
+.invoice-shell--counter-grid .items-table-wrapper {
+	flex: 1 1 auto;
+	min-height: 0;
+	margin-top: 0;
+	overflow: hidden;
+}
+
+.invoice-shell--counter-grid :deep(.items-table-wrapper .posa-items-table-container) {
+	flex: 1 1 auto;
+	min-height: 0;
+	height: 100% !important;
+	max-height: 100% !important;
+	overflow: auto !important;
 }
 
 @media (max-width: 1099px) {

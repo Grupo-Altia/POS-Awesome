@@ -47,6 +47,43 @@
 	box-sizing: border-box;
 }
 
+.posa-items-table-container--counter-grid .posa-cart-table {
+	border: 1px solid rgba(var(--v-theme-primary), 0.28);
+	border-radius: 4px;
+	box-shadow: 0 2px 8px rgba(15, 23, 42, 0.08);
+	background: var(--pos-card-bg);
+}
+
+.posa-items-table-container--counter-grid .posa-cart-table th {
+	height: 42px;
+	padding: 8px 10px;
+	border-right: 1px solid rgba(var(--v-theme-primary), 0.14);
+	border-bottom: 2px solid rgba(var(--v-theme-primary), 0.3);
+	background: rgba(var(--v-theme-primary), 0.08);
+	color: var(--pos-text-primary);
+	font-size: 0.76rem;
+	font-weight: 700;
+	letter-spacing: 0;
+}
+
+.posa-items-table-container--counter-grid .posa-cart-table td {
+	height: 48px;
+	padding: 6px 10px;
+	border-right: 1px solid var(--pos-border-light);
+}
+
+.posa-items-table-container--counter-grid .posa-cart-table td:last-child {
+	border-right: 0;
+}
+
+.posa-items-table-container--counter-grid .posa-cart-table tbody tr:nth-child(even) {
+	background: var(--pos-surface-muted);
+}
+
+.posa-items-table-container--counter-grid .posa-cart-table tbody tr:hover {
+	background: rgba(var(--v-theme-primary), 0.07);
+}
+
 /* =================================================================
    TABLE STRUCTURE - HEADERS, ROWS, CELLS
    ================================================================= */
@@ -95,6 +132,11 @@
 	gap: 12px;
 	text-align: center;
 	color: var(--pos-text-primary);
+	background: linear-gradient(
+		180deg,
+		var(--pos-surface-raised) 0%,
+		var(--pos-surface-muted) 100%
+	);
 	background:
 		radial-gradient(
 			circle at top,
@@ -111,7 +153,9 @@
 	display: flex;
 	align-items: center;
 	justify-content: center;
+	background: rgba(var(--v-theme-primary), 0.12);
 	background: color-mix(in srgb, var(--pos-primary) 12%, var(--pos-surface-raised));
+	border: 1px solid rgba(var(--v-theme-primary), 0.18);
 	border: 1px solid color-mix(in srgb, var(--pos-primary) 18%, var(--pos-border));
 	box-shadow: 0 14px 28px var(--pos-shadow-light);
 }

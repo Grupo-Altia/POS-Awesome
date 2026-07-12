@@ -201,7 +201,10 @@ interface InvoiceShortcutsVm {
 	remove_item?: (_item: Record<string, unknown>) => void;
 	get_draft_invoices?: () => void;
 	save_and_clear_invoice?: () => void;
+	openItemWorkspace?: () => void;
 	openItemQuickEdit?: () => void;
+	focusItemSearchField?: () => void;
+	isCounterGridPresentation?: boolean;
 	get_invoice_doc?: () => {
 		rounded_total?: number;
 		grand_total?: number;
@@ -243,9 +246,15 @@ const invoiceShortcuts: Record<string, unknown> & ThisType<InvoiceShortcutsVm> =
 				return;
 			}
 
+			if (key === "F2") {
+				consumeEvent(event);
+				this.focusItemSearchField?.();
+				return;
+			}
+
 			if (key === "F12") {
 				consumeEvent(event);
-				this.openItemQuickEdit?.();
+				(this.openItemWorkspace || this.openItemQuickEdit)?.call(this);
 				return;
 			}
 
@@ -304,6 +313,10 @@ const invoiceShortcuts: Record<string, unknown> & ThisType<InvoiceShortcutsVm> =
 
 			if (isDigit(event, 3)) {
 				consumeEvent(event);
+				if (this.isCounterGridPresentation) {
+					this.focusItemSearchField?.();
+					return;
+				}
 				showCompactPanel(this.eventBus, "selector");
 				this.uiStore.setActiveView("items");
 				this.uiStore.triggerItemSearchFocus();
@@ -337,7 +350,9 @@ const invoiceShortcuts: Record<string, unknown> & ThisType<InvoiceShortcutsVm> =
 			if (isDigit(event, 7)) {
 				consumeEvent(event);
 				if (isMacPlatform()) {
-					this.openItemQuickEdit?.();
+					(this.openItemWorkspace || this.openItemQuickEdit)?.call(
+						this,
+					);
 					return;
 				}
 				this.get_draft_orders?.();

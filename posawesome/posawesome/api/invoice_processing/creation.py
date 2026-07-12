@@ -32,6 +32,7 @@ from posawesome.posawesome.api.payments import redeeming_customer_credit
 from posawesome.posawesome.api.idempotency import (
     extract_invoice_client_request_id,
     find_invoice_by_client_request_id,
+    normalize_invoice_request_identity,
     set_invoice_client_request_id,
     strip_invoice_client_request_id,
     doctype_supports_client_request_id,
@@ -1248,7 +1249,7 @@ def update_invoice(data):
 def submit_invoice(invoice, data, submit_in_background=False):
     data = json.loads(data)
     invoice = json.loads(invoice)
-    client_request_id = extract_invoice_client_request_id(invoice, data)
+    client_request_id = normalize_invoice_request_identity(invoice, data)
     _sanitize_delivery_dates(invoice)
     _apply_manual_posting_controls(invoice)
     submit_in_background = cint(submit_in_background)

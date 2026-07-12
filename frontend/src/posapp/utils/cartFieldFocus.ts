@@ -1,9 +1,12 @@
 export type CartGridColumnKey =
+	| "item_name"
 	| "qty"
 	| "uom"
+	| "price_list_rate"
 	| "discount_percentage"
 	| "discount_amount"
 	| "rate"
+	| "amount"
 	| "posa_is_offer"
 	| "actions"
 	| "data-table-expand";
@@ -20,22 +23,30 @@ export interface CartFieldFocusOptions {
 }
 
 const FIELD_SELECTORS: Record<CartGridColumnKey, string> = {
+	item_name: '[data-column-key="item_name"]',
 	qty: '[data-column-key="qty"] .posa-cart-table__qty-input-shell input',
 	uom: '[data-column-key="uom"] .posa-cart-table__editor-display',
+	price_list_rate: '[data-column-key="price_list_rate"]',
 	rate: '[data-column-key="rate"] .posa-cart-table__editor-display',
-	discount_percentage: '[data-column-key="discount_percentage"] .posa-cart-table__editor-display',
-	discount_amount: '[data-column-key="discount_amount"] .posa-cart-table__editor-display',
+	amount: '[data-column-key="amount"]',
+	discount_percentage:
+		'[data-column-key="discount_percentage"] .posa-cart-table__editor-display',
+	discount_amount:
+		'[data-column-key="discount_amount"] .posa-cart-table__editor-display',
 	posa_is_offer: '[data-column-key="posa_is_offer"] button',
 	actions: '[data-column-key="actions"] button',
 	"data-table-expand": '[data-column-key="data-table-expand"] button',
 };
 
 export const CART_GRID_NAVIGABLE_COLUMNS: CartGridColumnKey[] = [
+	"item_name",
 	"qty",
 	"uom",
+	"price_list_rate",
 	"discount_percentage",
 	"discount_amount",
 	"rate",
+	"amount",
 	"posa_is_offer",
 	"actions",
 	"data-table-expand",
@@ -55,8 +66,18 @@ const DIRECT_EDIT_COLUMN_SET = new Set<string>(CART_GRID_DIRECT_EDIT_COLUMNS);
 export const isCartGridColumnKey = (key: unknown): key is CartGridColumnKey =>
 	typeof key === "string" && NAVIGABLE_COLUMN_SET.has(key);
 
-export const isCartGridDirectEditColumnKey = (key: unknown): key is CartGridColumnKey =>
+export const isCartGridDirectEditColumnKey = (
+	key: unknown,
+): key is CartGridColumnKey =>
 	typeof key === "string" && DIRECT_EDIT_COLUMN_SET.has(key);
+
+export const shouldDelegateCartGridKeyToEditor = (
+	target: EventTarget | null,
+	key: string,
+) =>
+	target instanceof Element &&
+	Boolean(target.closest(".uom-select")) &&
+	["ArrowDown", "ArrowUp", "Enter", " ", "Escape"].includes(key);
 
 export const getCartGridRowId = (rowIndex: number) =>
 	`posa-cart-grid-row-${rowIndex}`;
@@ -80,9 +101,7 @@ export const getNavigableCartColumnKeys = (
 		return [];
 	}
 
-	return columns
-		.map((column) => column?.key)
-		.filter(isCartGridColumnKey);
+	return columns.map((column) => column?.key).filter(isCartGridColumnKey);
 };
 
 export const getCartGridRow = (
@@ -104,6 +123,18 @@ export const getCartGridRow = (
 	return (rows?.[rowIndex] as HTMLElement | undefined) || null;
 };
 
+export async function ensureCartGridRowRendered(
+	container: ParentNode | null | undefined,
+	rowIndex: number,
+	scrollToIndex: ((index: number) => void) | null | undefined,
+	waitForRender: () => Promise<void>,
+) {
+	if (getCartGridRow(container, rowIndex)) return true;
+	scrollToIndex?.(rowIndex);
+	await waitForRender();
+	return Boolean(getCartGridRow(container, rowIndex));
+}
+
 export const getCartGridCellTarget = (
 	container: ParentNode | null | undefined,
 	rowIndex: number,
@@ -114,7 +145,9 @@ export const getCartGridCellTarget = (
 		return null;
 	}
 
-	const target = row.querySelector(FIELD_SELECTORS[field]) as HTMLElement | null;
+	const target = row.querySelector(
+		FIELD_SELECTORS[field],
+	) as HTMLElement | null;
 	return target && !isDisabled(target) ? target : null;
 };
 

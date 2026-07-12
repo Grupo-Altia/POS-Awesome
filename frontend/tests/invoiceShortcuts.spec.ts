@@ -28,7 +28,9 @@ const createVm = () => ({
 	items: [{ name: "Test Item" }],
 	focusItemTableField: vi.fn(),
 	enterInvoiceItemsGrid: vi.fn(),
+	openItemWorkspace: vi.fn(),
 	openItemQuickEdit: vi.fn(),
+	focusItemSearchField: vi.fn(),
 	getShortcutPaymentAmount: vi.fn(() => 125),
 	confirmPaymentSubmission: vi.fn(async () => 150),
 });
@@ -88,6 +90,31 @@ describe("invoiceShortcuts", () => {
 		expect(event.defaultPrevented).toBe(true);
 	});
 
+	it("uses F2 to focus the configured item-entry surface", async () => {
+		const vm = createVm();
+		const event = new KeyboardEvent("keydown", {
+			key: "F2",
+			bubbles: true,
+			cancelable: true,
+		});
+
+		await (invoiceShortcuts as any).handleInvoiceShortcut.call(vm, event);
+
+		expect(vm.focusItemSearchField).toHaveBeenCalledTimes(1);
+		expect(event.defaultPrevented).toBe(true);
+	});
+
+	it("routes Alt+3 through the Counter Grid item modal", async () => {
+		const vm = { ...createVm(), isCounterGridPresentation: true };
+		const event = createAltEvent("3", "Digit3");
+
+		await (invoiceShortcuts as any).handleInvoiceShortcut.call(vm, event);
+
+		expect(vm.focusItemSearchField).toHaveBeenCalledTimes(1);
+		expect(vm.eventBus.emit).not.toHaveBeenCalledWith("focus_item_search");
+		expect(event.defaultPrevented).toBe(true);
+	});
+
 	it("uses F8 to lock the POS screen", async () => {
 		const vm = createVm();
 		const event = new KeyboardEvent("keydown", {
@@ -103,7 +130,7 @@ describe("invoiceShortcuts", () => {
 		expect(event.defaultPrevented).toBe(true);
 	});
 
-	it("uses F12 to open item quick edit", async () => {
+	it("uses F12 to open the selected item workspace", async () => {
 		const vm = createVm();
 		const event = new KeyboardEvent("keydown", {
 			key: "F12",
@@ -113,11 +140,12 @@ describe("invoiceShortcuts", () => {
 
 		await (invoiceShortcuts as any).handleInvoiceShortcut.call(vm, event);
 
-		expect(vm.openItemQuickEdit).toHaveBeenCalledTimes(1);
+		expect(vm.openItemWorkspace).toHaveBeenCalledTimes(1);
+		expect(vm.openItemQuickEdit).not.toHaveBeenCalled();
 		expect(event.defaultPrevented).toBe(true);
 	});
 
-	it("uses Option+7 on macOS to open item quick edit", async () => {
+	it("uses Option+7 on macOS to open the selected item workspace", async () => {
 		const originalPlatform = navigator.platform;
 		const originalUserAgent = navigator.userAgent;
 		Object.defineProperty(navigator, "platform", {
@@ -136,7 +164,8 @@ describe("invoiceShortcuts", () => {
 
 		await (invoiceShortcuts as any).handleInvoiceShortcut.call(vm, event);
 
-		expect(vm.openItemQuickEdit).toHaveBeenCalledTimes(1);
+		expect(vm.openItemWorkspace).toHaveBeenCalledTimes(1);
+		expect(vm.openItemQuickEdit).not.toHaveBeenCalled();
 		expect(vm.get_draft_orders).not.toHaveBeenCalled();
 		expect(event.defaultPrevented).toBe(true);
 

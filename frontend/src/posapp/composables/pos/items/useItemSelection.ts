@@ -118,6 +118,23 @@ export function useItemSelection() {
 		// Scroll logic is watcher-driven in the component
 	}
 
+	function highlightFirstItem() {
+		if (!Array.isArray(ctx.displayedItems) || ctx.displayedItems.length === 0) {
+			clearHighlightedItem();
+			return false;
+		}
+
+		const firstItem = ctx.displayedItems[0];
+		if (!firstItem) {
+			clearHighlightedItem();
+			return false;
+		}
+
+		highlightedIndex.value = 0;
+		highlightedItemCode.value = firstItem.item_code || null;
+		return true;
+	}
+
 	function resolveHighlightedItem(item: unknown): SelectableItem | unknown {
 		if (!item || typeof item !== "object") {
 			return item;
@@ -308,6 +325,7 @@ export function useItemSelection() {
 		clearHighlightedItem,
 		syncHighlightedItem,
 		navigateHighlightedItem,
+		highlightFirstItem,
 		selectHighlightedItem,
 		isItemHighlighted,
 		getItemRowClass,

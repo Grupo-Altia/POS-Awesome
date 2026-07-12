@@ -135,7 +135,7 @@
 						class="posa-cart-table__editor-btn uom-arrow"
 						@click.stop="changeUom(-1)"
 						:aria-label="__('Previous unit of measure')"
-						:disabled="disableUomEdit || !item.item_uoms || item.item_uoms.length <= 1"
+						:disabled="!canEditUom"
 					>
 						<v-icon size="small">mdi-chevron-left</v-icon>
 					</v-btn>
@@ -144,9 +144,10 @@
 						v-if="!isEditingUom"
 						class="posa-cart-table__editor-display"
 						@click.stop="openUomEdit"
-						tabindex="0"
-						data-pos-keyboard-target="cart-uom"
+						:tabindex="canEditUom ? 0 : -1"
+						:data-pos-keyboard-target="canEditUom ? 'cart-uom' : undefined"
 						role="button"
+						:aria-disabled="canEditUom ? 'false' : 'true'"
 						:aria-label="__('Edit unit of measure')"
 					>
 						<span>{{ item.uom }}</span>
@@ -166,7 +167,7 @@
 						hide-details
 						menu-icon=""
 						:autofocus="true"
-						:disabled="disableUomEdit"
+						:disabled="!canEditUom"
 						@blur="isEditingUom = false"
 						@keydown.esc.prevent="isEditingUom = false"
 					></v-select>
@@ -177,7 +178,7 @@
 						class="posa-cart-table__editor-btn uom-arrow"
 						@click.stop="changeUom(1)"
 						:aria-label="__('Next unit of measure')"
-						:disabled="disableUomEdit || !item.item_uoms || item.item_uoms.length <= 1"
+						:disabled="!canEditUom"
 					>
 						<v-icon size="small">mdi-chevron-right</v-icon>
 					</v-btn>
@@ -563,6 +564,7 @@ function getCellAttrs(key, baseClass = "") {
 		"data-column-key": key,
 		"data-testid": `cart-cell-${props.rowIndex}-${key}`,
 		"aria-selected": isKeyboardCellActive(key) ? "true" : "false",
+		tabindex: isKeyboardCellActive(key) ? 0 : -1,
 		class: [
 			baseClass,
 			{
@@ -579,6 +581,12 @@ const disableInput = computed(
 );
 
 const disableUomEdit = computed(() => !!props.item.posa_is_replace);
+const canEditUom = computed(
+	() =>
+		!disableUomEdit.value &&
+		Array.isArray(props.item.item_uoms) &&
+		props.item.item_uoms.length > 1,
+);
 
 const disableRateEdit = computed(
 	() => !props.posProfile.posa_allow_user_to_edit_rate || !!props.item.posa_is_replace,
@@ -694,7 +702,7 @@ function handleQtyPaste(event) {
 }
 
 function openUomEdit() {
-	if (disableUomEdit.value) return;
+	if (!canEditUom.value) return;
 	isEditingUom.value = true;
 	nextTick(() => {
 		const target = uomSelect.value?.$el?.querySelector?.("input") || uomSelect.value;
@@ -733,7 +741,7 @@ function cancelQtyEdit() {
 }
 
 function changeUom(direction) {
-	if (disableUomEdit.value) return;
+	if (!canEditUom.value) return;
 	const uoms = props.item.item_uoms.map((u) => u.uom);
 	const currentIndex = uoms.indexOf(props.item.uom);
 	let newIndex = currentIndex + direction;
@@ -751,7 +759,7 @@ function changeUom(direction) {
 }
 
 function handleUomSelect(newUom) {
-	if (disableUomEdit.value) return;
+	if (!canEditUom.value) return;
 	if (newUom && newUom !== props.item.uom) {
 		emit("calc-uom", props.item, newUom);
 	}
@@ -958,10 +966,12 @@ td {
 
 .posa-cart-item-row--keyboard-active {
 	position: relative;
+	background: rgba(var(--v-theme-primary), 0.12) !important;
 	background: color-mix(in srgb, var(--pos-primary) 12%, var(--pos-surface-raised)) !important;
 }
 
 .posa-cart-item-row--keyboard-active > td {
+	background: rgba(var(--v-theme-primary), 0.1);
 	background: color-mix(in srgb, var(--pos-primary) 10%, transparent);
 }
 
@@ -976,7 +986,11 @@ td {
 }
 
 .posa-cart-item-cell--keyboard-active {
+	background: rgba(var(--v-theme-primary), 0.18) !important;
 	background: color-mix(in srgb, var(--pos-primary) 18%, var(--pos-surface-raised)) !important;
+	box-shadow:
+		inset 0 0 0 3px var(--pos-primary),
+		inset 0 0 0 6px rgba(var(--v-theme-primary), 0.16);
 	box-shadow:
 		inset 0 0 0 3px var(--pos-primary),
 		inset 0 0 0 6px color-mix(in srgb, var(--pos-primary) 16%, transparent);

@@ -1,3 +1,5 @@
+import "../browserCompatibility";
+
 /**
  * Public barrel for the POS offline layer.
  *

@@ -33,6 +33,23 @@ describe("useItemSelection fly animation", () => {
 		});
 	});
 
+	it("highlights the first result without selecting it", () => {
+		const addItem = vi.fn();
+		const itemSelection = useItemSelection();
+		itemSelection.registerContext({
+			displayedItems: [
+				{ item_code: "ITEM-001" },
+				{ item_code: "ITEM-002" },
+			],
+			addItem,
+		});
+
+		expect(itemSelection.highlightFirstItem()).toBe(true);
+		expect(itemSelection.highlightedIndex.value).toBe(0);
+		expect(itemSelection.highlightedItemCode.value).toBe("ITEM-001");
+		expect(addItem).not.toHaveBeenCalled();
+	});
+
 	it("targets the cart top-center anchor instead of the selector-side table", async () => {
 		const selectorTable = document.createElement("div");
 		selectorTable.className = "items-table-container";

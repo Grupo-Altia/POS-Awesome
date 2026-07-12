@@ -14,8 +14,9 @@
 		@dragleave="onDragLeaveFromSelector"
 	>
 		<v-data-table-virtual
+			ref="virtualTable"
 			:headers="responsiveHeaders"
-			:items="items"
+			:items="displayItems"
 			show-expand
 			item-value="posa_row_id"
 			class="posa-cart-table elevation-2 pos-themed-card"
@@ -28,7 +29,7 @@
 			hide-default-footer
 			:single-expand="true"
 			:header-props="dynamicHeaderProps"
-			:search="itemSearch"
+			:search="counterGrid ? '' : itemSearch"
 			:custom-filter="customItemFilter"
 		>
 			<template #no-data>
@@ -42,7 +43,16 @@
 			</template>
 
 			<template v-slot:item="{ item }">
+				<CounterGridEntryRow
+					v-if="isCounterGridEntry(item)"
+					v-model="counterGridEntryQuery"
+					:columns="finalVisibleColumns"
+					:row-number="items.length + 1"
+					@submit="openCounterGridItemSearch"
+					@navigate-back="focusPreviousCounterGridEntry"
+				/>
 				<CartItemRow
+					v-else
 					:item="item"
 					:row-index="getItemIndex(item)"
 					:visible-columns="finalVisibleColumns"
@@ -108,6 +118,8 @@
 			:set-batch-qty="setBatchQty"
 			:validate-due-date="validateDueDate"
 			@qty-change="handleQtyChange"
+			@edit-item="handleItemEditRequest"
+			@after-leave="handleItemHistoryAfterLeave"
 		/>
 
 		<!-- Edit name dialog -->
@@ -139,6 +151,7 @@ import { useInvoiceStore } from "../../../stores/invoiceStore";
 import { loadItemSelectorSettings } from "../../../utils/itemSelectorSettings";
 import { logComponentRender } from "../../../utils/perf";
 import CartItemRow from "./CartItemRow.vue";
+import CounterGridEntryRow from "./CounterGridEntryRow.vue";
 import ItemSalesHistoryModal from "./ItemSalesHistoryModal.vue";
 
 import { useItemsTableSearch } from "../../../composables/pos/items/useItemsTableSearch";
@@ -153,6 +166,7 @@ import { useFormatters } from "../../../composables/core/useFormatters";
 import { useRtl } from "../../../composables/core/useRtl";
 import {
 	activateCartGridCell,
+	ensureCartGridRowRendered,
 	getCartGridCellTarget,
 	focusCartItemField,
 	focusCartGridCell,
@@ -161,6 +175,7 @@ import {
 	getCartGridRowId,
 	getNavigableCartColumnKeys,
 	isCartGridDirectEditColumnKey,
+	shouldDelegateCartGridKeyToEditor,
 	type CartGridColumnKey,
 	type CartFieldFocusOptions,
 	type CartShortcutField,
@@ -198,31 +213,44 @@ interface Props {
 	toggleOffer: (_item: any) => void;
 	changePriceListRate: (_item: any) => void;
 	isNegative: (_value: any) => boolean;
+	counterGrid?: boolean;
 }
 
 const props = withDefaults(defineProps<Props>(), {
 	headers: () => [],
 	expanded: () => [],
 	isReturnInvoice: false,
+	counterGrid: false,
 });
 
 const emit = defineEmits<{
 	"update:expanded": [val: any[]];
 	"show-drop-feedback": [val: boolean];
 	"item-dropped": [val: boolean];
+	"edit-item": [item: any];
 }>();
 
 const { proxy } = getCurrentInstance() as any;
 const eventBus = proxy?.eventBus;
 const invoiceStore = useInvoiceStore();
 const tableContainer = ref<HTMLElement | null>(null);
+const virtualTable = ref<any>(null);
 type CartGridMode = "inactive" | "row" | "cell";
 const gridMode = ref<CartGridMode>("inactive");
 const activeRowIndex = ref(-1);
+const activeRowId = ref<string | null>(null);
 const activeCellKey = ref<CartGridColumnKey | null>(null);
 const selectedRowIndex = ref(-1);
+const selectedRowId = ref<string | null>(null);
 const itemHistoryDialog = ref(false);
 const itemHistoryTarget = ref<any | null>(null);
+const pendingHistoryEditItem = ref<any | null>(null);
+const counterGridEntryQuery = ref("");
+const COUNTER_GRID_ENTRY_ID = "__counter_grid_entry__";
+const counterGridEntryItem = Object.freeze({
+	posa_row_id: COUNTER_GRID_ENTRY_ID,
+	__counterGridEntry: true,
+});
 
 // Composables
 const { customItemFilter } = useItemsTableSearch();
@@ -242,6 +270,9 @@ const nameEdit = useItemsTableNameEdit();
 
 // Computed
 const items = computed(() => invoiceStore.items);
+const displayItems = computed(() =>
+	props.counterGrid ? [...items.value, counterGridEntryItem] : items.value,
+);
 const invoice_doc = computed(() => invoiceStore.invoiceDoc || {});
 const hasItemSearch = computed(() => !!props.itemSearch?.trim());
 const emptyStateIcon = computed(() => (hasItemSearch.value ? "mdi-cart-search" : "mdi-cart-outline"));
@@ -282,6 +313,7 @@ const gridContainerClasses = computed(() => ({
 	"posa-cart-grid-active": gridMode.value !== "inactive",
 	"posa-cart-grid-row-mode": gridMode.value === "row",
 	"posa-cart-grid-cell-mode": gridMode.value === "cell",
+	"posa-items-table-container--counter-grid": props.counterGrid,
 }));
 const activeGridDescendant = computed(() => {
 	if (gridMode.value === "inactive" || activeRowIndex.value < 0) {
@@ -317,31 +349,66 @@ const clampRowIndex = (index: number) => {
 	return Math.max(0, Math.min(index, count - 1));
 };
 
+const getStableRowId = (row: any, index: number) =>
+	String(row?.posa_row_id || row?.name || `${row?.item_code || "row"}:${index}`);
+
+const findRowIndexById = (rowId: string | null) => {
+	if (!rowId) return -1;
+	return items.value.findIndex((row: any, index: number) => getStableRowId(row, index) === rowId);
+};
+
+const rememberActiveRow = (rowIndex: number) => {
+	const nextRowIndex = clampRowIndex(rowIndex);
+	activeRowIndex.value = nextRowIndex;
+	activeRowId.value = nextRowIndex >= 0 ? getStableRowId(items.value[nextRowIndex], nextRowIndex) : null;
+	return nextRowIndex;
+};
+
 const rememberSelectedRow = (rowIndex: number) => {
 	selectedRowIndex.value = clampRowIndex(rowIndex);
+	selectedRowId.value =
+		selectedRowIndex.value >= 0
+			? getStableRowId(items.value[selectedRowIndex.value], selectedRowIndex.value)
+			: null;
 	return selectedRowIndex.value;
 };
 
 const deactivateKeyboardGrid = () => {
 	gridMode.value = "inactive";
 	activeRowIndex.value = -1;
+	activeRowId.value = null;
 	activeCellKey.value = null;
 };
 
-const focusActiveGridTarget = async (options: { activateDirectEdit?: boolean } = {}) => {
-	const activateDirectEdit = options.activateDirectEdit !== false;
+let gridFocusRequestToken = 0;
+const waitForVirtualRowRender = async () => {
 	await nextTick();
-	window.setTimeout(() => {
-		if (gridMode.value === "row") {
-			focusCartGridRow(tableContainer.value, activeRowIndex.value);
-			return;
-		}
-		if (gridMode.value === "cell" && activeCellKey.value) {
-			focusCartGridCell(tableContainer.value, activeRowIndex.value, activeCellKey.value, {
-				activate: activateDirectEdit && isCartGridDirectEditColumnKey(activeCellKey.value),
-			});
-		}
-	}, 0);
+	await new Promise<void>((resolve) =>
+		window.requestAnimationFrame(() => window.requestAnimationFrame(() => resolve())),
+	);
+};
+
+const focusActiveGridTarget = async (options: { activateDirectEdit?: boolean } = {}) => {
+	const requestToken = ++gridFocusRequestToken;
+	const activateDirectEdit = options.activateDirectEdit !== false;
+	const rowIndex = activeRowIndex.value;
+	await ensureCartGridRowRendered(
+		tableContainer.value,
+		rowIndex,
+		virtualTable.value?.scrollToIndex,
+		waitForVirtualRowRender,
+	);
+	await nextTick();
+	if (requestToken !== gridFocusRequestToken) return;
+	if (gridMode.value === "row") {
+		focusCartGridRow(tableContainer.value, activeRowIndex.value);
+		return;
+	}
+	if (gridMode.value === "cell" && activeCellKey.value) {
+		focusCartGridCell(tableContainer.value, activeRowIndex.value, activeCellKey.value, {
+			activate: activateDirectEdit && isCartGridDirectEditColumnKey(activeCellKey.value),
+		});
+	}
 };
 
 const setActiveGridRow = (rowIndex: number) => {
@@ -351,7 +418,7 @@ const setActiveGridRow = (rowIndex: number) => {
 		return false;
 	}
 
-	activeRowIndex.value = nextRowIndex;
+	rememberActiveRow(nextRowIndex);
 	rememberSelectedRow(nextRowIndex);
 	if (gridMode.value === "inactive") {
 		gridMode.value = "row";
@@ -404,17 +471,17 @@ const moveGridCell = (delta: number) => {
 	return true;
 };
 
-const moveGridEntry = (delta: number) => {
+const getEditableKeysForRow = (rowIndex: number) =>
+	navigableGridColumnKeys.value.filter(
+		(key) =>
+			isCartGridDirectEditColumnKey(key) &&
+			Boolean(getCartGridCellTarget(tableContainer.value, rowIndex, key)),
+	);
+
+const moveGridEntry = async (delta: number) => {
 	if (gridMode.value !== "cell") {
 		return false;
 	}
-
-	const getEditableKeysForRow = (rowIndex: number) =>
-		navigableGridColumnKeys.value.filter(
-			(key) =>
-				isCartGridDirectEditColumnKey(key) &&
-				Boolean(getCartGridCellTarget(tableContainer.value, rowIndex, key)),
-		);
 
 	const keys = getEditableKeysForRow(activeRowIndex.value);
 	if (!keys.length) {
@@ -431,12 +498,18 @@ const moveGridEntry = (delta: number) => {
 
 	const nextRowIndex = clampRowIndex(activeRowIndex.value + (delta > 0 ? 1 : -1));
 	if (nextRowIndex >= 0 && nextRowIndex !== activeRowIndex.value) {
+		await ensureCartGridRowRendered(
+			tableContainer.value,
+			nextRowIndex,
+			virtualTable.value?.scrollToIndex,
+			waitForVirtualRowRender,
+		);
 		const nextRowKeys = getEditableKeysForRow(nextRowIndex);
 		if (!nextRowKeys.length) {
 			void focusActiveGridTarget();
 			return false;
 		}
-		activeRowIndex.value = nextRowIndex;
+		rememberActiveRow(nextRowIndex);
 		rememberSelectedRow(nextRowIndex);
 		activeCellKey.value =
 			delta > 0 ? (nextRowKeys[0] ?? null) : (nextRowKeys[nextRowKeys.length - 1] ?? null);
@@ -444,8 +517,27 @@ const moveGridEntry = (delta: number) => {
 		return true;
 	}
 
+	if (props.counterGrid && delta > 0 && activeRowIndex.value === items.value.length - 1) {
+		deactivateKeyboardGrid();
+		void focusCounterGridEntry();
+		return true;
+	}
+
 	void focusActiveGridTarget();
 	return false;
+};
+
+const focusPreviousCounterGridEntry = () => {
+	const rowIndex = items.value.length - 1;
+	if (rowIndex < 0) return false;
+	const keys = getEditableKeysForRow(rowIndex);
+	if (!keys.length) return enterKeyboardGrid({ rowIndex, mode: "row" });
+	gridMode.value = "cell";
+	rememberActiveRow(rowIndex);
+	rememberSelectedRow(rowIndex);
+	activeCellKey.value = keys[keys.length - 1] ?? null;
+	void focusActiveGridTarget();
+	return true;
 };
 
 const commitActiveGridEditor = async () => {
@@ -471,7 +563,7 @@ const commitActiveGridEditorAndMoveCell = async (delta: number) => {
 
 const commitActiveGridEditorAndMoveEntry = async (delta: number) => {
 	await commitActiveGridEditor();
-	moveGridEntry(delta);
+	await moveGridEntry(delta);
 };
 
 const advanceGridEntryFromItem = (item: any, fromCellKey: CartGridColumnKey, delta = 1) => {
@@ -482,7 +574,7 @@ const advanceGridEntryFromItem = (item: any, fromCellKey: CartGridColumnKey, del
 	}
 
 	gridMode.value = "cell";
-	activeRowIndex.value = rowIndex;
+	rememberActiveRow(rowIndex);
 	rememberSelectedRow(rowIndex);
 	activeCellKey.value = fromCellKey;
 	void commitActiveGridEditorAndMoveEntry(delta);
@@ -497,7 +589,7 @@ const stayOnGridEntryFromItem = (item: any, fromCellKey: CartGridColumnKey) => {
 	}
 
 	gridMode.value = "cell";
-	activeRowIndex.value = rowIndex;
+	rememberActiveRow(rowIndex);
 	rememberSelectedRow(rowIndex);
 	activeCellKey.value = fromCellKey;
 	void focusActiveGridTarget({ activateDirectEdit: false });
@@ -513,6 +605,48 @@ const openItemHistory = (item: any) => {
 	itemHistoryDialog.value = true;
 	deactivateKeyboardGrid();
 	return true;
+};
+
+const openSelectedItemWorkspace = () => {
+	const item =
+		getActiveGridItem() || getSelectedGridItem() || items.value?.[items.value.length - 1] || null;
+	return openItemHistory(item);
+};
+
+const handleItemEditRequest = (item: any) => {
+	pendingHistoryEditItem.value = item || null;
+	itemHistoryDialog.value = false;
+};
+
+const handleItemHistoryAfterLeave = () => {
+	const item = pendingHistoryEditItem.value;
+	pendingHistoryEditItem.value = null;
+	if (item) emit("edit-item", item);
+};
+
+const isCounterGridEntry = (item: any) =>
+	Boolean(item?.__counterGridEntry || item?.posa_row_id === COUNTER_GRID_ENTRY_ID);
+
+const openCounterGridItemSearch = (rawQuery = counterGridEntryQuery.value) => {
+	const query = String(rawQuery || "").trim();
+	if (!query) return false;
+	deactivateKeyboardGrid();
+	eventBus?.emit("open_counter_item_search", { query });
+	return true;
+};
+
+const focusCounterGridEntry = async () => {
+	await nextTick();
+	window.setTimeout(() => {
+		const entry = tableContainer.value?.querySelector(
+			'[data-testid="counter-grid-item-entry"]',
+		) as HTMLInputElement | null;
+		entry?.focus();
+	}, 50);
+};
+
+const clearCounterGridEntry = () => {
+	counterGridEntryQuery.value = "";
 };
 
 const activateGridRow = () => {
@@ -539,7 +673,7 @@ const enterKeyboardGrid = (
 	}
 
 	gridMode.value = options.mode === "cell" ? "cell" : "row";
-	activeRowIndex.value = nextRowIndex;
+	rememberActiveRow(nextRowIndex);
 	rememberSelectedRow(nextRowIndex);
 	if (gridMode.value === "cell") {
 		const keys = navigableGridColumnKeys.value;
@@ -559,7 +693,8 @@ const getActiveGridItem = () => {
 };
 
 const getSelectedGridItem = () => {
-	const rowIndex = clampRowIndex(selectedRowIndex.value);
+	const stableIndex = findRowIndexById(selectedRowId.value);
+	const rowIndex = stableIndex >= 0 ? stableIndex : clampRowIndex(selectedRowIndex.value);
 	return rowIndex >= 0 ? items.value?.[rowIndex] || null : null;
 };
 
@@ -570,15 +705,18 @@ watch(items, () => {
 	if (gridMode.value === "inactive") {
 		return;
 	}
-	const nextRowIndex = clampRowIndex(activeRowIndex.value);
+	const stableActiveIndex = findRowIndexById(activeRowId.value);
+	const nextRowIndex = stableActiveIndex >= 0 ? stableActiveIndex : clampRowIndex(activeRowIndex.value);
 	if (nextRowIndex < 0) {
 		deactivateKeyboardGrid();
 		selectedRowIndex.value = -1;
+		selectedRowId.value = null;
 		return;
 	}
-	activeRowIndex.value = nextRowIndex;
+	rememberActiveRow(nextRowIndex);
 	if (selectedRowIndex.value >= 0) {
-		rememberSelectedRow(selectedRowIndex.value);
+		const stableSelectedIndex = findRowIndexById(selectedRowId.value);
+		rememberSelectedRow(stableSelectedIndex >= 0 ? stableSelectedIndex : selectedRowIndex.value);
 	}
 	void focusActiveGridTarget();
 });
@@ -656,7 +794,7 @@ const handleQtyEditSubmitted = (item: any) => {
 };
 
 const handleGridEditorSubmitted = (item: any, fromCellKey: CartGridColumnKey) => {
-	if (fromCellKey === "discount_percentage" || fromCellKey === "discount_amount") {
+	if (!props.counterGrid && (fromCellKey === "discount_percentage" || fromCellKey === "discount_amount")) {
 		stayOnGridEntryFromItem(item, fromCellKey);
 		return;
 	}
@@ -712,6 +850,7 @@ const getRowIndexFromEvent = (event: KeyboardEvent) => {
 };
 
 const handleGridKeydown = (event: KeyboardEvent) => {
+	if (shouldDelegateCartGridKeyToEditor(event.target, event.key)) return;
 	if (
 		gridMode.value === "inactive" &&
 		isArrowNavigationKey(event.key) &&
@@ -747,6 +886,12 @@ const handleGridKeydown = (event: KeyboardEvent) => {
 	}
 
 	if (event.key === "Tab") {
+		if (props.counterGrid && gridMode.value === "cell") {
+			event.preventDefault();
+			event.stopPropagation();
+			void commitActiveGridEditorAndMoveEntry(event.shiftKey ? -1 : 1);
+			return;
+		}
 		void commitActiveGridEditor();
 		deactivateKeyboardGrid();
 		eventBus?.emit("focus_item_search");
@@ -837,6 +982,9 @@ defineExpose({
 	enterKeyboardGrid,
 	getActiveGridItem,
 	getSelectedGridItem,
+	openSelectedItemWorkspace,
+	focusCounterGridEntry,
+	clearCounterGridEntry,
 });
 </script>
 

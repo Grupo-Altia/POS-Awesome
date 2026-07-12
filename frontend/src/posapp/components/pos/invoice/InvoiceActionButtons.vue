@@ -1,5 +1,120 @@
 <template>
-	<v-row dense>
+	<div v-if="isCounterGrid" class="counter-grid-actions" data-testid="counter-grid-actions">
+		<v-btn
+			variant="tonal"
+			prepend-icon="mdi-content-save-outline"
+			class="counter-grid-action"
+			data-pos-keyboard-target="invoice-action"
+			data-testid="invoice-action-save-clear"
+			:loading="saveLoading"
+			@click="$emit('save-and-clear')"
+		>
+			{{ __("Save & Clear") }}
+		</v-btn>
+		<v-btn
+			variant="tonal"
+			prepend-icon="mdi-tray-full"
+			class="counter-grid-action"
+			data-pos-keyboard-target="invoice-action"
+			data-testid="invoice-action-drafts"
+			:loading="loadDraftsLoading"
+			@click="$emit('load-drafts')"
+		>
+			{{ __("Drafts") }}
+		</v-btn>
+		<v-btn
+			variant="tonal"
+			prepend-icon="mdi-folder-search-outline"
+			class="counter-grid-action"
+			data-pos-keyboard-target="invoice-action"
+			data-testid="invoice-action-management"
+			:loading="invoiceManagementLoading"
+			@click="$emit('open-invoice-management')"
+		>
+			{{ __("Invoices") }}
+		</v-btn>
+		<v-btn
+			v-if="pos_profile.posa_allow_return == 1"
+			variant="tonal"
+			prepend-icon="mdi-backup-restore"
+			class="counter-grid-action"
+			data-pos-keyboard-target="invoice-action"
+			data-testid="invoice-action-returns"
+			:loading="returnsLoading"
+			@click="$emit('open-returns')"
+		>
+			{{ __("Return") }}
+		</v-btn>
+		<v-menu v-if="showMoreActions" location="top end">
+			<template #activator="{ props: menuProps }">
+				<v-btn
+					v-bind="menuProps"
+					variant="tonal"
+					prepend-icon="mdi-dots-horizontal"
+					class="counter-grid-action"
+					data-pos-keyboard-target="invoice-action"
+					data-testid="invoice-action-more"
+				>
+					{{ __("More") }}
+				</v-btn>
+			</template>
+			<v-list density="compact" min-width="220">
+				<v-list-item
+					v-if="pos_profile.custom_allow_select_sales_order == 1"
+					prepend-icon="mdi-book-search"
+					data-testid="invoice-action-select-order"
+					:disabled="selectOrderLoading"
+					@click="$emit('select-order')"
+				>
+					<v-list-item-title>{{ __("Select Sales Order") }}</v-list-item-title>
+				</v-list-item>
+				<v-list-item
+					v-if="pos_profile.posa_allow_print_draft_invoices"
+					prepend-icon="mdi-printer"
+					data-testid="invoice-action-print-draft"
+					:disabled="printLoading"
+					@click="$emit('print-draft')"
+				>
+					<v-list-item-title>{{ __("Print Draft") }}</v-list-item-title>
+				</v-list-item>
+				<v-list-item
+					v-if="showCustomerDisplayButton"
+					prepend-icon="mdi-monitor"
+					data-testid="invoice-action-customer-display"
+					:disabled="customerDisplayLoading"
+					@click="$emit('open-customer-display')"
+				>
+					<v-list-item-title>{{ __("Customer Screen") }}</v-list-item-title>
+				</v-list-item>
+			</v-list>
+		</v-menu>
+		<v-btn
+			color="error"
+			variant="tonal"
+			prepend-icon="mdi-close-circle-outline"
+			class="counter-grid-action"
+			data-pos-keyboard-target="invoice-action"
+			data-testid="invoice-action-cancel-sale"
+			:loading="cancelLoading"
+			@click="$emit('cancel-sale')"
+		>
+			{{ __("Cancel") }}
+		</v-btn>
+		<v-btn
+			color="success"
+			variant="flat"
+			prepend-icon="mdi-credit-card-check-outline"
+			class="counter-grid-action counter-grid-action--pay"
+			data-pos-keyboard-target="pay"
+			data-testid="invoice-action-pay"
+			:loading="paymentLoading"
+			@click="$emit('show-payment')"
+		>
+			{{ __("Pay") }}
+		</v-btn>
+	</div>
+
+	<v-row v-else dense>
 		<v-col cols="12" sm="6">
 			<v-btn
 				block
@@ -145,6 +260,10 @@ import { computed } from "vue";
 import { parseBooleanSetting } from "../../../utils/stock";
 
 const props = defineProps({
+	presentation: {
+		type: String,
+		default: "classic",
+	},
 	pos_profile: {
 		type: Object,
 		required: true,
@@ -174,12 +293,47 @@ defineEmits([
 ]);
 
 const __ = window.__;
+const isCounterGrid = computed(() => props.presentation === "counter-grid");
 const showCustomerDisplayButton = computed(() =>
 	parseBooleanSetting(props.pos_profile?.posa_enable_customer_display),
+);
+const showMoreActions = computed(
+	() =>
+		props.pos_profile?.custom_allow_select_sales_order == 1 ||
+		Boolean(props.pos_profile?.posa_allow_print_draft_invoices) ||
+		showCustomerDisplayButton.value,
 );
 </script>
 
 <style scoped>
+.counter-grid-actions {
+	display: grid;
+	grid-template-columns: repeat(auto-fit, minmax(108px, 1fr));
+	gap: 6px;
+	min-width: 0;
+}
+
+.counter-grid-action {
+	height: 38px !important;
+	min-width: 0 !important;
+	padding-inline: 10px !important;
+	border-radius: 4px !important;
+	font-size: 0.76rem !important;
+	font-weight: 650 !important;
+	text-transform: none !important;
+}
+
+.counter-grid-action :deep(.v-btn__content) {
+	overflow: hidden;
+	text-overflow: ellipsis;
+	white-space: nowrap;
+}
+
+.counter-grid-action--pay {
+	grid-column: span 2;
+	font-size: 0.86rem !important;
+}
+
 .white-text-btn {
 	color: var(--pos-text-primary) !important;
 }

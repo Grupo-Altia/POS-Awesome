@@ -1,13 +1,17 @@
 <template>
 	<v-dialog
 		:model-value="modelValue"
-		max-width="980"
+		:max-width="1120"
+		:fullscreen="useFullscreenDialog"
+		scrollable
+		content-class="item-quick-edit-dialog"
 		persistent
 		@update:model-value="emit('update:modelValue', $event)"
 	>
 		<v-card
 			ref="modalRoot"
 			class="item-quick-edit pos-themed-card"
+			:class="{ 'item-quick-edit--fullscreen': useFullscreenDialog }"
 			data-testid="item-quick-edit-modal"
 			data-pos-keyboard-root="item-quick-edit"
 			tabindex="0"
@@ -15,10 +19,10 @@
 			@click.capture="handleQuickEditClick"
 		>
 			<v-card-title class="item-quick-edit__title">
-				<div>
-					<div class="text-h6">{{ __("Item Quick Edit") }}</div>
+				<div class="item-quick-edit__identity">
+					<div class="text-h6">{{ __("Update Item") }}</div>
 					<div v-if="form.item_code" class="text-caption text-medium-emphasis">
-						{{ form.item_code }}
+						{{ form.item_name || form.item_code }} - {{ form.item_code }}
 					</div>
 				</div>
 				<v-spacer></v-spacer>
@@ -32,7 +36,7 @@
 				></v-btn>
 			</v-card-title>
 
-			<v-card-text>
+			<v-card-text class="item-quick-edit__body">
 				<v-alert v-if="errorMessage" type="error" density="compact" variant="tonal" class="mb-3">
 					{{ errorMessage }}
 				</v-alert>
@@ -76,7 +80,7 @@
 					</div>
 
 					<div class="item-quick-edit__grid mt-4">
-						<div class="item-quick-edit__section">
+						<div class="item-quick-edit__section item-quick-edit__section--identity">
 							<div class="item-quick-edit__section-title">{{ __("Identity") }}</div>
 							<v-row dense>
 								<v-col cols="12" md="4">
@@ -143,6 +147,30 @@
 									></v-autocomplete>
 								</v-col>
 								<v-col cols="12" md="6">
+									<v-autocomplete
+										v-model="form.brand"
+										data-quick-edit-keytarget
+										data-quick-edit-key="brand"
+										:items="options.brands"
+										:label="__('Company / Brand')"
+										density="compact"
+										variant="outlined"
+										clearable
+										:disabled="!loaded"
+									></v-autocomplete>
+								</v-col>
+								<v-col cols="12" md="4">
+									<v-text-field
+										v-model="form.retailmind_old_pos_company_code"
+										data-quick-edit-keytarget
+										data-quick-edit-key="company-code"
+										:label="__('Legacy Company Code')"
+										density="compact"
+										variant="outlined"
+										:disabled="!loaded"
+									></v-text-field>
+								</v-col>
+								<v-col cols="12" md="4">
 									<v-text-field
 										v-model="form.retailmind_old_pos_generic_name"
 										data-quick-edit-keytarget
@@ -153,7 +181,18 @@
 										:disabled="!loaded"
 									></v-text-field>
 								</v-col>
-								<v-col cols="12" md="6">
+								<v-col cols="12" md="4">
+									<v-text-field
+										v-model="form.retailmind_old_pos_generic_code"
+										data-quick-edit-keytarget
+										data-quick-edit-key="generic-code"
+										:label="__('Generic Code')"
+										density="compact"
+										variant="outlined"
+										:disabled="!loaded"
+									></v-text-field>
+								</v-col>
+								<v-col cols="12" md="4">
 									<v-text-field
 										v-model="form.retailmind_old_pos_pack"
 										data-quick-edit-keytarget
@@ -164,7 +203,18 @@
 										:disabled="!loaded"
 									></v-text-field>
 								</v-col>
-								<v-col cols="12" md="6">
+								<v-col cols="12" md="4">
+									<v-text-field
+										v-model="form.retailmind_old_pos_rack"
+										data-quick-edit-keytarget
+										data-quick-edit-key="rack"
+										:label="__('Rack')"
+										density="compact"
+										variant="outlined"
+										:disabled="!loaded"
+									></v-text-field>
+								</v-col>
+								<v-col cols="12" md="4">
 									<v-autocomplete
 										v-model="form.primary_supplier"
 										data-quick-edit-keytarget
@@ -303,7 +353,7 @@
 				</v-form>
 			</v-card-text>
 
-			<v-card-actions class="px-5 pb-5">
+			<v-card-actions class="item-quick-edit__actions px-5 py-3">
 				<v-spacer></v-spacer>
 				<v-btn
 					variant="text"
@@ -333,7 +383,8 @@
 </template>
 
 <script setup lang="ts">
-import { nextTick, reactive, ref, watch } from "vue";
+import { computed, nextTick, reactive, ref, watch } from "vue";
+import { useResponsive } from "../../../composables/core/useResponsive";
 import itemService from "../../../services/itemService";
 import {
 	calculateTradeDiscountPercent,
@@ -365,6 +416,10 @@ const emit = defineEmits<{
 const arrowKeys = new Set(["ArrowUp", "ArrowDown", "ArrowLeft", "ArrowRight"]);
 let generatedKeyboardTargetId = 0;
 const quickEditKeyboardSelector = "[data-quick-edit-keytarget]";
+const responsive = useResponsive();
+const useFullscreenDialog = computed(
+	() => responsive.windowWidth.value <= 1100 || responsive.windowHeight.value <= 760,
+);
 
 const modalRoot = ref<any>(null);
 const lookupField = ref<any>(null);
@@ -381,6 +436,7 @@ const keyboardEditing = ref(false);
 const activeKeyboardTarget = ref<HTMLElement | null>(null);
 const options = reactive({
 	item_groups: [] as string[],
+	brands: [] as string[],
 	suppliers: [] as string[],
 });
 
@@ -401,7 +457,9 @@ const blankForm = () => ({
 	retailmind_short_name: "",
 	retailmind_old_pos_generic_code: "",
 	retailmind_old_pos_generic_name: "",
+	retailmind_old_pos_company_code: "",
 	retailmind_old_pos_pack: "",
+	retailmind_old_pos_rack: "",
 	retailmind_units_per_pack: 1,
 	retailmind_controlled_item: false,
 	retailmind_non_discountable: false,
@@ -568,9 +626,19 @@ const isEditableTarget = (target: EventTarget | null) => {
 };
 
 const stopKeyboardEditing = () => {
+	const activeKey = activeKeyboardTarget.value?.dataset.quickEditKey || "";
 	keyboardEditing.value = false;
 	(document.activeElement as HTMLElement | null)?.blur?.();
-	getRootElement()?.focus?.({ preventScroll: true });
+	void nextTick(() => {
+		const targets = getKeyboardTargets();
+		const replacement =
+			targets.find((target) => target.dataset.quickEditKey === activeKey) ||
+			(activeKeyboardTarget.value?.isConnected ? activeKeyboardTarget.value : null) ||
+			targets[0] ||
+			null;
+		setKeyboardTarget(replacement);
+		getRootElement()?.focus?.({ preventScroll: true });
+	});
 };
 
 const activateKeyboardTarget = () => {
@@ -681,6 +749,7 @@ const loadItem = async (value: string) => {
 		Object.assign(form, blankForm(), item);
 		syncTradeDiscountFromPrices();
 		options.item_groups = payload?.options?.item_groups || [];
+		options.brands = payload?.options?.brands || [];
 		options.suppliers = payload?.options?.suppliers || [];
 		canSave.value = Boolean(payload?.can_save);
 		loaded.value = true;
@@ -716,6 +785,8 @@ const handleQuickEditKeydown = (event: KeyboardEvent) => {
 		event.stopPropagation();
 		if (keyboardEditing.value) {
 			stopKeyboardEditing();
+			void nextTick(() => moveKeyboardTarget(event.key));
+			return;
 		}
 		moveKeyboardTarget(event.key);
 		return;
@@ -726,6 +797,8 @@ const handleQuickEditKeydown = (event: KeyboardEvent) => {
 		event.stopPropagation();
 		if (keyboardEditing.value) {
 			stopKeyboardEditing();
+			void nextTick(() => moveKeyboardTarget(event.shiftKey ? "ArrowLeft" : "ArrowRight"));
+			return;
 		}
 		moveKeyboardTarget(event.shiftKey ? "ArrowLeft" : "ArrowRight");
 		return;
@@ -817,11 +890,41 @@ watch(
 </script>
 
 <style scoped>
+.item-quick-edit {
+	display: grid;
+	grid-template-rows: auto minmax(0, 1fr) auto;
+	width: 100%;
+	max-height: calc(100dvh - 24px);
+	overflow: hidden;
+}
+
+.item-quick-edit--fullscreen {
+	height: 100dvh;
+	max-height: 100dvh;
+	border-radius: 0 !important;
+}
+
 .item-quick-edit__title {
 	display: flex;
 	align-items: center;
 	gap: 12px;
 	padding: 18px 20px 8px;
+}
+
+.item-quick-edit__identity {
+	min-width: 0;
+}
+
+.item-quick-edit__identity .text-caption {
+	overflow: hidden;
+	text-overflow: ellipsis;
+	white-space: nowrap;
+}
+
+.item-quick-edit__body {
+	min-height: 0;
+	overflow-y: auto;
+	overscroll-behavior: contain;
 }
 
 .item-quick-edit__lookup {
@@ -850,12 +953,21 @@ watch(
 	gap: 6px;
 }
 
+.item-quick-edit__section--identity {
+	grid-column: 1 / -1;
+}
+
 .item-quick-edit__section-title {
 	font-size: 0.86rem;
 	font-weight: 700;
 	margin-bottom: 12px;
 	color: rgb(var(--v-theme-primary));
 	text-transform: uppercase;
+}
+
+.item-quick-edit__actions {
+	border-top: 1px solid rgba(var(--v-border-color), 0.18);
+	background: rgb(var(--v-theme-surface));
 }
 
 :deep(.posa-quick-edit-keyboard-box) {
@@ -875,6 +987,10 @@ watch(
 	.item-quick-edit__grid,
 	.item-quick-edit__lookup {
 		grid-template-columns: 1fr;
+	}
+
+	.item-quick-edit__section--identity {
+		grid-column: auto;
 	}
 }
 </style>

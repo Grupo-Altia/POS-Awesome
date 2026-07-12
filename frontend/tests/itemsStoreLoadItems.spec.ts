@@ -13,6 +13,7 @@ const offlineMocks = vi.hoisted(() => ({
 	searchStoredItems: vi.fn(async () => []),
 	getCachedPriceListItems: vi.fn(async () => null),
 	getItemsLastSync: vi.fn(() => null),
+	isOffline: vi.fn(() => false),
 }));
 
 const cacheMocks = vi.hoisted(() => ({
@@ -49,6 +50,7 @@ vi.mock("../src/offline/index", () => ({
 	searchStoredItems: offlineMocks.searchStoredItems,
 	getCachedPriceListItems: offlineMocks.getCachedPriceListItems,
 	getItemsLastSync: offlineMocks.getItemsLastSync,
+	isOffline: offlineMocks.isOffline,
 }));
 
 vi.mock("../src/posapp/composables/pos/items/store/useItemsCache", () => ({
@@ -83,7 +85,11 @@ vi.mock("../src/posapp/composables/pos/items/store/useItemsSearch", () => ({
 	useItemsSearch: () => {
 		const itemsMap = { value: new Map<string, any>() };
 		const barcodeIndex = { value: new Map<string, any>() };
-		const register = (index: Map<string, any>, value: unknown, item: any) => {
+		const register = (
+			index: Map<string, any>,
+			value: unknown,
+			item: any,
+		) => {
 			const raw = String(value || "").trim();
 			if (!raw) return;
 			index.set(raw, item);
@@ -137,7 +143,8 @@ vi.mock("../src/posapp/composables/pos/items/store/useItemsSearch", () => ({
 					? items.filter((item) => item?.item_group === group)
 					: items,
 			getItemByCode: (code: string) => itemsMap.value.get(code),
-			getItemByBarcode: (barcode: string) => barcodeIndex.value.get(barcode),
+			getItemByBarcode: (barcode: string) =>
+				barcodeIndex.value.get(barcode),
 		};
 	},
 }));
@@ -210,6 +217,7 @@ describe("itemsStore loadItems", () => {
 		offlineMocks.getStoredItemsCountByScope.mockResolvedValue(0);
 		offlineMocks.getAllStoredItems.mockResolvedValue([]);
 		offlineMocks.searchStoredItems.mockResolvedValue([]);
+		offlineMocks.isOffline.mockReturnValue(false);
 		cacheMocks.getCachedItems.mockResolvedValue(null);
 		cacheMocks.getCachedSearchResult.mockReturnValue(null);
 		itemsSearchMocks.performLocalSearch.mockImplementation(
@@ -297,7 +305,8 @@ describe("itemsStore loadItems", () => {
 				item_groups: ["Medicines"],
 			}),
 		);
-		const hotCatalogArgs = itemServiceMocks.getHotItemsData.mock.calls[0][0];
+		const hotCatalogArgs =
+			itemServiceMocks.getHotItemsData.mock.calls[0][0];
 		expect(
 			JSON.parse(hotCatalogArgs.pos_profile)
 				.posa_fast_counter_positive_stock_only,
@@ -407,12 +416,13 @@ describe("itemsStore loadItems", () => {
 		expect(itemsSyncMocks.backgroundSyncItems).toHaveBeenCalledWith(
 			expect.objectContaining({
 				groupFilter: "ALL",
-				reset: false,
+				reset: true,
 			}),
 			expect.anything(),
 			"Customer Retail",
 			"POS-1_Main WH",
 			true,
+			expect.any(Boolean),
 			expect.any(Function),
 			expect.any(Function),
 			expect.any(Function),
@@ -463,12 +473,13 @@ describe("itemsStore loadItems", () => {
 		expect(itemsSyncMocks.backgroundSyncItems).toHaveBeenCalledWith(
 			expect.objectContaining({
 				groupFilter: "ALL",
-				reset: false,
+				reset: true,
 			}),
 			expect.anything(),
 			"Retail",
 			"POS-1_Main WH",
 			true,
+			expect.any(Boolean),
 			expect.any(Function),
 			expect.any(Function),
 			expect.any(Function),
@@ -554,6 +565,192 @@ describe("itemsStore loadItems", () => {
 		expect(store.filteredItemsSearchTerm).toBe("alpha");
 	});
 
+	it("hydrates limit-search readiness from the scoped catalog and searches it immediately offline", async () => {
+		const store = useItemsStore();
+		const profile = {
+			name: "POS-COUNTER",
+			warehouse: "Main Store",
+			selling_price_list: "Retail",
+			currency: "PKR",
+			item_groups: [],
+			posa_use_limit_search: 1,
+			posa_force_server_items: 1,
+		} as any;
+		offlineMocks.isOffline.mockReturnValue(true);
+		offlineMocks.getStoredItemsCountByScope.mockResolvedValue(40_500);
+		offlineMocks.searchStoredItems.mockResolvedValue([
+			{
+				item_code: "02017",
+				item_name: "Panadol 500mg",
+				item_group: "Medicines",
+			},
+		]);
+
+		await store.initialize(profile);
+		const result = await store.searchItems("panadol", {
+			serverFallbackDelayMs: 0,
+			resultLimit: 25,
+		});
+
+		expect(itemServiceMocks.getItemsData).not.toHaveBeenCalled();
+		expect(offlineMocks.searchStoredItems).toHaveBeenCalledWith({
+			search: "panadol",
+			itemGroup: "ALL",
+			limit: 25,
+			offset: 0,
+			scope: "POS-COUNTER_Main Store",
+		});
+		expect(result.map((item) => item.item_code)).toEqual(["02017"]);
+		expect(
+			offlineMocks.refreshBootstrapSnapshotFromCacheState,
+		).toHaveBeenCalledWith({ itemsCount: 40_500 });
+	});
+
+	it("does not let a slower offline lookup replace a newer cashier query", async () => {
+		const store = useItemsStore();
+		offlineMocks.isOffline.mockReturnValue(true);
+		offlineMocks.getStoredItemsCountByScope.mockResolvedValue(40_500);
+		let resolveOlderLookup!: (items: any[]) => void;
+		const olderLookup = new Promise<any[]>((resolve) => {
+			resolveOlderLookup = resolve;
+		});
+		offlineMocks.searchStoredItems
+			.mockImplementationOnce(async () => await olderLookup)
+			.mockResolvedValueOnce([
+				{
+					item_code: "NEWEST-1",
+					item_name: "Panadol Newest Match",
+					item_group: "Medicines",
+				},
+			]);
+
+		await store.initialize({
+			name: "POS-COUNTER",
+			warehouse: "Main Store",
+			selling_price_list: "Retail",
+			currency: "PKR",
+			item_groups: [],
+			posa_use_limit_search: 1,
+			posa_force_server_items: 1,
+		} as any);
+
+		const olderSearch = store.searchItems("pana", { resultLimit: 20 });
+		await Promise.resolve();
+		await expect(
+			store.searchItems("panadol", { resultLimit: 20 }),
+		).resolves.toEqual([
+			expect.objectContaining({ item_code: "NEWEST-1" }),
+		]);
+
+		resolveOlderLookup([
+			{
+				item_code: "STALE-1",
+				item_name: "Stale Match",
+				item_group: "Medicines",
+			},
+		]);
+		await expect(olderSearch).resolves.toEqual([]);
+		expect(store.filteredItems.map((item) => item.item_code)).toEqual([
+			"NEWEST-1",
+		]);
+		expect(store.filteredItemsSearchTerm).toBe("panadol");
+	});
+
+	it("background-hydrates IndexedDB for online limit-search force-server profiles without materializing 40k rows", async () => {
+		const store = useItemsStore();
+		const profile = {
+			name: "POS-COUNTER",
+			warehouse: "Main Store",
+			selling_price_list: "Retail",
+			currency: "PKR",
+			item_groups: [],
+			posa_use_limit_search: 1,
+			posa_force_server_items: 1,
+		} as any;
+
+		await store.initialize(profile);
+
+		expect(itemsSyncMocks.backgroundSyncItems).toHaveBeenCalledTimes(1);
+		const call = itemsSyncMocks.backgroundSyncItems.mock.calls[0];
+		expect(call[0]).toEqual(
+			expect.objectContaining({
+				groupFilter: "ALL",
+				reset: true,
+			}),
+		);
+		expect(call[3]).toBe("POS-COUNTER_Main Store");
+		expect(call[4]).toBe(true);
+		expect(call[5]).toBe(false);
+	});
+
+	it("does not redownload a complete 40k limit-search catalog on every startup", async () => {
+		const store = useItemsStore();
+		offlineMocks.getStoredItemsCountByScope.mockResolvedValue(40_500);
+
+		await store.initialize({
+			name: "POS-COUNTER",
+			warehouse: "Main Store",
+			selling_price_list: "Retail",
+			currency: "PKR",
+			item_groups: [],
+			posa_use_limit_search: 1,
+			posa_force_server_items: 1,
+		} as any);
+
+		expect(itemServiceMocks.getItemsData).not.toHaveBeenCalled();
+		expect(itemsSyncMocks.backgroundSyncItems).not.toHaveBeenCalled();
+		expect(
+			offlineMocks.refreshBootstrapSnapshotFromCacheState,
+		).toHaveBeenCalledWith({ itemsCount: 40_500 });
+	});
+
+	it("falls back to the scoped ranked catalog when an online server search becomes unavailable", async () => {
+		vi.useFakeTimers();
+		try {
+			const store = useItemsStore();
+			const profile = {
+				name: "POS-COUNTER",
+				warehouse: "Main Store",
+				selling_price_list: "Retail",
+				currency: "PKR",
+				item_groups: [],
+				posa_use_limit_search: 1,
+				posa_force_server_items: 1,
+			} as any;
+			await store.initialize(profile);
+			itemServiceMocks.getItemsData.mockClear();
+			itemServiceMocks.getItemsData.mockRejectedValueOnce(
+				new TypeError("Failed to fetch"),
+			);
+			offlineMocks.searchStoredItems.mockResolvedValue([
+				{
+					item_code: "CACHED-1",
+					item_name: "Cached Panadol",
+					item_group: "Medicines",
+				},
+			]);
+
+			const searchPromise = store.searchItems("panadol", {
+				serverFallbackDelayMs: 0,
+				resultLimit: 20,
+			});
+			await vi.advanceTimersByTimeAsync(0);
+
+			await expect(searchPromise).resolves.toEqual([
+				expect.objectContaining({ item_code: "CACHED-1" }),
+			]);
+			expect(offlineMocks.searchStoredItems).toHaveBeenCalledWith({
+				search: "panadol",
+				itemGroup: "ALL",
+				limit: 20,
+				offset: 0,
+				scope: "POS-COUNTER_Main Store",
+			});
+		} finally {
+			vi.useRealTimers();
+		}
+	});
+
 	it("debounces server fallback after a local search miss", async () => {
 		vi.useFakeTimers();
 		try {
@@ -588,6 +785,45 @@ describe("itemsStore loadItems", () => {
 				expect.any(AbortSignal),
 			);
 			expect(result.map((item) => item.item_code)).toEqual(["ITEM-1"]);
+		} finally {
+			vi.useRealTimers();
+		}
+	});
+
+	it("dispatches the Counter Grid server fallback immediately with a bounded result set", async () => {
+		vi.useFakeTimers();
+		try {
+			const store = useItemsStore();
+			const profile = {
+				name: "POS-1",
+				warehouse: "Main WH",
+				selling_price_list: "Retail",
+				currency: "PKR",
+				item_groups: [],
+				posa_use_limit_search: 1,
+			} as any;
+
+			await store.initialize(profile);
+			itemServiceMocks.getItemsData.mockClear();
+			itemsSearchMocks.performLocalSearch.mockReturnValue([]);
+
+			const searchPromise = store.searchItems("counter", {
+				serverFallbackDelayMs: 0,
+				resultLimit: 17,
+			});
+			expect(itemServiceMocks.getItemsData).not.toHaveBeenCalled();
+
+			await vi.advanceTimersByTimeAsync(0);
+			await searchPromise;
+
+			expect(itemServiceMocks.getItemsData).toHaveBeenCalledTimes(1);
+			expect(itemServiceMocks.getItemsData).toHaveBeenCalledWith(
+				expect.objectContaining({
+					search_value: "counter",
+					limit: 17,
+				}),
+				expect.any(AbortSignal),
+			);
 		} finally {
 			vi.useRealTimers();
 		}

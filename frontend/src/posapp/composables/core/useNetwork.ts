@@ -38,19 +38,91 @@ const MIN_INTERVAL = 15000; // Min 15s
 
 // Persist last known good state
 function persistStatus(networkOnline: boolean, serverOnline: boolean) {
-	localStorage.setItem("networkOnline", JSON.stringify(networkOnline));
-	localStorage.setItem("serverOnline", JSON.stringify(serverOnline));
+	try {
+		localStorage.setItem("networkOnline", JSON.stringify(networkOnline));
+		localStorage.setItem("serverOnline", JSON.stringify(serverOnline));
+	} catch {
+		// Connectivity detection must still work when browser storage is restricted.
+	}
 }
 
 function getPersistedStatus() {
-	return {
-		networkOnline: JSON.parse(
+	try {
+		const networkOnline = JSON.parse(
 			localStorage.getItem("networkOnline") || "true",
-		),
-		serverOnline: JSON.parse(
+		);
+		const serverOnline = JSON.parse(
 			localStorage.getItem("serverOnline") || "true",
-		),
+		);
+		return {
+			networkOnline:
+				typeof networkOnline === "boolean" ? networkOnline : true,
+			serverOnline: typeof serverOnline === "boolean" ? serverOnline : true,
+		};
+	} catch {
+		return { networkOnline: true, serverOnline: true };
+	}
+}
+
+function createTimeoutSignal(timeoutMs: number) {
+	if (
+		typeof AbortSignal !== "undefined" &&
+		typeof AbortSignal.timeout === "function"
+	) {
+		return { signal: AbortSignal.timeout(timeoutMs), dispose: () => {} };
+	}
+
+	const controller = new AbortController();
+	const timeout = setTimeout(() => controller.abort(), timeoutMs);
+	return {
+		signal: controller.signal,
+		dispose: () => clearTimeout(timeout),
 	};
+}
+
+async function fetchWithTimeout(
+	input: RequestInfo | URL,
+	init: RequestInit,
+	timeoutMs: number,
+) {
+	const timeout = createTimeoutSignal(timeoutMs);
+	try {
+		return await fetch(input, { ...init, signal: timeout.signal });
+	} finally {
+		timeout.dispose();
+	}
+}
+
+export async function resolvesAnyTrue(checks: Promise<boolean>[]) {
+	if (!checks.length) {
+		return false;
+	}
+
+	return new Promise<boolean>((resolve) => {
+		let remaining = checks.length;
+		let settled = false;
+		const completeFalse = () => {
+			remaining -= 1;
+			if (!settled && remaining === 0) {
+				settled = true;
+				resolve(false);
+			}
+		};
+
+		checks.forEach((check) => {
+			Promise.resolve(check).then(
+				(result) => {
+					if (result && !settled) {
+						settled = true;
+						resolve(true);
+						return;
+					}
+					completeFalse();
+				},
+				completeFalse,
+			);
+		});
+	});
 }
 
 // Manual retry function (to be called from UI)
@@ -157,29 +229,26 @@ export async function checkNetworkConnectivity(
 		let isConnected = false;
 		let isInternetReachable = false;
 
-		const deskRequest = fetch("/app", {
+		const deskRequest = fetchWithTimeout("/app", {
 			method: "HEAD",
 			cache: "no-cache",
-			signal: AbortSignal.timeout(DESK_TIMEOUT),
-		}).then((r) => r.status < 500);
+		}, DESK_TIMEOUT).then((r) => r.status < 500);
 
-		const staticRequest = fetch("/assets/frappe/images/frappe-logo.png", {
+		const staticRequest = fetchWithTimeout("/assets/frappe/images/frappe-logo.png", {
 			method: "HEAD",
 			cache: "no-cache",
-			signal: AbortSignal.timeout(STATIC_TIMEOUT),
-		}).then((r) => r.status < 500);
+		}, STATIC_TIMEOUT).then((r) => r.status < 500);
 
-		const originRequest = fetch(window.location.origin, {
+		const originRequest = fetchWithTimeout(window.location.origin, {
 			method: "HEAD",
 			cache: "no-cache",
-			signal: AbortSignal.timeout(ORIGIN_TIMEOUT),
-		}).then((r) => r.status < 500);
+		}, ORIGIN_TIMEOUT).then((r) => r.status < 500);
 
-		const localCheck = Promise.any([
+		const localCheck = resolvesAnyTrue([
 			deskRequest,
 			staticRequest,
 			originRequest,
-		]).catch(() => false);
+		]);
 
 		const externalCheck = (async () => {
 			try {

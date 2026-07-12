@@ -2,14 +2,17 @@
 	<v-dialog
 		:model-value="modelValue"
 		max-width="1240px"
+		:fullscreen="useFullscreenDialog"
 		scrollable
 		content-class="posa-item-history-dialog"
 		:theme="isDarkTheme ? 'dark' : 'light'"
 		@update:model-value="emit('update:modelValue', $event)"
+		@after-leave="emit('after-leave')"
 	>
 		<v-card
 			ref="modalCard"
 			class="posa-item-history-card pos-themed-card"
+			:class="{ 'posa-item-history-card--fullscreen': useFullscreenDialog }"
 			tabindex="0"
 			data-pos-keyboard-root="item-history"
 			data-testid="item-history-modal"
@@ -18,9 +21,9 @@
 		>
 			<v-card-title class="posa-item-history-header">
 				<div class="posa-item-history-header__identity">
-					<div class="text-h6">{{ item?.item_name || __("Item History") }}</div>
+					<div class="text-h6">{{ item?.item_name || __("Item Workspace") }}</div>
 					<div class="text-subtitle-2 text-medium-emphasis">
-						{{ item?.item_code || "" }}
+						{{ item?.item_code || "" }} - {{ __("Sales history and item details") }}
 					</div>
 				</div>
 				<div class="posa-item-history-header__metrics">
@@ -34,6 +37,19 @@
 						{{ currencySymbol(displayCurrency) }}
 						{{ formatCurrency(Number(item?.qty || 0) * Number(item?.rate || 0)) }}
 					</v-chip>
+					<v-btn
+						v-if="item?.item_code"
+						data-item-history-keytarget
+						data-item-history-key="update-item"
+						data-testid="item-workspace-update-item"
+						prepend-icon="mdi-pencil-outline"
+						variant="tonal"
+						color="primary"
+						size="small"
+						@click="emit('edit-item', item)"
+					>
+						{{ __("Update Item") }}
+					</v-btn>
 					<v-btn
 						data-item-history-keytarget
 						data-testid="item-history-close"
@@ -389,6 +405,7 @@
 <script setup lang="ts">
 import { computed, nextTick, ref, watch } from "vue";
 import { isOffline } from "../../../../offline/index";
+import { useResponsive } from "../../../composables/core/useResponsive";
 import ItemsTableExpandedRow from "./ItemsTableExpandedRow.vue";
 
 declare const frappe: any;
@@ -432,8 +449,17 @@ const props = withDefaults(defineProps<Props>(), {
 	isDarkTheme: false,
 });
 
-const emit = defineEmits(["update:modelValue", "qty-change"]);
+const emit = defineEmits([
+	"update:modelValue",
+	"qty-change",
+	"edit-item",
+	"after-leave",
+]);
 
+const responsive = useResponsive();
+const useFullscreenDialog = computed(
+	() => responsive.windowWidth.value <= 1100 || responsive.windowHeight.value <= 760,
+);
 const activeTab = ref("sales");
 const modalCard = ref<any>(null);
 const searchInput = ref<any>(null);
@@ -498,6 +524,7 @@ const loadHistory = async () => {
 			args: {
 				item_code: props.item.item_code,
 				company: props.posProfile.company,
+				pos_profile: props.posProfile.name,
 				doctype_filter: filters.value.doctype_filter,
 				search: filters.value.search,
 				from_date: filters.value.from_date,
@@ -869,8 +896,23 @@ watch(historyRows, () => {
 
 <style scoped>
 .posa-item-history-card {
+	display: grid;
+	grid-template-rows: auto auto auto minmax(0, 1fr) auto;
+	height: min(780px, calc(100vh - 24px));
+	height: min(780px, calc(100dvh - 24px));
+	max-height: calc(100vh - 24px);
+	max-height: calc(100dvh - 24px);
+	overflow: hidden;
 	background: var(--pos-surface-raised) !important;
 	color: var(--pos-text-primary) !important;
+}
+
+.posa-item-history-card--fullscreen {
+	height: 100vh;
+	height: 100dvh;
+	max-height: 100vh;
+	max-height: 100dvh;
+	border-radius: 0 !important;
 }
 
 .posa-item-history-header {
@@ -882,7 +924,15 @@ watch(historyRows, () => {
 }
 
 .posa-item-history-header__identity {
-	min-width: 240px;
+	min-width: 0;
+	flex: 1 1 260px;
+}
+
+.posa-item-history-header__identity .text-h6,
+.posa-item-history-header__identity .text-subtitle-2 {
+	overflow: hidden;
+	text-overflow: ellipsis;
+	white-space: nowrap;
 }
 
 .posa-item-history-header__metrics {
@@ -897,7 +947,9 @@ watch(historyRows, () => {
 }
 
 .posa-item-history-body {
-	min-height: min(640px, 68vh);
+	min-height: 0;
+	overflow: auto;
+	overscroll-behavior: contain;
 }
 
 .posa-item-history-filters {
@@ -927,7 +979,11 @@ watch(historyRows, () => {
 .posa-item-history-table {
 	border: 1px solid rgba(148, 163, 184, 0.22);
 	border-radius: 8px;
-	overflow: hidden;
+	overflow: auto;
+}
+
+.posa-item-history-table :deep(table) {
+	min-width: 920px;
 }
 
 .posa-item-history-table tbody tr {
@@ -980,9 +1036,23 @@ watch(historyRows, () => {
 }
 
 @media (max-width: 960px) {
-	.posa-item-history-filters,
+	.posa-item-history-filters {
+		grid-template-columns: repeat(2, minmax(0, 1fr));
+	}
+
 	.posa-item-history-summary {
+		grid-template-columns: repeat(4, minmax(0, 1fr));
+		gap: 8px;
+	}
+}
+
+@media (max-width: 720px) {
+	.posa-item-history-filters {
 		grid-template-columns: 1fr;
+	}
+
+	.posa-item-history-summary {
+		grid-template-columns: repeat(2, minmax(0, 1fr));
 	}
 }
 </style>

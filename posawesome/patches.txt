@@ -30,3 +30,4 @@ posawesome.patches.add_fast_counter_mode_settings
 posawesome.patches.add_fast_counter_positive_stock_only
 posawesome.patches.repair_fast_pos_performance_indexes
 posawesome.patches.add_item_quick_edit_fields
+posawesome.patches.add_pos_ui_template

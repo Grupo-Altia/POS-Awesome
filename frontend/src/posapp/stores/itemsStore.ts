@@ -9,6 +9,7 @@ import type { Item, POSProfile } from "../types/models";
 import itemService from "../services/itemService";
 import {
 	getItemsLastSync,
+	isOffline,
 	refreshBootstrapSnapshotFromCacheState,
 } from "../../offline/index";
 
@@ -35,13 +36,16 @@ export const useItemsStore = defineStore("items", () => {
 	type OfflineModule = Record<string, any>;
 	let offlineApiPromise: Promise<OfflineModule> | null = null;
 	let serverSearchFallbackTimer: ReturnType<typeof setTimeout> | null = null;
-	let resolvePendingServerSearchFallback:
-		| ((_items: Item[]) => void)
-		| null = null;
+	let resolvePendingServerSearchFallback: ((_items: Item[]) => void) | null =
+		null;
 	let serverSearchFallbackToken = 0;
 	let lastRecoveryAt = 0;
 	const serverSearchMissCache = new Map<string, number>();
 	const activeServerSearchKeys = new Set<string>();
+	type SearchItemsOptions = {
+		serverFallbackDelayMs?: number;
+		resultLimit?: number;
+	};
 
 	const getOfflineApi = async (): Promise<OfflineModule> => {
 		if (!offlineApiPromise) {
@@ -252,9 +256,6 @@ export const useItemsStore = defineStore("items", () => {
 	};
 
 	const shouldPersistItems = () => {
-		if (limitSearchEnabled.value) {
-			return false;
-		}
 		return true;
 	};
 
@@ -345,18 +346,41 @@ export const useItemsStore = defineStore("items", () => {
 	};
 
 	const shouldTryServerSearchFallback = (term: string, group: string) => {
-		if (normalizeSearchScope(term).length < SERVER_SEARCH_FALLBACK_MIN_LENGTH) {
+		if (
+			normalizeSearchScope(term).length <
+			SERVER_SEARCH_FALLBACK_MIN_LENGTH
+		) {
 			return false;
 		}
-		if (typeof navigator !== "undefined" && navigator.onLine === false) {
+		if (isOffline()) {
 			return false;
 		}
-		return !isServerSearchMissCached(buildServerSearchScopeKey(term, group));
+		return !isServerSearchMissCached(
+			buildServerSearchScopeKey(term, group),
+		);
+	};
+
+	const searchScopedOfflineCatalog = async (
+		term: string,
+		group: string,
+		limit: number,
+	) => {
+		const normalizedGroup =
+			typeof group === "string" && group.length > 0 ? group : "ALL";
+		const stored = await searchStoredItemsCompat({
+			search: term,
+			itemGroup: normalizedGroup,
+			limit,
+			offset: 0,
+			scope: getStorageScope(),
+		});
+		return Array.isArray(stored) ? stored : [];
 	};
 
 	const scheduleServerSearchFallback = async (
 		term: string,
 		group: string,
+		options: SearchItemsOptions = {},
 	): Promise<Item[]> => {
 		if (!shouldTryServerSearchFallback(term, group)) {
 			return [];
@@ -374,25 +398,10 @@ export const useItemsStore = defineStore("items", () => {
 
 		return await new Promise<Item[]>((resolve) => {
 			resolvePendingServerSearchFallback = resolve;
-			serverSearchFallbackTimer = setTimeout(async () => {
-				serverSearchFallbackTimer = null;
-				resolvePendingServerSearchFallback = null;
-
-				if (
-					fallbackToken !== serverSearchFallbackToken ||
-					normalizeSearchScope(searchTerm.value) !== normalizedTerm
-				) {
-					resolve([]);
-					return;
-				}
-
-				try {
-					const fetched = await loadItems({
-						searchValue: term,
-						groupFilter: normalizedGroup,
-						forceServer: true,
-						limit: resolvePageSize(),
-					});
+			serverSearchFallbackTimer = setTimeout(
+				async () => {
+					serverSearchFallbackTimer = null;
+					resolvePendingServerSearchFallback = null;
 
 					if (
 						fallbackToken !== serverSearchFallbackToken ||
@@ -403,22 +412,79 @@ export const useItemsStore = defineStore("items", () => {
 						return;
 					}
 
-					const serverResults = filterItemsByGroup(
-						Array.isArray(fetched) ? fetched : [],
-						normalizedGroup,
-					);
-					if (serverResults.length === 0) {
-						markServerSearchMiss(scopeKey);
+					try {
+						const fetched = await loadItems({
+							searchValue: term,
+							groupFilter: normalizedGroup,
+							forceServer: true,
+							limit: Math.max(
+								1,
+								Math.min(
+									options.resultLimit || resolvePageSize(),
+									resolvePageSize(),
+								),
+							),
+						});
+
+						if (
+							fallbackToken !== serverSearchFallbackToken ||
+							normalizeSearchScope(searchTerm.value) !==
+								normalizedTerm
+						) {
+							resolve([]);
+							return;
+						}
+
+						const serverResults = filterItemsByGroup(
+							Array.isArray(fetched) ? fetched : [],
+							normalizedGroup,
+						);
+						if (serverResults.length === 0) {
+							markServerSearchMiss(scopeKey);
+						}
+						setFilteredItems(serverResults, normalizedTerm);
+						resolve(serverResults);
+					} catch (error: any) {
+						if (error?.name !== "AbortError") {
+							console.error(
+								"Server search fallback failed:",
+								error,
+							);
+						}
+						if (
+							fallbackToken !== serverSearchFallbackToken ||
+							normalizeSearchScope(searchTerm.value) !==
+								normalizedTerm
+						) {
+							resolve([]);
+							return;
+						}
+						const offlineResults = await searchScopedOfflineCatalog(
+							term,
+							normalizedGroup,
+							Math.max(
+								1,
+								options.resultLimit || resolvePageSize(),
+							),
+						).catch(() => []);
+						if (
+							fallbackToken !== serverSearchFallbackToken ||
+							normalizeSearchScope(searchTerm.value) !==
+								normalizedTerm
+						) {
+							resolve([]);
+							return;
+						}
+						setFilteredItems(offlineResults, normalizedTerm);
+						resolve(offlineResults);
 					}
-					setFilteredItems(serverResults, normalizedTerm);
-					resolve(serverResults);
-				} catch (error: any) {
-					if (error?.name !== "AbortError") {
-						console.error("Server search fallback failed:", error);
-					}
-					resolve([]);
-				}
-			}, SERVER_SEARCH_FALLBACK_DEBOUNCE_MS);
+				},
+				Math.max(
+					0,
+					options.serverFallbackDelayMs ??
+						SERVER_SEARCH_FALLBACK_DEBOUNCE_MS,
+				),
+			);
 		});
 	};
 
@@ -463,9 +529,7 @@ export const useItemsStore = defineStore("items", () => {
 		}
 
 		if (!searchTerm.value) {
-			setFilteredItems(
-				filterItemsByGroup(items.value, normalizedGroup),
-			);
+			setFilteredItems(filterItemsByGroup(items.value, normalizedGroup));
 		}
 	};
 
@@ -700,22 +764,16 @@ export const useItemsStore = defineStore("items", () => {
 				: Promise.resolve(clearHotCatalog()),
 		]);
 
-		if (!itemsLoaded.value || items.value.length === 0) {
+		const needsInitialServerCatalog =
+			!itemsLoaded.value ||
+			(!limitSearchEnabled.value && items.value.length === 0);
+		if (needsInitialServerCatalog && !isOffline()) {
 			await loadItems({ forceServer: false });
 		}
-		itemsLoaded.value = true;
 	};
 
 	const loadCachedItems = async () => {
 		try {
-			if (limitSearchEnabled.value) {
-				resetCachedPagination({ enabled: false, total: 0 });
-				setItems([], { totalCount: 0 });
-				itemsLoaded.value = false;
-				syncBootstrapItemReadiness(0);
-				return;
-			}
-
 			const cachedCount = await getStoredItemsCountByScopeCompat(
 				getStorageScope(),
 			).catch(() => 0);
@@ -724,6 +782,14 @@ export const useItemsStore = defineStore("items", () => {
 				: 0;
 
 			totalItemCount.value = resolvedCount;
+
+			if (limitSearchEnabled.value) {
+				resetCachedPagination({ enabled: false, total: resolvedCount });
+				setItems([], { totalCount: resolvedCount });
+				itemsLoaded.value = resolvedCount > 0;
+				syncBootstrapItemReadiness(resolvedCount);
+				return;
+			}
 
 			if (resolvedCount === 0) {
 				itemsLoaded.value = false;
@@ -788,6 +854,10 @@ export const useItemsStore = defineStore("items", () => {
 			activePriceList.value,
 			getStorageScope(),
 			shouldPersistItems(),
+			!limitSearchEnabled.value &&
+				!normalizeBooleanSetting(
+					posProfile.value?.posa_force_server_items,
+				),
 			resolvePageSize,
 			setItems,
 			async () => {
@@ -797,6 +867,7 @@ export const useItemsStore = defineStore("items", () => {
 					posProfile.value,
 					shouldUseIndexedSearch(),
 					limitSearchEnabled.value,
+					getStorageScope(),
 				);
 			},
 			totalItemCount,
@@ -873,7 +944,11 @@ export const useItemsStore = defineStore("items", () => {
 					cachedPagination.value.offset = cachedResult.length;
 					cachedPagination.value.total = cachedResult.length;
 					cachedPagination.value.loading = false;
-					if (!searchValue && shouldPersistItems()) {
+					if (
+						!searchValue &&
+						normalizedGroup === "ALL" &&
+						shouldPersistItems()
+					) {
 						const storedCount =
 							await getStoredItemsCountByScopeCompat(
 								getStorageScope(),
@@ -891,6 +966,7 @@ export const useItemsStore = defineStore("items", () => {
 										posProfile.value,
 										shouldUseIndexedSearch(),
 										limitSearchEnabled.value,
+										getStorageScope(),
 									);
 								},
 							);
@@ -952,37 +1028,20 @@ export const useItemsStore = defineStore("items", () => {
 				await cacheItems(cacheKey, fetchedItems);
 			}
 
-			if (!searchValue && shouldPersistItems() && !shouldForceServerItems) {
-				await persistItemsToStorage(
-					fetchedItems,
-					shouldPersistItems(),
-					forceServer,
+			if (
+				!searchValue &&
+				shouldPersistItems() &&
+				normalizedGroup === "ALL"
+			) {
+				const storedCount = await getStoredItemsCountByScopeCompat(
 					getStorageScope(),
-					async () => {
-						await updateCachedPaginationFromStorage(
-							items.value.length,
-							totalItemCount,
-							posProfile.value,
-							shouldUseIndexedSearch(),
-							limitSearchEnabled.value,
-						);
-					},
-				);
-				if (normalizedGroup === "ALL") {
-					const storedCount = await getStoredItemsCountByScopeCompat(
-						getStorageScope(),
-					).catch(() => fetchedItems.length);
-					syncBootstrapItemReadiness(
-						Math.max(Number(storedCount || 0), fetchedItems.length),
-					);
-				}
+				).catch(() => 0);
+				syncBootstrapItemReadiness(Number(storedCount || 0));
 				triggerBackgroundSync({
 					groupFilter: normalizedGroup,
 					initialBatch: fetchedItems,
-					reset: false,
+					reset: true,
 				});
-			} else if (!searchValue && normalizedGroup === "ALL") {
-				syncBootstrapItemReadiness(0);
 			}
 
 			if (fetchedItems.length > 0) {
@@ -1035,9 +1094,7 @@ export const useItemsStore = defineStore("items", () => {
 
 		clearSearchCache();
 		if (preserveItems) {
-			setFilteredItems(
-				filterItemsByGroup(items.value, itemGroup.value),
-			);
+			setFilteredItems(filterItemsByGroup(items.value, itemGroup.value));
 			return filteredItems.value;
 		}
 
@@ -1046,8 +1103,15 @@ export const useItemsStore = defineStore("items", () => {
 		return filteredItems.value;
 	};
 
-	const searchItems = async (term: string) => {
+	const searchItems = async (
+		term: string,
+		options: SearchItemsOptions = {},
+	) => {
 		const requestedSearchScope = normalizeSearchScope(term);
+		const resultLimit = Math.max(
+			1,
+			options.resultLimit || resolvePageSize(),
+		);
 		const previousTerm = searchTerm.value || "";
 		const canRefineSearch =
 			!shouldUseIndexedSearch() &&
@@ -1093,11 +1157,11 @@ export const useItemsStore = defineStore("items", () => {
 		}
 
 		const exactHotItem = getExactHotItem(term);
-		const hotSearchResults = searchHotItems(term, resolvePageSize());
+		const hotSearchResults = searchHotItems(term, resultLimit);
 		if (exactHotItem) {
 			const exactResults = dedupeItems(
 				[[exactHotItem], hotSearchResults],
-				resolvePageSize(),
+				resultLimit,
 			);
 			cancelPendingServerSearchFallback(exactResults);
 			setFilteredItems(exactResults, term);
@@ -1106,6 +1170,27 @@ export const useItemsStore = defineStore("items", () => {
 		}
 
 		if (limitSearchEnabled.value) {
+			if (isOffline()) {
+				cancelPendingServerSearchFallback();
+				const storedResults = await searchScopedOfflineCatalog(
+					term,
+					itemGroup.value,
+					resultLimit,
+				).catch(() => []);
+				if (
+					normalizeSearchScope(searchTerm.value) !==
+					requestedSearchScope
+				) {
+					return [];
+				}
+				const offlineResults = dedupeItems(
+					[hotSearchResults, storedResults],
+					resultLimit,
+				);
+				setFilteredItems(offlineResults, term);
+				performanceMetrics.value.searchHits++;
+				return offlineResults;
+			}
 			if (hotSearchResults.length > 0) {
 				setFilteredItems(hotSearchResults, term);
 			}
@@ -1113,6 +1198,7 @@ export const useItemsStore = defineStore("items", () => {
 				const serverResults = await scheduleServerSearchFallback(
 					term,
 					itemGroup.value,
+					options,
 				);
 				performanceMetrics.value.searchMisses++;
 
@@ -1130,7 +1216,7 @@ export const useItemsStore = defineStore("items", () => {
 			}
 		}
 
-		const cacheKey = `search_${getCacheScope()}_${activePriceList.value || "default"}_${term}_${itemGroup.value}`;
+		const cacheKey = `search_${getCacheScope()}_${activePriceList.value || "default"}_${term}_${itemGroup.value}_${resultLimit}`;
 		const shouldUseIndexed = shouldUseIndexedSearch();
 		const canUseSearchResultCache =
 			!shouldUseIndexed &&
@@ -1157,14 +1243,14 @@ export const useItemsStore = defineStore("items", () => {
 				const results = await searchStoredItemsCompat({
 					search: term,
 					itemGroup: normalizedGroup,
-					limit: cachedPagination.value.pageSize,
+					limit: resultLimit,
 					offset: 0,
 					scope: getStorageScope(),
 				});
 
 				searchResults = dedupeItems(
 					[hotSearchResults, Array.isArray(results) ? results : []],
-					cachedPagination.value.pageSize,
+					resultLimit,
 				);
 
 				if (
@@ -1174,6 +1260,7 @@ export const useItemsStore = defineStore("items", () => {
 					searchResults = await scheduleServerSearchFallback(
 						term,
 						normalizedGroup,
+						options,
 					);
 					if (
 						normalizeSearchScope(searchTerm.value) !==
@@ -1199,17 +1286,18 @@ export const useItemsStore = defineStore("items", () => {
 					term,
 					sourceItems,
 					itemGroup.value,
-					resolvePageSize(),
+					resultLimit,
 				);
 				searchResults = dedupeItems(
 					[hotSearchResults, localResults],
-					resolvePageSize(),
+					resultLimit,
 				);
 
 				if (searchResults.length === 0 && term.length >= 3) {
 					searchResults = await scheduleServerSearchFallback(
 						term,
 						itemGroup.value,
+						options,
 					);
 					if (
 						normalizeSearchScope(searchTerm.value) !==
@@ -1419,13 +1507,15 @@ export const useItemsStore = defineStore("items", () => {
 
 		if (searchTerm.value) {
 			setFilteredItems(
-				performLocalSearch(searchTerm.value, items.value, itemGroup.value),
+				performLocalSearch(
+					searchTerm.value,
+					items.value,
+					itemGroup.value,
+				),
 				searchTerm.value,
 			);
 		} else {
-			setFilteredItems(
-				filterItemsByGroup(items.value, itemGroup.value),
-			);
+			setFilteredItems(filterItemsByGroup(items.value, itemGroup.value));
 		}
 	};
 
@@ -1563,7 +1653,10 @@ export const useItemsStore = defineStore("items", () => {
 				updateIndexes([newItem], posProfile.value);
 				if (fastCounterEnabled.value) {
 					setHotCatalogItems(
-						dedupeItems([[newItem], hotItems.value], resolveHotCatalogLimit()),
+						dedupeItems(
+							[[newItem], hotItems.value],
+							resolveHotCatalogLimit(),
+						),
 					);
 				}
 
@@ -1605,7 +1698,10 @@ export const useItemsStore = defineStore("items", () => {
 		mergeIntoCollection(filteredItems.value);
 		if (fastCounterEnabled.value) {
 			setHotCatalogItems(
-				dedupeItems([[updatedItem], hotItems.value], resolveHotCatalogLimit()),
+				dedupeItems(
+					[[updatedItem], hotItems.value],
+					resolveHotCatalogLimit(),
+				),
 			);
 		}
 		updateIndexes(items.value, posProfile.value);
@@ -1716,13 +1812,15 @@ export const useItemsStore = defineStore("items", () => {
 		clearSearchCache();
 		if (searchTerm.value) {
 			setFilteredItems(
-				performLocalSearch(searchTerm.value, items.value, itemGroup.value),
+				performLocalSearch(
+					searchTerm.value,
+					items.value,
+					itemGroup.value,
+				),
 				searchTerm.value,
 			);
 		} else {
-			setFilteredItems(
-				filterItemsByGroup(items.value, itemGroup.value),
-			);
+			setFilteredItems(filterItemsByGroup(items.value, itemGroup.value));
 		}
 	};
 

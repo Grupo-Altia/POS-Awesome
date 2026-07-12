@@ -2,11 +2,17 @@ import { unref, type Ref, type ComputedRef } from "vue";
 import invoiceService from "../../../services/invoiceService";
 import { isApiEnvelopeError, unwrapApiResult } from "../../../services/api";
 import {
+	enqueueInvoiceOutboxEntry,
 	saveOfflineInvoice,
 	isOffline,
+	persistInvoiceIntentJournal,
+	removeInvoiceOutboxEntry,
 	updateLocalStock,
 } from "../../../../offline/index";
-import { ensureInvoiceClientRequestId } from "../../../../offline/idempotency";
+import {
+	ensureInvoiceClientRequestId,
+	ensureInvoiceSubmissionIdentity,
+} from "../../../../offline/idempotency";
 import stockCoordinator from "../../../utils/stockCoordinator";
 import { parseBooleanSetting } from "../../../utils/stock";
 import { resolvePosDocumentDoctype } from "../../../utils/posDocumentMode";
@@ -933,6 +939,7 @@ export function usePaymentSubmission(options: PaymentSubmissionOptions) {
 			gift_card_redemptions: unref(options.giftCardRedemptions) || [],
 			is_cashback: unref(isCashback),
 		};
+		ensureInvoiceSubmissionIdentity(submissionDoc, data);
 		const hasGiftCardRedemption =
 			Array.isArray(data.gift_card_redemptions) &&
 			data.gift_card_redemptions.some(
@@ -985,6 +992,26 @@ export function usePaymentSubmission(options: PaymentSubmissionOptions) {
 		// Online Submission
 		try {
 			await validateStockBeforeOnlineSubmission(doc, profile, type);
+			const intent = { data, invoice: submissionDoc };
+			persistInvoiceIntentJournal(intent);
+			const outboxPersistPromise = enqueueInvoiceOutboxEntry(
+				intent,
+			).catch((error) => {
+				console.warn(
+					"Invoice intent remains in the synchronous recovery journal",
+					error,
+				);
+			});
+			if (typeof window !== "undefined") {
+				window.dispatchEvent(
+					new CustomEvent("posa:invoice-submit-dispatched", {
+						detail: {
+							requestId: submissionDoc.posa_client_request_id,
+							timestamp: performance.now(),
+						},
+					}),
+				);
+			}
 			const message = unwrapApiResult(
 				await invoiceService.submitInvoice(
 					data,
@@ -1027,6 +1054,18 @@ export function usePaymentSubmission(options: PaymentSubmissionOptions) {
 				docstatus === 1 ||
 				status === 1 ||
 				(docstatus === undefined && status === undefined);
+			if (wasSubmitted) {
+				void outboxPersistPromise.then(() =>
+					removeInvoiceOutboxEntry(
+						submissionDoc.posa_client_request_id,
+					).catch((error) => {
+						console.warn(
+							"Submitted invoice remains in the durable outbox for idempotent reconciliation",
+							error,
+						);
+					}),
+				);
+			}
 			const waitForInvoiceProcessing =
 				Boolean(profile?.posa_allow_submissions_in_background_job) &&
 				!wasSubmitted;
@@ -1049,6 +1088,31 @@ export function usePaymentSubmission(options: PaymentSubmissionOptions) {
 				doctype: submittedDoctype,
 				docstatus: submittedDocstatus,
 			};
+			if (typeof window !== "undefined") {
+				window.dispatchEvent(
+					new CustomEvent("posa:invoice-submit-response", {
+						detail: {
+							requestId: submissionDoc.posa_client_request_id,
+							invoice: responseInvoiceName,
+							doctype: submittedDoctype,
+							wasSubmitted,
+							timestamp: performance.now(),
+						},
+					}),
+				);
+			}
+			if (wasSubmitted && typeof window !== "undefined") {
+				window.dispatchEvent(
+					new CustomEvent("posa:invoice-submit-authoritative", {
+						detail: {
+							requestId: submissionDoc.posa_client_request_id,
+							invoice: responseInvoiceName,
+							doctype: submittedDoctype,
+							timestamp: performance.now(),
+						},
+					}),
+				);
+			}
 
 			if (!wasSubmitted && backgroundReason) {
 				const failedInfo = {
@@ -1219,6 +1283,9 @@ export function usePaymentSubmission(options: PaymentSubmissionOptions) {
 			if (errorCode === "TIMESTAMP_MISMATCH") {
 				const submittedStatus = await fetchSubmittedDocstatus(doc);
 				if (submittedStatus === 1) {
+					await removeInvoiceOutboxEntry(
+						submissionDoc.posa_client_request_id,
+					).catch(() => 0);
 					stores?.toastStore?.show({
 						title: __("Invoice {0} was already submitted", [
 							doc?.name || "",

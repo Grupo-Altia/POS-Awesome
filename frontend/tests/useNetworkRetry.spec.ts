@@ -9,6 +9,7 @@ vi.mock("../src/offline/index", () => ({
 import {
 	checkNetworkConnectivity,
 	manualNetworkRetry,
+	resolvesAnyTrue,
 } from "../src/posapp/composables/core/useNetwork";
 
 describe("manual network retry", () => {
@@ -84,5 +85,46 @@ describe("manual network retry", () => {
 		expect(vm.networkOnline).toBe(true);
 		expect(vm.serverOnline).toBe(true);
 		expect(vm.onConnectivityRecovered).toHaveBeenCalledTimes(1);
+	});
+
+	it("uses a local timeout fallback when AbortSignal.timeout is unavailable", async () => {
+		const timeoutDescriptor = Object.getOwnPropertyDescriptor(
+			AbortSignal,
+			"timeout",
+		);
+		Object.defineProperty(AbortSignal, "timeout", {
+			configurable: true,
+			value: undefined,
+		});
+		vi.stubGlobal(
+			"fetch",
+			vi.fn(() => Promise.resolve({ status: 200, ok: true })),
+		);
+		const vm: any = {
+			networkOnline: false,
+			serverOnline: false,
+			serverConnecting: false,
+			internetReachable: false,
+			$forceUpdate: vi.fn(),
+		};
+
+		try {
+			await checkNetworkConnectivity.call(vm, { forceImmediate: true });
+			expect(vm.serverOnline).toBe(true);
+		} finally {
+			if (timeoutDescriptor) {
+				Object.defineProperty(AbortSignal, "timeout", timeoutDescriptor);
+			}
+		}
+	});
+
+	it("treats one successful LAN probe as connected even when another returns false", async () => {
+		await expect(
+			resolvesAnyTrue([
+				Promise.resolve(false),
+				Promise.resolve(true),
+				Promise.reject(new Error("unreachable")),
+			]),
+		).resolves.toBe(true);
 	});
 });

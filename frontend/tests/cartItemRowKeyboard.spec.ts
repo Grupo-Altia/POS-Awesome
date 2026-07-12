@@ -122,6 +122,40 @@ describe("CartItemRow keyboard editing", () => {
 		expect(input.element.value).toBe("2");
 	});
 
+	it("skips UOM as an editable stop when only one UOM is available", () => {
+		vi.stubGlobal("__", (value: string) => value);
+		const wrapper = mountRow({}, { visibleColumns: [{ key: "uom" }] });
+		const display = wrapper.get(".uom-editor .posa-cart-table__editor-display");
+
+		expect(display.attributes("tabindex")).toBe("-1");
+		expect(display.attributes("aria-disabled")).toBe("true");
+		expect(display.attributes("data-pos-keyboard-target")).toBeUndefined();
+	});
+
+	it("skips replacement UOM while keeping multi-UOM sale rows editable", () => {
+		vi.stubGlobal("__", (value: string) => value);
+		const uoms = [{ uom: "Nos" }, { uom: "Box" }];
+		const replacement = mountRow(
+			{ item_uoms: uoms, posa_is_replace: 1 },
+			{ visibleColumns: [{ key: "uom" }] },
+		);
+		const regular = mountRow(
+			{ item_uoms: uoms },
+			{ visibleColumns: [{ key: "uom" }] },
+		);
+
+		expect(
+			replacement
+				.get(".uom-editor .posa-cart-table__editor-display")
+				.attributes("aria-disabled"),
+		).toBe("true");
+		expect(
+			regular
+				.get(".uom-editor .posa-cart-table__editor-display")
+				.attributes("data-pos-keyboard-target"),
+		).toBe("cart-uom");
+	});
+
 	it("opens discount percentage editing with the current value populated", async () => {
 		vi.stubGlobal("__", (value: string) => value);
 		const wrapper = mountRow(

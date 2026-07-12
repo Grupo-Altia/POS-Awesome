@@ -1,5 +1,11 @@
 <template>
-	<div class="items-selector-shell" :style="responsiveStyles">
+	<div
+		class="items-selector-shell"
+		:class="{ 'items-selector-shell--counter-dialog': presentation === 'counter-grid-dialog' }"
+		:style="responsiveStyles"
+		:data-search-ready-query="counterSearchReadyQuery || undefined"
+		:data-search-pending="counterSearchPending ? 'true' : 'false'"
+	>
 		<ScanErrorDialog
 			v-model="scanErrorDialog"
 			:message="scanErrorMessage"
@@ -45,7 +51,7 @@
 						@clear-search-and-qty="clearSearchAndQty"
 						@search-input="handleSearchInput"
 						@search-paste="handleSearchPaste"
-						@focus="handleItemSearchFocus"
+						@focus="handleItemSearchFocusForPresentation"
 						@clear-qty="clearQty"
 						@blur-qty="onQtyBlur"
 						@start-camera="startCameraScanning"
@@ -76,8 +82,32 @@
 				<v-card flat class="selector-section-card selector-results-card pos-themed-card">
 					<v-row class="items">
 						<v-col cols="12" class="pt-0 mt-0">
+							<PharmacyItemSearchTable
+								v-if="presentation === 'counter-grid-dialog'"
+								:displayed-items="selectableDisplayedItems"
+								:search-term="search_input"
+								:search-field="pharmacySearchField"
+								:include-zero-stock="pharmacyIncludeZeroStock"
+								:highlighted-item-code="itemSelection.highlightedItemCode.value || ''"
+								:pos-profile="pos_profile"
+								:selected-currency="selected_currency"
+								:currency-symbol="currencySymbol"
+								:format-currency="memoizedFormatCurrency"
+								:format-number="memoizedFormatNumber"
+								:rate-precision="ratePrecision"
+								:row-props="getItemRowProps"
+								:last-sync-time="lastSyncTimeLabel"
+								:item-groups="items_group"
+								:item-group="item_group"
+								:active-price-list="active_price_list"
+								@update:item-group="item_group = $event"
+								@update:search-field="pharmacySearchField = $event"
+								@update:include-zero-stock="pharmacyIncludeZeroStock = $event"
+								@row-click="click_item_row"
+								@list-scroll="onListScroll"
+							/>
 							<ItemsSelectorCards
-								v-if="items_view === 'card'"
+								v-else-if="items_view === 'card'"
 								ref="itemsContainer"
 								:displayed-items="displayedItems"
 								:is-loading="isLoadingOrSyncing"
@@ -163,6 +193,7 @@
 			</v-expand-transition>
 		</v-card>
 		<ItemActionToolbar
+			v-if="presentation !== 'counter-grid-dialog'"
 			v-model="item_group"
 			:items-group="items_group"
 			v-model:items-view="items_view"
@@ -207,6 +238,7 @@ import {
 	watch,
 	reactive,
 	inject,
+	nextTick,
 	type Ref,
 } from "vue";
 import { storeToRefs } from "pinia";
@@ -218,6 +250,7 @@ import ItemSettingsDialog from "./ItemSettingsDialog.vue";
 import ItemHeader from "./ItemHeader.vue";
 import ItemsSelectorCards from "./ItemsSelectorCards.vue";
 import ItemsSelectorTable from "./ItemsSelectorTable.vue";
+import PharmacyItemSearchTable from "./PharmacyItemSearchTable.vue";
 import NewItemDialog from "./NewItemDialog.vue";
 import ScanErrorDialog from "./ScanErrorDialog.vue";
 
@@ -247,6 +280,7 @@ import { useBarcodeIndexing } from "../../../composables/pos/items/useBarcodeInd
 import { useScanProcessor } from "../../../composables/pos/items/useScanProcessor";
 import { useItemCurrency } from "../../../composables/pos/items/useItemCurrency";
 import { startItemsSelectorInitialization } from "../../../composables/pos/items/useItemsSelectorInitialization";
+import { filterPharmacySearchItems } from "../../../utils/pharmacyItem";
 import { registerItemsSelectorEvents } from "../../../composables/pos/items/useItemsSelectorEvents";
 import { registerItemsSelectorTypeToSearch } from "../../../composables/pos/items/useItemsSelectorTypeToSearch";
 import { useItemsSelectorLayoutLifecycle } from "../../../composables/pos/items/useItemsSelectorLayoutLifecycle";
@@ -279,9 +313,17 @@ const props = defineProps({
 		type: Boolean,
 		default: false,
 	},
+	presentation: {
+		type: String,
+		default: "classic",
+	},
+	initialSearch: {
+		type: String,
+		default: "",
+	},
 });
 
-const emit = defineEmits(["add-item", "add-items"]);
+const emit = defineEmits(["add-item", "add-items", "item-added"]);
 
 // 1. Initialize Stores and Core Composables
 const vmInstance = getCurrentInstance();
@@ -376,6 +418,9 @@ const item_group = computed({
 });
 const virtualScrollBuffer = ref(200);
 const localStorageAvailable = ref(true);
+const counterSearchPending = ref(false);
+const counterSearchReadyQuery = ref("");
+let counterSearchToken = 0;
 
 // Settings Refs
 const hide_qty_decimals = ref(false);
@@ -474,6 +519,45 @@ const displayedItems = computed(() => {
 		limit: enable_custom_items_per_page.value ? items_per_page.value : itemsPerPage.value,
 	});
 });
+
+const pharmacySearchField = ref("all");
+const pharmacyIncludeZeroStock = ref(false);
+const selectableDisplayedItems = computed(() => {
+	if (props.presentation !== "counter-grid-dialog") return displayedItems.value;
+	return filterPharmacySearchItems(displayedItems.value as any[], {
+		searchTerm: search_input.value,
+		searchField: pharmacySearchField.value,
+		includeZeroStock: pharmacyIncludeZeroStock.value,
+	});
+});
+
+watch([pharmacySearchField, pharmacyIncludeZeroStock, item_group], async () => {
+	if (props.presentation !== "counter-grid-dialog") return;
+	itemSelection.clearHighlightedItem();
+	await nextTick();
+	itemSelection.highlightFirstItem();
+});
+
+watch(
+	selectableDisplayedItems,
+	async (nextItems) => {
+		if (props.presentation !== "counter-grid-dialog") return;
+		if (!nextItems.length) {
+			itemSelection.clearHighlightedItem();
+			return;
+		}
+		const highlightedCode = itemSelection.highlightedItemCode.value;
+		if (
+			highlightedCode &&
+			nextItems.some((item: any) => item?.item_code === highlightedCode)
+		) {
+			return;
+		}
+		await nextTick();
+		itemSelection.highlightFirstItem();
+	},
+	{ flush: "post" },
+);
 
 watch(
 	() => props.showOnlyBarcodeItems,
@@ -635,7 +719,13 @@ const itemsSelectorSearch = useItemsSelectorSearch({
 		first_search.value = value;
 	},
 	isLimitSearchEnabled: () => usesLimitSearch.value,
-	runLimitSearch: (term) => itemsIntegration.searchItems(term),
+	runLimitSearch: (term) =>
+		itemsIntegration.searchItems(
+			term,
+			props.presentation === "counter-grid-dialog"
+				? { serverFallbackDelayMs: 0, resultLimit: 50 }
+				: undefined,
+		),
 	clearHighlightedItem: () => itemSelection.clearHighlightedItem(),
 	resolveItemByBarcode: (code) => resolveItemByBarcode(items.value, code),
 });
@@ -758,6 +848,7 @@ const add_item = async (item, optionsOrQty: any = {}) => {
 			isReturnInvoice: isReturnInvoice.value,
 			...options,
 			new_line: typeof options?.new_line === "boolean" ? options.new_line : !!new_line.value,
+			appendNewItems: props.presentation === "counter-grid-dialog",
 		};
 
 		const isValid = await cartValidation.validateCartItem(
@@ -780,7 +871,9 @@ const add_item = async (item, optionsOrQty: any = {}) => {
 				eventBus.emit("apply_pricing_rules");
 			}
 			qty.value = 1;
-			if (addedLine && eventBus && typeof eventBus.emit === "function") {
+			if (addedLine && props.presentation === "counter-grid-dialog") {
+				emit("item-added", addedLine);
+			} else if (addedLine && eventBus && typeof eventBus.emit === "function") {
 				const focusedLine: any = addedLine;
 				window.setTimeout(() => {
 					eventBus.emit("focus_cart_item_qty", {
@@ -1008,14 +1101,20 @@ onMounted(async () => {
 
 	itemSelection.registerContext({
 		addItem: add_item,
-		clearSearch: () => clearSearch(),
-		focusItemSearch: () => itemsSelectorFocus.focusItemSearch(),
+		clearSearch: () => {
+			if (props.presentation !== "counter-grid-dialog") clearSearch();
+		},
+		focusItemSearch: () => {
+			if (props.presentation !== "counter-grid-dialog") {
+				itemsSelectorFocus.focusItemSearch();
+			}
+		},
 		fly,
 		get flyConfig() {
 			return flyConfig;
 		},
 		get displayedItems() {
-			return displayedItems.value;
+			return selectableDisplayedItems.value;
 		},
 	});
 
@@ -1148,6 +1247,56 @@ watch(activeView, (view) => {
 	}
 });
 
+watch(
+	[() => props.initialSearch, isInitialized],
+	async ([rawQuery, initialized]) => {
+		if (props.presentation !== "counter-grid-dialog") return;
+
+		const query = String(rawQuery || "").trim();
+		search_input.value = query;
+		first_search.value = query;
+		counterSearchReadyQuery.value = "";
+		itemSelection.clearHighlightedItem();
+
+		const token = ++counterSearchToken;
+		if (!query || !initialized) {
+			counterSearchPending.value = false;
+			return;
+		}
+
+		counterSearchPending.value = true;
+		const startedAt = performance.now();
+		try {
+			await itemsIntegration.searchItems(query, {
+				serverFallbackDelayMs: 0,
+				resultLimit: 50,
+			});
+			await nextTick();
+			if (token !== counterSearchToken || String(props.initialSearch || "").trim() !== query) {
+				return;
+			}
+			itemSelection.highlightFirstItem();
+			counterSearchReadyQuery.value = query;
+			window.dispatchEvent(
+				new CustomEvent("posa:counter-search-ready", {
+					detail: {
+						query,
+						durationMs: performance.now() - startedAt,
+						resultCount: selectableDisplayedItems.value.length,
+					},
+				}),
+			);
+		} catch (error) {
+			if (token === counterSearchToken) {
+				console.error("Counter Grid item search failed:", error);
+			}
+		} finally {
+			if (token === counterSearchToken) counterSearchPending.value = false;
+		}
+	},
+	{ immediate: true, flush: "post" },
+);
+
 watch(selectedCustomer, () => {
 	itemsIntegration.customer.value = selectedCustomer.value || null;
 	clearLastInvoiceRateCache();
@@ -1226,6 +1375,18 @@ const {
 	setActiveView: (view) => uiStore.setActiveView(view),
 	triggerItemSearchFocus: () => uiStore.triggerItemSearchFocus(),
 });
+const handleItemSearchFocusForPresentation = () => {
+	if (props.presentation === "counter-grid-dialog") {
+		itemSearchFocusClearGuard.armPreserveNextFocusClear();
+	}
+	handleItemSearchFocus();
+};
+const focusSearchInput = () => {
+	if (props.presentation === "counter-grid-dialog") {
+		itemSearchFocusClearGuard.armPreserveNextFocusClear();
+	}
+	itemsSelectorFocus.focusItemSearch();
+};
 cleanupSearchInput = stopSearchInputWatcher;
 const {
 	newItemDialog,
@@ -1276,6 +1437,7 @@ const onListScroll = (e) => handleListScroll(e);
 defineExpose({
 	search_input,
 	debounce_qty,
+	focusSearchInput,
 	qty,
 	items_view,
 	pos_profile,

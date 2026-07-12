@@ -3,10 +3,13 @@
 	"private": true,
 	"version": "0.0.0",
 	"type": "module",
+	"browserslist": [
+		"Chrome >= 109"
+	],
 	"scripts": {
 		"dev": "vite",
 		"serve": "vite preview",
-		"build": "vue-tsc --noEmit && vite build",
+		"build": "vue-tsc --noEmit && vite build && node scripts/audit-chrome109-css.mjs",
 		"type-check": "vue-tsc --noEmit",
 		"lint": "eslint .",
 		"format": "prettier --write \"**/*.{js,vue,css,scss,html}\"",

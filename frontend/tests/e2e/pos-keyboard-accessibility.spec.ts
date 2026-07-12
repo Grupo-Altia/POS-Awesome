@@ -679,13 +679,21 @@ test.describe.serial("POS keyboard accessibility E2E", () => {
 		);
 	});
 
-	test("item quick edit opens from selected cart row and is keyboard reachable", async ({
+	test("item workspace and update item are reachable from the selected cart row", async ({
 		page,
 	}) => {
 		if (!items.length) items = await getPositiveStockItems(page);
 		await searchAndAddItem(page, items[0]);
 		await enterInvoiceGrid(page);
 		await page.keyboard.press("F12");
+
+		await expect(page.getByTestId("item-history-modal")).toBeVisible({
+			timeout: 30000,
+		});
+		await expect(
+			page.getByTestId("item-history-sales-tab"),
+		).toHaveAttribute("aria-selected", "true");
+		await page.getByTestId("item-workspace-update-item").click();
 
 		await expect(page.getByTestId("item-quick-edit-modal")).toBeVisible({
 			timeout: 30000,

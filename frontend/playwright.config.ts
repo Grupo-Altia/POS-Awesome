@@ -46,6 +46,24 @@ function loadLocalEnvFile(filename = ".env.local") {
 loadLocalEnvFile();
 
 const baseURL = process.env.POSA_SMOKE_BASE_URL || "http://127.0.0.1:8000";
+const smokeSessionId = process.env.POSA_SMOKE_SID?.trim();
+const storageState = smokeSessionId
+	? {
+			cookies: [
+				{
+					name: "sid",
+					value: smokeSessionId,
+					domain: new URL(baseURL).hostname,
+					path: "/",
+					expires: -1,
+					httpOnly: true,
+					secure: baseURL.startsWith("https://"),
+					sameSite: "Lax" as const,
+				},
+			],
+			origins: [],
+		}
+	: undefined;
 
 export default defineConfig({
 	testDir: "./tests",
@@ -59,6 +77,7 @@ export default defineConfig({
 		: "list",
 	use: {
 		baseURL,
+		storageState,
 		trace: "retain-on-failure",
 		screenshot: "only-on-failure",
 		video: "retain-on-failure",

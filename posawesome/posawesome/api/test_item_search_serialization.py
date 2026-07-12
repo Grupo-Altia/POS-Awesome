@@ -59,7 +59,7 @@ def _install_stubs():
     sys.modules["posawesome.posawesome.api.utils"] = utils
 
     barcode = types.ModuleType("posawesome.posawesome.api.item_processing.barcode")
-    barcode.search_serial_or_batch_or_barcode_number = lambda *args, **kwargs: None
+    barcode.search_serial_or_batch_or_barcode_number = lambda *args, **kwargs: {}
     sys.modules["posawesome.posawesome.api.item_processing.barcode"] = barcode
 
     details = types.ModuleType("posawesome.posawesome.api.item_processing.details")
@@ -136,6 +136,50 @@ class TestItemSearchSerialization(unittest.TestCase):
         self.assertEqual(len(serialized_payloads), 1)
         self.assertIn("2026-04-23 10:30:00", serialized_payloads[0])
 
+    def test_interactive_query_prepends_an_exact_item_code_candidate(self):
+        calls = []
+
+        def fake_get_all(*args, **kwargs):
+            calls.append(kwargs)
+            if kwargs.get("filters", {}).get("item_code") == "02017":
+                return [{"item_code": "02017", "item_name": "Exact Item"}]
+            return [{"item_code": "OTHER", "item_name": "Alphabetical First"}]
+
+        self.module.frappe.get_all = fake_get_all
+        self.module.get_items_details = lambda _profile, rows, **_kwargs: [
+            {"item_code": row["item_code"]} for row in json.loads(rows)
+        ]
+        self.module._build_attribute_maps = lambda *args, **kwargs: ({}, {})
+        self.module._shape_item_row = lambda item, detail, plan, **kwargs: item
+        self.module._matches_search_words = lambda *args, **kwargs: True
+
+        plan = self.module.SearchPlan(
+            filters={},
+            or_filters=[["item_code", "like", "%02017%"]],
+            fields=["item_code", "item_name"],
+            limit_page_length=2,
+            limit_start=0,
+            order_by="item_name asc",
+            page_size=2,
+            initial_page_start=0,
+            item_code_for_search="02017",
+            search_words=["02017"],
+            normalized_search_value="02017",
+            word_filter_active=True,
+            include_description=False,
+            include_image=False,
+            posa_display_items_in_stock=False,
+            posa_show_template_items=False,
+        )
+
+        result = self.module._run_item_query({}, None, None, plan)
+
+        self.assertEqual(
+            [row["item_code"] for row in result],
+            ["02017", "OTHER"],
+        )
+        self.assertEqual(calls[1]["filters"]["item_code"], "02017")
+
     def test_item_code_cursor_uses_keyset_plan_without_offset(self):
         plan = self.module._build_search_plan(
             pos_profile={},
@@ -177,6 +221,83 @@ class TestItemSearchSerialization(unittest.TestCase):
         self.assertEqual(self.module._coerce_hot_catalog_limit(None), 5000)
         self.assertEqual(self.module._coerce_hot_catalog_limit(50), 100)
         self.assertEqual(self.module._coerce_hot_catalog_limit(20000), 10000)
+
+    def test_search_plan_includes_installed_pharmacy_fields(self):
+        self.module.installed_item_search_fields = lambda: [
+            "retailmind_old_pos_generic_name",
+            "retailmind_old_pos_rack",
+        ]
+
+        plan = self.module._build_search_plan(
+            pos_profile={"posa_use_limit_search": 1},
+            item_group="",
+            search_value="paracetamol",
+            limit=50,
+            offset=0,
+            start_after=None,
+            start_after_item_code=None,
+            modified_after=None,
+            include_description=False,
+            include_image=False,
+            item_groups=None,
+        )
+
+        self.assertIn("retailmind_old_pos_generic_name", plan.fields)
+        self.assertIn(
+            ["retailmind_old_pos_generic_name", "like", "%paracetamol%"],
+            plan.or_filters,
+        )
+
+    def test_legacy_limit_search_field_uses_the_bounded_search_plan(self):
+        plan = self.module._build_search_plan(
+            pos_profile={"pose_use_limit_search": 1, "posa_search_limit": 1000},
+            item_group="",
+            search_value="panadol",
+            limit=1000,
+            offset=0,
+            start_after=None,
+            start_after_item_code=None,
+            modified_after=None,
+            include_description=False,
+            include_image=False,
+            item_groups=None,
+        )
+
+        self.assertEqual(plan.limit_page_length, 100)
+        self.assertEqual(plan.page_size, 100)
+        self.assertTrue(plan.or_filters)
+        self.assertEqual(plan.item_code_for_search, "panadol")
+
+    def test_current_limit_search_field_overrides_the_legacy_alias(self):
+        plan = self.module._build_search_plan(
+            pos_profile={
+                "posa_use_limit_search": 0,
+                "pose_use_limit_search": 1,
+            },
+            item_group="",
+            search_value="panadol",
+            limit=50,
+            offset=0,
+            start_after=None,
+            start_after_item_code=None,
+            modified_after=None,
+            include_description=False,
+            include_image=False,
+            item_groups=None,
+        )
+
+        self.assertEqual(plan.or_filters, [])
+
+    def test_word_filter_matches_pharmacy_metadata(self):
+        row = {
+            "item_code": "ITEM-001",
+            "item_name": "Pain Relief",
+            "retailmind_old_pos_generic_name": "PARACETAMOL",
+            "retailmind_old_pos_rack": "A-12",
+        }
+
+        self.assertTrue(self.module._matches_search_words(row, ["paracetamol"], True))
+        self.assertTrue(self.module._matches_search_words(row, ["a-12"], True))
 
     def test_hot_item_search_fills_sales_ranking_with_active_fallback(self):
         calls = []

@@ -1,7 +1,7 @@
 import json
 import unittest
 from types import SimpleNamespace
-from unittest.mock import patch
+from unittest.mock import Mock, patch
 
 import frappe
 from frappe.tests.utils import FrappeTestCase
@@ -108,7 +108,16 @@ class TestItemSalesHistory(unittest.TestCase):
             ]
 
         fake_frappe = SimpleNamespace(db=SimpleNamespace(sql=fake_sql))
-        with patch("posawesome.posawesome.api.items.frappe", fake_frappe):
+        profile = {"name": "POS-1", "company": "RetailMind"}
+        with (
+            patch("posawesome.posawesome.api.items.frappe", fake_frappe),
+            patch(
+                "posawesome.posawesome.api.items.get_authorized_pos_profile",
+                return_value=profile,
+            ),
+            patch("posawesome.posawesome.api.items.get_authorized_pos_item"),
+            patch("posawesome.posawesome.api.items.assert_doctype_read_permission"),
+        ):
             result = get_item_sales_history(
                 item_code="ITEM-0001",
                 company="RetailMind",
@@ -136,7 +145,16 @@ class TestItemSalesHistory(unittest.TestCase):
             return [{}]
 
         fake_frappe = SimpleNamespace(db=SimpleNamespace(sql=fake_sql))
-        with patch("posawesome.posawesome.api.items.frappe", fake_frappe):
+        profile = {"name": "POS-1", "company": "RetailMind"}
+        with (
+            patch("posawesome.posawesome.api.items.frappe", fake_frappe),
+            patch(
+                "posawesome.posawesome.api.items.get_authorized_pos_profile",
+                return_value=profile,
+            ),
+            patch("posawesome.posawesome.api.items.get_authorized_pos_item"),
+            patch("posawesome.posawesome.api.items.assert_doctype_read_permission"),
+        ):
             get_item_sales_history(
                 item_code="ITEM-0001",
                 company="RetailMind",
@@ -145,3 +163,49 @@ class TestItemSalesHistory(unittest.TestCase):
 
         self.assertIn("`tabPOS Invoice`", calls[0])
         self.assertNotIn("`tabSales Invoice`", calls[0])
+
+    def test_item_sales_history_rejects_profile_before_running_sql(self):
+        fake_sql = Mock(side_effect=AssertionError("unauthorized history must not query SQL"))
+        fake_frappe = SimpleNamespace(db=SimpleNamespace(sql=fake_sql))
+
+        with (
+            patch("posawesome.posawesome.api.items.frappe", fake_frappe),
+            patch(
+                "posawesome.posawesome.api.items.get_authorized_pos_profile",
+                side_effect=PermissionError("not assigned"),
+            ),
+        ):
+            with self.assertRaisesRegex(PermissionError, "not assigned"):
+                get_item_sales_history(
+                    item_code="ITEM-0001",
+                    company="RetailMind",
+                    pos_profile="OTHER-POS",
+                )
+
+        fake_sql.assert_not_called()
+
+    def test_item_sales_history_rejects_unreadable_invoice_doctype_before_sql(self):
+        fake_sql = Mock(side_effect=AssertionError("unauthorized history must not query SQL"))
+        fake_frappe = SimpleNamespace(db=SimpleNamespace(sql=fake_sql))
+        profile = {"name": "POS-1", "company": "RetailMind"}
+
+        with (
+            patch("posawesome.posawesome.api.items.frappe", fake_frappe),
+            patch(
+                "posawesome.posawesome.api.items.get_authorized_pos_profile",
+                return_value=profile,
+            ),
+            patch("posawesome.posawesome.api.items.get_authorized_pos_item"),
+            patch(
+                "posawesome.posawesome.api.items.assert_doctype_read_permission",
+                side_effect=PermissionError("cannot read Sales Invoice"),
+            ),
+        ):
+            with self.assertRaisesRegex(PermissionError, "cannot read Sales Invoice"):
+                get_item_sales_history(
+                    item_code="ITEM-0001",
+                    company="RetailMind",
+                    pos_profile="POS-1",
+                )
+
+        fake_sql.assert_not_called()

@@ -7,6 +7,14 @@ LOCKED_FIELD = "retailmind_locked_for_sale"
 NON_DISCOUNTABLE_FIELD = "retailmind_non_discountable"
 CONTROLLED_FIELD = "retailmind_controlled_item"
 SHORT_NAME_FIELD = "retailmind_short_name"
+PHARMACY_SEARCH_FIELDS = (
+    "retailmind_old_pos_pack",
+    "retailmind_old_pos_company_code",
+    "retailmind_old_pos_generic_code",
+    "retailmind_old_pos_generic_name",
+    "retailmind_old_pos_rack",
+    "retailmind_units_per_pack",
+)
 LOSS_EPSILON = 0.0001
 
 
@@ -28,6 +36,14 @@ def item_has_field(fieldname):
 
 def installed_item_control_fields():
     return [field for field in item_control_fields() if item_has_field(field)]
+
+
+def installed_item_search_fields():
+    return [
+        field
+        for field in [*item_control_fields(), *PHARMACY_SEARCH_FIELDS]
+        if item_has_field(field)
+    ]
 
 
 def get_item_control_flags(item_codes):

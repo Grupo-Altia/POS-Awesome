@@ -4,10 +4,12 @@ import { describe, expect, it, vi } from "vitest";
 
 import {
 	activateCartGridCell,
+	ensureCartGridRowRendered,
 	focusCartGridCell,
 	focusCartGridRow,
 	focusCartItemField,
 	getNavigableCartColumnKeys,
+	shouldDelegateCartGridKeyToEditor,
 } from "../src/posapp/utils/cartFieldFocus";
 
 const createContainer = () => {
@@ -63,7 +65,9 @@ const createContainer = () => {
 describe("focusCartItemField", () => {
 	it("focuses and clicks the quantity input for the requested row", () => {
 		const container = createContainer();
-		const activator = container.querySelector('[data-column-key="qty"] input') as HTMLElement;
+		const activator = container.querySelector(
+			'[data-column-key="qty"] input',
+		) as HTMLElement;
 		const clickSpy = vi.spyOn(activator, "click");
 
 		expect(focusCartItemField(container, 0, "qty")).toBe(true);
@@ -90,14 +94,20 @@ describe("focusCartItemField", () => {
 		) as HTMLElement;
 		const clickSpy = vi.spyOn(activator, "click");
 
-		expect(focusCartItemField(container, 0, "discount_percentage", { activate: false })).toBe(true);
+		expect(
+			focusCartItemField(container, 0, "discount_percentage", {
+				activate: false,
+			}),
+		).toBe(true);
 		expect(document.activeElement).toBe(activator);
 		expect(clickSpy).not.toHaveBeenCalled();
 	});
 
 	it("focuses rows by explicit rendered row index when available", () => {
 		const container = createContainer();
-		const row = container.querySelector('[data-cart-row-index="3"]') as HTMLElement;
+		const row = container.querySelector(
+			'[data-cart-row-index="3"]',
+		) as HTMLElement;
 		const focusSpy = vi.spyOn(row, "focus");
 
 		expect(focusCartGridRow(container, 3)).toBe(true);
@@ -115,7 +125,9 @@ describe("focusCartItemField", () => {
 		expect(document.activeElement).toBe(target);
 		expect(clickSpy).not.toHaveBeenCalled();
 
-		expect(activateCartGridCell(container, 0, "discount_amount")).toBe(true);
+		expect(activateCartGridCell(container, 0, "discount_amount")).toBe(
+			true,
+		);
 		expect(clickSpy).toHaveBeenCalledTimes(1);
 	});
 
@@ -128,6 +140,47 @@ describe("focusCartItemField", () => {
 				{ key: "actions" },
 				{ key: "data-table-expand" },
 			]),
-		).toEqual(["qty", "actions", "data-table-expand"]);
+		).toEqual([
+			"item_name",
+			"qty",
+			"amount",
+			"actions",
+			"data-table-expand",
+		]);
+	});
+
+	it("leaves UOM menu keys to the active select editor", () => {
+		const target = document.createElement("input");
+		const editor = document.createElement("div");
+		editor.className = "uom-select";
+		editor.appendChild(target);
+
+		expect(shouldDelegateCartGridKeyToEditor(target, "ArrowDown")).toBe(
+			true,
+		);
+		expect(shouldDelegateCartGridKeyToEditor(target, "Enter")).toBe(true);
+		expect(shouldDelegateCartGridKeyToEditor(target, "ArrowRight")).toBe(
+			false,
+		);
+	});
+
+	it("scrolls a virtualized offscreen row before resolving its focus target", async () => {
+		const container = document.createElement("div");
+		const scrollToIndex = vi.fn((rowIndex: number) => {
+			const row = document.createElement("div");
+			row.className = "posa-cart-item-row";
+			row.dataset.cartRowIndex = String(rowIndex);
+			container.appendChild(row);
+		});
+
+		await expect(
+			ensureCartGridRowRendered(
+				container,
+				24,
+				scrollToIndex,
+				async () => Promise.resolve(),
+			),
+		).resolves.toBe(true);
+		expect(scrollToIndex).toHaveBeenCalledWith(24);
 	});
 });

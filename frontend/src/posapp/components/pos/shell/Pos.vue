@@ -1,7 +1,7 @@
 <template>
 	<div
 		class="pos-main-container dynamic-container"
-		:class="rtlClasses"
+		:class="[rtlClasses, { 'pos-main-container--counter-grid': counterGridActive }]"
 		:style="[responsiveStyles, layoutStyleOverrides, rtlStyles]"
 	>
 		<Drafts></Drafts>
@@ -30,7 +30,52 @@
 		>
 			<Payments dialog-mode />
 		</v-dialog>
+		<v-dialog
+			v-if="counterGridActive"
+			v-model="counterItemSearchOpen"
+			:retain-focus="true"
+			width="calc(100vw - 32px)"
+			max-width="1500"
+			class="counter-item-search-dialog"
+			@after-enter="handleCounterItemSearchAfterEnter"
+			@after-leave="handleCounterItemSearchAfterLeave"
+		>
+			<section class="counter-item-search-surface" aria-label="Item search">
+				<header class="counter-item-search-header">
+					<div>
+						<strong>{{ __("Find an item") }}</strong>
+						<span>{{ __("Search name, code, barcode, generic, company, pack or rack") }}</span>
+					</div>
+					<v-btn
+						icon="mdi-close"
+						variant="text"
+						:aria-label="__('Close item search')"
+						@click="counterItemSearchOpen = false"
+					/>
+				</header>
+				<ItemsSelector
+					ref="counterItemsSelector"
+					context="pos"
+					presentation="counter-grid-dialog"
+					:initial-search="counterItemSearchQuery"
+					@item-added="handleCounterItemAdded"
+				/>
+			</section>
+		</v-dialog>
+		<v-dialog
+			v-if="counterGridActive"
+			:model-value="counterAuxiliaryOpen"
+			width="calc(100vw - 32px)"
+			max-width="1380"
+			@update:model-value="handleCounterAuxiliaryUpdate"
+		>
+			<section class="counter-auxiliary-surface">
+				<PosOffers v-if="activeView === 'offers'" />
+				<PosCoupons v-else-if="activeView === 'coupons'" />
+			</section>
+		</v-dialog>
 		<v-row
+			v-if="!counterGridActive"
 			v-show="!dialog"
 			dense
 			class="ma-0 dynamic-main-row"
@@ -97,6 +142,27 @@
 				<Invoice ref="invoicePanel"></Invoice>
 			</v-col>
 		</v-row>
+		<section v-else v-show="!dialog" class="counter-grid-pos" data-testid="counter-grid-pos">
+			<Invoice ref="invoicePanel" presentation="counter-grid" />
+			<footer class="counter-grid-status" aria-label="Counter status">
+				<span>
+					<v-icon icon="mdi-warehouse" size="16" />
+					{{ posProfile?.warehouse || __("Warehouse not selected") }}
+				</span>
+				<span>
+					<v-icon icon="mdi-tag-outline" size="16" />
+					{{ posProfile?.selling_price_list || __("Price list not selected") }}
+				</span>
+				<span>
+					<v-icon
+						:icon="itemsLoaded ? 'mdi-database-check-outline' : 'mdi-database-clock-outline'"
+						size="16"
+					/>
+					{{ catalogStatusLabel }}
+				</span>
+				<span class="counter-grid-status__template">{{ __("Counter Grid") }}</span>
+			</footer>
+		</section>
 		<div v-if="showBottomDock" ref="mobileDock" class="mobile-pos-stack">
 			<div class="mobile-sale-dock">
 				<div class="mobile-sale-dock__copy">
@@ -227,6 +293,7 @@ import { useInvoiceStore } from "../../../stores/invoiceStore.js";
 import { useItemsStore } from "../../../stores/itemsStore.js";
 import { storeToRefs } from "pinia";
 import { useCustomerDisplayPublisher } from "../../../composables/pos/shared/useCustomerDisplayPublisher";
+import { isCounterGridTemplate } from "../../../utils/posUiTemplate";
 
 export default {
 	setup() {
@@ -246,6 +313,7 @@ export default {
 		const itemsStore = useItemsStore();
 		const __ = window.__;
 		const { activeView, posProfile, paymentDialogOpen } = storeToRefs(uiStore);
+		const { totalItemCount, itemsLoaded } = storeToRefs(itemsStore);
 		const {
 			invoiceDoc,
 			itemsCount,
@@ -256,10 +324,27 @@ export default {
 			additionalDiscountPercentage,
 		} = storeToRefs(invoiceStore);
 		const usePaymentDialog = computed(() => responsive.windowWidth.value >= 992);
+		const counterGridActive = computed(() =>
+			isCounterGridTemplate(posProfile.value, responsive.windowWidth.value),
+		);
 		const useCompactPosSwitcher = computed(() => responsive.windowWidth.value < 1100);
 		const compactPanel = ref("selector");
 		const isPhone = computed(() => responsive.isPhone.value);
-		const showBottomDock = computed(() => !dialog.value && responsive.windowWidth.value < 1100);
+		const showBottomDock = computed(
+			() => !counterGridActive.value && !dialog.value && responsive.windowWidth.value < 1100,
+		);
+		const counterItemSearchOpen = ref(false);
+		const counterItemSearchQuery = ref("");
+		const counterItemsSelector = ref(null);
+		const pendingCounterAddedLine = ref(null);
+		const counterAuxiliaryOpen = computed(
+			() => counterGridActive.value && ["offers", "coupons"].includes(activeView.value),
+		);
+		const catalogStatusLabel = computed(() =>
+			itemsLoaded.value
+				? `${Number(totalItemCount.value || 0).toLocaleString()} ${__("catalog items")}`
+				: __("Catalog loading"),
+		);
 		const bottomDockHeight = ref(0);
 		let mobileDockObserver = null;
 		const isEditingAdditionalDiscount = ref(false);
@@ -388,6 +473,10 @@ export default {
 			if (!usePaymentDialog.value) {
 				return;
 			}
+			if (counterGridActive.value) {
+				nextTick(() => invoicePanel.value?.focusCounterGridEntry?.());
+				return;
+			}
 			focusItemSearchField();
 		};
 
@@ -429,6 +518,43 @@ export default {
 				return;
 			}
 			showPaymentPanel();
+		};
+		const openCounterItemSearch = (payload = {}) => {
+			if (!counterGridActive.value) return;
+			const query = typeof payload === "string" ? payload : payload?.query;
+			const normalizedQuery = String(query || "").trim();
+			if (!normalizedQuery) return;
+			pendingCounterAddedLine.value = null;
+			counterItemSearchQuery.value = normalizedQuery;
+			counterItemSearchOpen.value = true;
+		};
+		const handleCounterItemAdded = (line) => {
+			pendingCounterAddedLine.value = line || null;
+			invoicePanel.value?.clearCounterGridEntry?.();
+			counterItemSearchOpen.value = false;
+		};
+		const handleCounterItemSearchAfterEnter = () => {
+			nextTick(() => counterItemsSelector.value?.focusSearchInput?.());
+		};
+		const handleCounterItemSearchAfterLeave = () => {
+			// A fast cashier can start the next lookup while the previous dialog is
+			// still leaving. Do not let that stale transition erase the new query.
+			if (counterItemSearchOpen.value) return;
+			const line = pendingCounterAddedLine.value;
+			pendingCounterAddedLine.value = null;
+			counterItemSearchQuery.value = "";
+			if (line) {
+				eventBus?.emit("focus_cart_item_qty", {
+					item: line,
+					rowId: line?.posa_row_id,
+					itemCode: line?.item_code,
+				});
+				return;
+			}
+			invoicePanel.value?.focusCounterGridEntry?.();
+		};
+		const handleCounterAuxiliaryUpdate = (open) => {
+			if (!open) uiStore.setActiveView("items");
 		};
 		const isSelectorViewActive = (view) => compactPanel.value === "selector" && activeView.value === view;
 		const getFallbackBottomSpace = () => {
@@ -481,6 +607,9 @@ export default {
 			field?.$el?.querySelector?.("input")?.focus?.();
 		};
 		const handlePosTabFocus = (event) => {
+			if (counterGridActive.value) {
+				return;
+			}
 			if (event.key !== "Tab" || event.altKey || event.ctrlKey || event.metaKey) {
 				return;
 			}
@@ -507,6 +636,7 @@ export default {
 				});
 				eventBus.on("focus_additional_discount", focusAdditionalDiscountField);
 				eventBus.on("set_compact_panel", setCompactPanel);
+				eventBus.on("open_counter_item_search", openCounterItemSearch);
 			}
 			nextTick(() => {
 				updateBottomDockHeight();
@@ -526,6 +656,7 @@ export default {
 				eventBus.off("submit_closing_pos");
 				eventBus.off("focus_additional_discount", focusAdditionalDiscountField);
 				eventBus.off("set_compact_panel", setCompactPanel);
+				eventBus.off("open_counter_item_search", openCounterItemSearch);
 			}
 		});
 
@@ -563,6 +694,14 @@ export default {
 			}
 		});
 
+		watch(counterGridActive, (enabled) => {
+			if (!enabled) {
+				counterItemSearchOpen.value = false;
+				counterItemSearchQuery.value = "";
+				pendingCounterAddedLine.value = null;
+			}
+		});
+
 		watch(
 			[showBottomDock, () => responsive.windowWidth.value, () => responsive.windowHeight.value],
 			() => {
@@ -590,6 +729,8 @@ export default {
 			__,
 			invoiceDoc,
 			itemsCount,
+			totalItemCount,
+			itemsLoaded,
 			totalQty,
 			formattedCartTotal,
 			formattedDiscountTotal,
@@ -602,6 +743,11 @@ export default {
 			paymentDialogOpen,
 			isPhone,
 			usePaymentDialog,
+			counterGridActive,
+			counterItemSearchOpen,
+			counterItemSearchQuery,
+			counterAuxiliaryOpen,
+			catalogStatusLabel,
 			useCompactPosSwitcher,
 			showBottomDock,
 			layoutStyleOverrides,
@@ -622,9 +768,14 @@ export default {
 			commitAdditionalDiscountPercentage,
 			handlePaymentDialogUpdate,
 			handlePaymentDialogAfterLeave,
+			handleCounterItemAdded,
+			handleCounterItemSearchAfterEnter,
+			handleCounterItemSearchAfterLeave,
+			handleCounterAuxiliaryUpdate,
 			discountPercentageOfferName,
 			getCurrencySymbol,
 			invoicePanel,
+			counterItemsSelector,
 			eventBus,
 			dialog,
 		};
@@ -716,6 +867,113 @@ export default {
 	transition: all 0.3s ease;
 	padding-bottom: calc(var(--bottom-safe-space) + var(--dynamic-xs));
 	min-width: 0;
+}
+
+.pos-main-container--counter-grid {
+	padding: 0;
+	height: calc(100vh - 64px);
+	height: calc(100dvh - 64px);
+	min-height: 0;
+	overflow: hidden;
+}
+
+.counter-grid-pos {
+	display: grid;
+	grid-template-rows: minmax(0, 1fr) 32px;
+	height: 100%;
+	min-height: 0;
+	background: var(--pos-surface-muted);
+}
+
+.counter-grid-status {
+	display: flex;
+	align-items: center;
+	gap: 22px;
+	min-width: 0;
+	padding: 0 14px;
+	border-top: 1px solid var(--pos-border);
+	background: var(--pos-card-bg);
+	color: var(--pos-text-secondary);
+	font-size: 0.78rem;
+}
+
+.counter-grid-status span {
+	display: inline-flex;
+	align-items: center;
+	gap: 6px;
+	min-width: 0;
+	overflow: hidden;
+	text-overflow: ellipsis;
+	white-space: nowrap;
+}
+
+.counter-grid-status__template {
+	margin-inline-start: auto;
+	font-weight: 700;
+	color: rgb(var(--v-theme-primary));
+}
+
+.counter-item-search-surface,
+.counter-auxiliary-surface {
+	display: flex;
+	flex-direction: column;
+	width: 100%;
+	max-height: calc(100vh - 24px);
+	max-height: calc(100dvh - 24px);
+	min-height: 0;
+	overflow: hidden;
+	border: 1px solid var(--pos-border);
+	border-radius: 6px;
+	background: var(--pos-surface-muted);
+	box-shadow: 0 18px 54px rgba(15, 23, 42, 0.24);
+}
+
+.counter-item-search-header {
+	display: flex;
+	align-items: center;
+	justify-content: space-between;
+	gap: 16px;
+	min-height: 58px;
+	padding: 8px 12px 8px 16px;
+	border-bottom: 1px solid var(--pos-border);
+	background: var(--pos-card-bg);
+}
+
+.counter-item-search-header div {
+	display: flex;
+	flex-direction: column;
+	min-width: 0;
+}
+
+.counter-item-search-header strong {
+	font-size: 1rem;
+	color: var(--pos-text-primary);
+}
+
+.counter-item-search-header span {
+	overflow: hidden;
+	color: var(--pos-text-secondary);
+	font-size: 0.78rem;
+	text-overflow: ellipsis;
+	white-space: nowrap;
+}
+
+.counter-item-search-surface :deep(.items-selector-shell) {
+	flex: 1 1 auto;
+	min-height: 0;
+	height: min(760px, calc(100vh - 96px));
+	height: min(760px, calc(100dvh - 96px));
+	overflow: hidden;
+}
+
+.counter-item-search-surface :deep(.selection-card) {
+	height: 100% !important;
+	max-height: 100% !important;
+	margin-top: 0 !important;
+	border: 0;
+	border-radius: 0;
+	box-shadow: none;
+	resize: none !important;
 }
 
 .dynamic-main-row {

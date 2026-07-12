@@ -45,7 +45,12 @@ from posawesome.posawesome.api.item_processing.search import (
     get_hot_items,
     normalize_brand,
 )
-from posawesome.posawesome.api.item_sale_controls import installed_item_control_fields
+from posawesome.posawesome.api.item_sale_controls import installed_item_search_fields
+from posawesome.posawesome.api.pos_access import (
+    assert_doctype_read_permission,
+    get_authorized_pos_item,
+    get_authorized_pos_profile,
+)
 
 
 def _collect_delta_item_codes(pos_profile, modified_after, price_list, limit):
@@ -175,7 +180,7 @@ def get_delta_items(
         "brand",
         "allow_negative_stock",
     ]
-    fields.extend([field for field in installed_item_control_fields() if field not in fields])
+    fields.extend([field for field in installed_item_search_fields() if field not in fields])
 
     item_rows = frappe.get_all(
         "Item",
@@ -311,6 +316,7 @@ def get_item_sales_history(
     to_date=None,
     limit_start=0,
     limit_page_length=25,
+    pos_profile=None,
 ):
     """Return submitted non-return invoice history for one item across POS doctypes."""
 
@@ -318,6 +324,10 @@ def get_item_sales_history(
         frappe.throw(_("Item Code is required."))
     if not company:
         frappe.throw(_("Company is required."))
+
+    profile_doc = get_authorized_pos_profile(pos_profile, company=company)
+    get_authorized_pos_item(item_code, profile_doc)
+    company = profile_doc.get("company")
 
     doctype_filter = _normalize_item_sales_doctype_filter(doctype_filter)
     doctypes = (
@@ -328,6 +338,9 @@ def get_item_sales_history(
     limit_start = max(cint(limit_start), 0)
     limit_page_length = max(1, min(cint(limit_page_length) or 25, 100))
     search = (search or "").strip()
+
+    for doctype in doctypes:
+        assert_doctype_read_permission(doctype)
 
     source_queries = []
     params = []
