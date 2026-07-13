@@ -22,6 +22,14 @@ export interface CartFieldFocusOptions {
 	activate?: boolean;
 }
 
+export type CounterGridKeyboardCommand =
+	| { type: "move-entry"; delta: -1 }
+	| {
+			type: "move-boundary";
+			row: "current" | "first" | "last";
+			column: "first" | "last";
+	  };
+
 const FIELD_SELECTORS: Record<CartGridColumnKey, string> = {
 	item_name: '[data-column-key="item_name"]',
 	qty: '[data-column-key="qty"] .posa-cart-table__qty-input-shell input',
@@ -74,10 +82,53 @@ export const isCartGridDirectEditColumnKey = (
 export const shouldDelegateCartGridKeyToEditor = (
 	target: EventTarget | null,
 	key: string,
+	modifiers: { shiftKey?: boolean } = {},
 ) =>
 	target instanceof Element &&
 	Boolean(target.closest(".uom-select")) &&
+	!(key === "Enter" && modifiers.shiftKey) &&
 	["ArrowDown", "ArrowUp", "Enter", " ", "Escape"].includes(key);
+
+export const resolveCounterGridKeyboardCommand = (
+	event: Pick<
+		KeyboardEvent,
+		"key" | "shiftKey" | "ctrlKey" | "metaKey" | "altKey"
+	>,
+	options: {
+		mode: "inactive" | "row" | "cell";
+		directEditCell?: boolean;
+	},
+): CounterGridKeyboardCommand | null => {
+	if (options.mode === "inactive" || event.altKey) {
+		return null;
+	}
+
+	if (
+		options.mode === "cell" &&
+		options.directEditCell &&
+		event.key === "Enter" &&
+		event.shiftKey &&
+		!event.ctrlKey &&
+		!event.metaKey
+	) {
+		return { type: "move-entry", delta: -1 };
+	}
+
+	if (event.key !== "Home" && event.key !== "End") {
+		return null;
+	}
+
+	const isDocumentBoundary = event.ctrlKey || event.metaKey;
+	return {
+		type: "move-boundary",
+		row: isDocumentBoundary
+			? event.key === "Home"
+				? "first"
+				: "last"
+			: "current",
+		column: event.key === "Home" ? "first" : "last",
+	};
+};
 
 export const getCartGridRowId = (rowIndex: number) =>
 	`posa-cart-grid-row-${rowIndex}`;
@@ -102,6 +153,24 @@ export const getNavigableCartColumnKeys = (
 	}
 
 	return columns.map((column) => column?.key).filter(isCartGridColumnKey);
+};
+
+export const getAdjacentCartGridColumnKey = (
+	keys: CartGridColumnKey[],
+	currentKey: CartGridColumnKey | null | undefined,
+	delta: number,
+) => {
+	if (!keys.length || delta === 0) return null;
+	const currentIndex = currentKey ? keys.indexOf(currentKey) : -1;
+	const nextIndex =
+		currentIndex < 0
+			? delta > 0
+				? 0
+				: keys.length - 1
+			: currentIndex + delta;
+	return nextIndex >= 0 && nextIndex < keys.length
+		? (keys[nextIndex] ?? null)
+		: null;
 };
 
 export const getCartGridRow = (

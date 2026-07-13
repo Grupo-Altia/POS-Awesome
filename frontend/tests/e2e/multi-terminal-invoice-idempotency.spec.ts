@@ -1,5 +1,12 @@
 import { expect, test, type BrowserContext, type Page } from "@playwright/test";
 
+import {
+	cleanupProvisionedTerminalCashier,
+	clickWithTerminalUnlockRetry,
+	ensureAuthoritativeTerminalUnlock,
+	unlockTerminalDialogIfVisible,
+} from "./helpers/terminalAuth";
+
 const ENABLED = process.env.POSA_MULTI_TERMINAL_E2E === "1";
 const POS_PATH = process.env.POSA_SMOKE_PATH || "/desk/posapp";
 const ITEM_CODE = process.env.POSA_COUNTER_GRID_PERF_ITEM || "02017";
@@ -11,6 +18,10 @@ test.skip(
 	!ENABLED,
 	"Set POSA_MULTI_TERMINAL_E2E=1 to run the authenticated multi-terminal idempotency test.",
 );
+
+test.afterEach(async ({ page }) => {
+	await cleanupProvisionedTerminalCashier(page);
+});
 
 type InvoicePayload = Record<string, any>;
 type SubmissionPayload = {
@@ -56,6 +67,27 @@ async function callFrappe<T = any>(
 	);
 }
 
+async function withTimeout<T>(
+	promise: Promise<T>,
+	timeoutMs: number,
+	message: string,
+) {
+	let timeoutHandle: ReturnType<typeof setTimeout> | null = null;
+	try {
+		return await Promise.race([
+			promise,
+			new Promise<never>((_, reject) => {
+				timeoutHandle = setTimeout(
+					() => reject(new Error(message)),
+					timeoutMs,
+				);
+			}),
+		]);
+	} finally {
+		if (timeoutHandle) clearTimeout(timeoutHandle);
+	}
+}
+
 async function waitForPos(page: Page) {
 	await page.goto(POS_PATH, { waitUntil: "domcontentloaded" });
 	if (/\/login/.test(page.url())) {
@@ -63,6 +95,7 @@ async function waitForPos(page: Page) {
 			"Multi-terminal E2E requires POSA_SMOKE_SID or login credentials.",
 		);
 	}
+	await ensureAuthoritativeTerminalUnlock(page);
 	await expect(page.getByTestId("counter-grid-pos")).toBeVisible({
 		timeout: 90_000,
 	});
@@ -197,14 +230,14 @@ async function submitUntilResolved(
 	let lastError: unknown;
 	for (let attempt = 0; attempt < 60; attempt += 1) {
 		try {
-			const response = await callFrappe<OutboxResponse>(
-				page,
-				OUTBOX_METHOD,
-				{
+			const response = await withTimeout(
+				callFrappe<OutboxResponse>(page, OUTBOX_METHOD, {
 					client_request_id: clientRequestId,
 					invoice: payload.invoice,
 					data: payload.data,
-				},
+				}),
+				12_000,
+				`Outbox submission timed out for ${clientRequestId}`,
 			);
 			if (response?.acknowledged && response.invoice?.name)
 				return response;
@@ -260,7 +293,11 @@ test("two terminals resolve one canonical invoice without duplicates", async ({
 	await page.setViewportSize({ width: 1280, height: 720 });
 	await waitForPos(page);
 	await addSingleItem(page);
-	await page.getByTestId("invoice-action-pay").click();
+	await unlockTerminalDialogIfVisible(page);
+	await clickWithTerminalUnlockRetry(
+		page,
+		page.getByTestId("invoice-action-pay"),
+	);
 	await expect(page.getByTestId("payment-root")).toBeVisible({
 		timeout: 30_000,
 	});

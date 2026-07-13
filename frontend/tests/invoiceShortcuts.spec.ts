@@ -115,6 +115,28 @@ describe("invoiceShortcuts", () => {
 		expect(event.defaultPrevented).toBe(true);
 	});
 
+	it("uses Alt or Option+G for unavailable cart alternates without replacing F9 pay", async () => {
+		const vm = { ...createVm(), isCounterGridPresentation: true };
+		const event = createAltEvent("g", "KeyG");
+
+		await (invoiceShortcuts as any).handleInvoiceShortcut.call(vm, event);
+
+		expect(vm.eventBus.emit).toHaveBeenCalledWith("open_cart_alternates");
+		expect(event.defaultPrevented).toBe(true);
+	});
+
+	it("does not consume Alt or Option+G outside Counter Grid", async () => {
+		const vm = createVm();
+		const event = createAltEvent("g", "KeyG");
+
+		await (invoiceShortcuts as any).handleInvoiceShortcut.call(vm, event);
+
+		expect(vm.eventBus.emit).not.toHaveBeenCalledWith(
+			"open_cart_alternates",
+		);
+		expect(event.defaultPrevented).toBe(false);
+	});
+
 	it("uses F8 to lock the POS screen", async () => {
 		const vm = createVm();
 		const event = new KeyboardEvent("keydown", {

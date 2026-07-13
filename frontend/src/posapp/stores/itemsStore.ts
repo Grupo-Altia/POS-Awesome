@@ -28,6 +28,7 @@ import { resetItemLoadingCoordinator } from "../modules/items/itemLoadingCoordin
 export const useItemsStore = defineStore("items", () => {
 	const SERVER_SEARCH_FALLBACK_DEBOUNCE_MS = 450;
 	const SERVER_SEARCH_MISS_CACHE_TTL_MS = 30 * 1000;
+	const SERVER_SEARCH_RESULT_CACHE_TTL_MS = 60 * 1000;
 	const SERVER_SEARCH_FALLBACK_MIN_LENGTH = 2;
 	const RESUME_RECOVERY_COOLDOWN_MS = 10 * 1000;
 	const HOT_CATALOG_DEFAULT_LIMIT = 5000;
@@ -41,6 +42,10 @@ export const useItemsStore = defineStore("items", () => {
 	let serverSearchFallbackToken = 0;
 	let lastRecoveryAt = 0;
 	const serverSearchMissCache = new Map<string, number>();
+	const serverSearchResultCache = new Map<
+		string,
+		{ timestamp: number; items: Item[] }
+	>();
 	const activeServerSearchKeys = new Set<string>();
 	type SearchItemsOptions = {
 		serverFallbackDelayMs?: number;
@@ -287,6 +292,16 @@ export const useItemsStore = defineStore("items", () => {
 			normalizeSearchScope(term),
 		].join("|");
 
+	const buildServerSearchResultCacheKey = (
+		term: string,
+		group: string,
+		limit: number,
+	) =>
+		[
+			buildServerSearchScopeKey(term, group),
+			Math.max(1, limit || resolvePageSize()),
+		].join("|");
+
 	const isServerSearchMissCached = (scopeKey: string) => {
 		const timestamp = serverSearchMissCache.get(scopeKey);
 		if (!timestamp) {
@@ -301,6 +316,23 @@ export const useItemsStore = defineStore("items", () => {
 
 	const markServerSearchMiss = (scopeKey: string) => {
 		serverSearchMissCache.set(scopeKey, Date.now());
+	};
+
+	const getCachedServerSearchResult = (cacheKey: string) => {
+		const cached = serverSearchResultCache.get(cacheKey);
+		if (!cached) return null;
+		if (Date.now() - cached.timestamp > SERVER_SEARCH_RESULT_CACHE_TTL_MS) {
+			serverSearchResultCache.delete(cacheKey);
+			return null;
+		}
+		return [...cached.items];
+	};
+
+	const setCachedServerSearchResult = (cacheKey: string, result: Item[]) => {
+		serverSearchResultCache.set(cacheKey, {
+			timestamp: Date.now(),
+			items: Array.isArray(result) ? [...result] : [],
+		});
 	};
 
 	const abortActiveServerSearches = () => {
@@ -1093,6 +1125,7 @@ export const useItemsStore = defineStore("items", () => {
 				: "ALL";
 
 		clearSearchCache();
+		serverSearchResultCache.clear();
 		if (preserveItems) {
 			setFilteredItems(filterItemsByGroup(items.value, itemGroup.value));
 			return filteredItems.value;
@@ -1170,11 +1203,29 @@ export const useItemsStore = defineStore("items", () => {
 		}
 
 		if (limitSearchEnabled.value) {
+			const normalizedGroup =
+				typeof itemGroup.value === "string" &&
+				itemGroup.value.length > 0
+					? itemGroup.value
+					: "ALL";
+			const serverResultCacheKey = buildServerSearchResultCacheKey(
+				term,
+				normalizedGroup,
+				resultLimit,
+			);
+			const cachedServerResults =
+				getCachedServerSearchResult(serverResultCacheKey);
+			if (cachedServerResults) {
+				setFilteredItems(cachedServerResults, term);
+				performanceMetrics.value.searchHits++;
+				return cachedServerResults;
+			}
+
 			if (isOffline()) {
 				cancelPendingServerSearchFallback();
 				const storedResults = await searchScopedOfflineCatalog(
 					term,
-					itemGroup.value,
+					normalizedGroup,
 					resultLimit,
 				).catch(() => []);
 				if (
@@ -1197,12 +1248,16 @@ export const useItemsStore = defineStore("items", () => {
 			try {
 				const serverResults = await scheduleServerSearchFallback(
 					term,
-					itemGroup.value,
+					normalizedGroup,
 					options,
 				);
 				performanceMetrics.value.searchMisses++;
 
 				if (serverResults.length > 0) {
+					setCachedServerSearchResult(
+						serverResultCacheKey,
+						serverResults,
+					);
 					return serverResults;
 				}
 				if (hotSearchResults.length > 0) {

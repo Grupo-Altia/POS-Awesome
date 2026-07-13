@@ -3,14 +3,31 @@
 import { describe, expect, it, vi } from "vitest";
 
 import {
+	CART_GRID_DIRECT_EDIT_COLUMNS,
 	activateCartGridCell,
 	ensureCartGridRowRendered,
 	focusCartGridCell,
 	focusCartGridRow,
 	focusCartItemField,
+	getAdjacentCartGridColumnKey,
 	getNavigableCartColumnKeys,
+	resolveCounterGridKeyboardCommand,
 	shouldDelegateCartGridKeyToEditor,
 } from "../src/posapp/utils/cartFieldFocus";
+
+const gridKey = (
+	key: string,
+	modifiers: Partial<
+		Pick<KeyboardEvent, "shiftKey" | "ctrlKey" | "metaKey" | "altKey">
+	> = {},
+) => ({
+	key,
+	shiftKey: false,
+	ctrlKey: false,
+	metaKey: false,
+	altKey: false,
+	...modifiers,
+});
 
 const createContainer = () => {
 	const container = document.createElement("div");
@@ -149,6 +166,31 @@ describe("focusCartItemField", () => {
 		]);
 	});
 
+	it("traverses displayed totals and both action cells without adding them to fast Enter progression", () => {
+		const keys = getNavigableCartColumnKeys([
+			{ key: "item_name" },
+			{ key: "qty" },
+			{ key: "rate" },
+			{ key: "amount" },
+			{ key: "actions" },
+			{ key: "data-table-expand" },
+		]);
+
+		expect(getAdjacentCartGridColumnKey(keys, "rate", 1)).toBe("amount");
+		expect(getAdjacentCartGridColumnKey(keys, "amount", 1)).toBe("actions");
+		expect(getAdjacentCartGridColumnKey(keys, "actions", 1)).toBe(
+			"data-table-expand",
+		);
+		expect(
+			getAdjacentCartGridColumnKey(keys, "data-table-expand", -1),
+		).toBe("actions");
+		expect(CART_GRID_DIRECT_EDIT_COLUMNS).not.toContain("amount");
+		expect(CART_GRID_DIRECT_EDIT_COLUMNS).not.toContain("actions");
+		expect(CART_GRID_DIRECT_EDIT_COLUMNS).not.toContain(
+			"data-table-expand",
+		);
+	});
+
 	it("leaves UOM menu keys to the active select editor", () => {
 		const target = document.createElement("input");
 		const editor = document.createElement("div");
@@ -159,6 +201,11 @@ describe("focusCartItemField", () => {
 			true,
 		);
 		expect(shouldDelegateCartGridKeyToEditor(target, "Enter")).toBe(true);
+		expect(
+			shouldDelegateCartGridKeyToEditor(target, "Enter", {
+				shiftKey: true,
+			}),
+		).toBe(false);
 		expect(shouldDelegateCartGridKeyToEditor(target, "ArrowRight")).toBe(
 			false,
 		);
@@ -174,13 +221,84 @@ describe("focusCartItemField", () => {
 		});
 
 		await expect(
-			ensureCartGridRowRendered(
-				container,
-				24,
-				scrollToIndex,
-				async () => Promise.resolve(),
+			ensureCartGridRowRendered(container, 24, scrollToIndex, async () =>
+				Promise.resolve(),
 			),
 		).resolves.toBe(true);
 		expect(scrollToIndex).toHaveBeenCalledWith(24);
+	});
+
+	it("maps Home and End to the current row boundaries", () => {
+		expect(
+			resolveCounterGridKeyboardCommand(gridKey("Home"), {
+				mode: "cell",
+			}),
+		).toEqual({
+			type: "move-boundary",
+			row: "current",
+			column: "first",
+		});
+		expect(
+			resolveCounterGridKeyboardCommand(gridKey("End"), {
+				mode: "row",
+			}),
+		).toEqual({
+			type: "move-boundary",
+			row: "current",
+			column: "last",
+		});
+	});
+
+	it("maps Ctrl or Meta Home and End to cart corners", () => {
+		expect(
+			resolveCounterGridKeyboardCommand(
+				gridKey("Home", { ctrlKey: true }),
+				{
+					mode: "cell",
+				},
+			),
+		).toEqual({
+			type: "move-boundary",
+			row: "first",
+			column: "first",
+		});
+		expect(
+			resolveCounterGridKeyboardCommand(
+				gridKey("End", { metaKey: true }),
+				{
+					mode: "cell",
+				},
+			),
+		).toEqual({
+			type: "move-boundary",
+			row: "last",
+			column: "last",
+		});
+	});
+
+	it("maps Shift+Enter to reverse editable progression only in a direct-edit cell", () => {
+		expect(
+			resolveCounterGridKeyboardCommand(
+				gridKey("Enter", { shiftKey: true }),
+				{
+					mode: "cell",
+					directEditCell: true,
+				},
+			),
+		).toEqual({ type: "move-entry", delta: -1 });
+		expect(
+			resolveCounterGridKeyboardCommand(
+				gridKey("Enter", { shiftKey: true }),
+				{
+					mode: "cell",
+					directEditCell: false,
+				},
+			),
+		).toBeNull();
+		expect(
+			resolveCounterGridKeyboardCommand(gridKey("Home"), {
+				mode: "inactive",
+			}),
+		).toBeNull();
 	});
 });

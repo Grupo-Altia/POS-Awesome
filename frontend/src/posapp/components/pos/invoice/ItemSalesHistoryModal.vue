@@ -38,7 +38,7 @@
 						{{ formatCurrency(Number(item?.qty || 0) * Number(item?.rate || 0)) }}
 					</v-chip>
 					<v-btn
-						v-if="item?.item_code"
+						v-if="item?.item_code && canUpdateItem"
 						data-item-history-keytarget
 						data-item-history-key="update-item"
 						data-testid="item-workspace-update-item"
@@ -320,7 +320,9 @@
 			data-testid="item-history-invoice-detail-dialog"
 			@keydown.esc.capture.stop.prevent="closeInvoiceDetailDialog"
 		>
-			<v-card-title class="d-flex align-center justify-space-between flex-wrap ga-3">
+			<v-card-title
+				class="invoice-detail-header d-flex align-center justify-space-between flex-wrap ga-3"
+			>
 				<div>
 					<div class="text-h6">{{ selectedInvoiceDetail?.name || __("Invoice Details") }}</div>
 					<div class="text-subtitle-2 text-medium-emphasis">
@@ -406,6 +408,7 @@
 import { computed, nextTick, ref, watch } from "vue";
 import { isOffline } from "../../../../offline/index";
 import { useResponsive } from "../../../composables/core/useResponsive";
+import { canShowItemQuickEdit } from "../../../utils/itemQuickEditPermission";
 import ItemsTableExpandedRow from "./ItemsTableExpandedRow.vue";
 
 declare const frappe: any;
@@ -449,12 +452,7 @@ const props = withDefaults(defineProps<Props>(), {
 	isDarkTheme: false,
 });
 
-const emit = defineEmits([
-	"update:modelValue",
-	"qty-change",
-	"edit-item",
-	"after-leave",
-]);
+const emit = defineEmits(["update:modelValue", "qty-change", "edit-item", "after-leave"]);
 
 const responsive = useResponsive();
 const useFullscreenDialog = computed(
@@ -481,6 +479,7 @@ const reloadTimer = ref<number | null>(null);
 const invoiceDetailDialog = ref(false);
 const selectedInvoiceDetail = ref<any>(null);
 const offline = computed(() => isOffline());
+const canUpdateItem = computed(() => canShowItemQuickEdit(props.posProfile));
 const activeKeyboardKey = ref("");
 const activeKeyboardTarget = ref<HTMLElement | null>(null);
 const keyboardEditing = ref(false);
@@ -896,6 +895,12 @@ watch(historyRows, () => {
 
 <style scoped>
 .posa-item-history-card {
+	--counter-rugged-navy: #09253d;
+	--counter-rugged-navy-raised: #174a70;
+	--counter-rugged-blue: #0f70d7;
+	--counter-rugged-cyan: #38bdf8;
+	--counter-rugged-line: #9db2c4;
+	--counter-rugged-soft-line: #c9d5df;
 	display: grid;
 	grid-template-rows: auto auto auto minmax(0, 1fr) auto;
 	height: min(780px, calc(100vh - 24px));
@@ -903,8 +908,11 @@ watch(historyRows, () => {
 	max-height: calc(100vh - 24px);
 	max-height: calc(100dvh - 24px);
 	overflow: hidden;
-	background: var(--pos-surface-raised) !important;
-	color: var(--pos-text-primary) !important;
+	border: 3px solid var(--counter-rugged-navy);
+	border-radius: 5px !important;
+	background: #edf3f7 !important;
+	color: #10263b !important;
+	box-shadow: 0 5px 14px rgba(4, 22, 37, 0.34);
 }
 
 .posa-item-history-card--fullscreen {
@@ -921,6 +929,11 @@ watch(historyRows, () => {
 	justify-content: space-between;
 	gap: 16px;
 	flex-wrap: wrap;
+	min-height: 70px;
+	padding: 10px 12px 10px 16px;
+	border-bottom: 2px solid var(--counter-rugged-cyan);
+	background: var(--counter-rugged-navy);
+	color: #ffffff;
 }
 
 .posa-item-history-header__identity {
@@ -933,6 +946,11 @@ watch(historyRows, () => {
 	overflow: hidden;
 	text-overflow: ellipsis;
 	white-space: nowrap;
+	color: #ffffff !important;
+}
+
+.posa-item-history-header__identity .text-subtitle-2 {
+	color: #d6e7f3 !important;
 }
 
 .posa-item-history-header__metrics {
@@ -942,14 +960,49 @@ watch(historyRows, () => {
 	flex-wrap: wrap;
 }
 
+.posa-item-history-header__metrics :deep(.v-chip) {
+	border: 1px solid #6ea3c7;
+	border-radius: 3px;
+	background: #174a70 !important;
+	color: #ffffff !important;
+}
+
+.posa-item-history-header__metrics :deep(.v-btn) {
+	border-radius: 3px !important;
+}
+
+.posa-item-history-header__metrics :deep(.v-btn:not(.v-btn--icon)) {
+	border: 1px solid var(--counter-rugged-cyan);
+	background: #174a70 !important;
+	color: #ffffff !important;
+}
+
+.posa-item-history-header__metrics :deep(.v-btn--icon) {
+	color: #ffffff !important;
+}
+
 .posa-item-history-tabs {
 	padding-inline: 12px;
+	border-bottom: 1px solid var(--counter-rugged-line);
+	background: #dfeaf2;
+	color: #17364f;
+}
+
+.posa-item-history-tabs :deep(.v-tab) {
+	border-radius: 0 !important;
+	font-weight: 700;
+}
+
+.posa-item-history-tabs :deep(.v-tab--selected) {
+	background: #ffffff;
+	color: var(--counter-rugged-blue) !important;
 }
 
 .posa-item-history-body {
 	min-height: 0;
 	overflow: auto;
 	overscroll-behavior: contain;
+	background: #edf3f7;
 }
 
 .posa-item-history-filters {
@@ -959,11 +1012,45 @@ watch(historyRows, () => {
 	margin-bottom: 16px;
 }
 
+.posa-item-history-filters :deep(.v-label),
+.posa-item-history-filters :deep(.v-field-label) {
+	color: #25384b !important;
+	opacity: 1;
+}
+
 .posa-item-history-summary {
 	display: grid;
 	grid-template-columns: repeat(4, minmax(0, 1fr));
 	gap: 12px;
 	margin-bottom: 16px;
+}
+
+.summary-tile {
+	min-width: 0;
+	padding: 10px 12px;
+	border: 1px solid var(--counter-rugged-line);
+	border-left: 5px solid var(--counter-rugged-blue);
+	border-radius: 3px;
+	background: #ffffff;
+	box-shadow: 0 1px 3px rgba(9, 37, 61, 0.12);
+}
+
+.summary-tile__label {
+	color: #52687a;
+	font-size: 0.7rem;
+	font-weight: 700;
+	text-transform: uppercase;
+}
+
+.summary-tile__value {
+	margin-top: 3px;
+	overflow: hidden;
+	color: #10263b;
+	font-size: 0.96rem;
+	font-weight: 800;
+	font-variant-numeric: tabular-nums;
+	text-overflow: ellipsis;
+	white-space: nowrap;
 }
 
 .posa-item-history-loader,
@@ -977,9 +1064,10 @@ watch(historyRows, () => {
 }
 
 .posa-item-history-table {
-	border: 1px solid rgba(148, 163, 184, 0.22);
-	border-radius: 8px;
+	border: 2px solid var(--counter-rugged-navy-raised);
+	border-radius: 3px;
 	overflow: auto;
+	background: #ffffff;
 }
 
 .posa-item-history-table :deep(table) {
@@ -990,11 +1078,32 @@ watch(historyRows, () => {
 	cursor: pointer;
 }
 
+.posa-item-history-table :deep(th) {
+	height: 40px;
+	border-right: 1px solid #70b9e4;
+	border-bottom: 2px solid var(--counter-rugged-cyan);
+	background: var(--counter-rugged-navy-raised) !important;
+	color: #ffffff !important;
+	font-size: 0.72rem;
+	font-weight: 800;
+	text-transform: uppercase;
+}
+
+.posa-item-history-table :deep(td) {
+	border-right: 1px solid var(--counter-rugged-soft-line);
+	border-bottom: 1px solid var(--counter-rugged-line);
+	background: #ffffff;
+	color: #10263b;
+	font-variant-numeric: tabular-nums;
+}
+
+.posa-item-history-table :deep(tbody tr:nth-child(even) td) {
+	background: #edf4f8;
+}
+
 .posa-item-history-row--active td {
-	background: rgba(0, 150, 166, 0.16) !important;
-	box-shadow:
-		inset 0 2px 0 rgb(var(--v-theme-primary)),
-		inset 0 -2px 0 rgb(var(--v-theme-primary));
+	background: #d7eafd !important;
+	box-shadow: inset 4px 0 0 var(--counter-rugged-blue);
 }
 
 .posa-modal-keyboard-box {
@@ -1010,7 +1119,7 @@ watch(historyRows, () => {
 }
 
 .posa-item-history-table tr.posa-modal-keyboard-box td {
-	background: rgba(0, 150, 166, 0.2) !important;
+	background: #d7eafd !important;
 }
 
 .posa-item-history-footer,
@@ -1026,13 +1135,47 @@ watch(historyRows, () => {
 }
 
 .posa-item-history-actions {
-	border-top: 1px solid rgba(148, 163, 184, 0.18);
+	border-top: 2px solid var(--counter-rugged-navy-raised);
+	background: #ffffff;
+}
+
+.posa-item-history-actions :deep(.v-btn) {
+	border: 1px solid #b7202a;
+	border-radius: 3px !important;
+	background: #dc343d !important;
+	color: #ffffff !important;
 }
 
 .detail-section__title {
 	font-size: 0.95rem;
 	font-weight: 700;
 	margin-bottom: 8px;
+}
+
+.invoice-detail-card {
+	--counter-rugged-navy: #09253d;
+	--counter-rugged-navy-raised: #174a70;
+	--counter-rugged-cyan: #38bdf8;
+	--counter-rugged-line: #9db2c4;
+	--counter-rugged-soft-line: #c9d5df;
+	border: 3px solid var(--counter-rugged-navy);
+	border-radius: 5px !important;
+	background: #edf3f7 !important;
+}
+
+.invoice-detail-header {
+	border-bottom: 2px solid var(--counter-rugged-cyan);
+	background: var(--counter-rugged-navy);
+	color: #ffffff;
+}
+
+.invoice-detail-header .text-subtitle-2 {
+	color: #d6e7f3 !important;
+}
+
+.invoice-detail-header :deep(.v-btn) {
+	border-radius: 3px !important;
+	color: #ffffff !important;
 }
 
 @media (max-width: 960px) {

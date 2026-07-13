@@ -35,8 +35,12 @@
 							<v-icon
 								v-bind="props"
 								class="icon-button"
+								role="button"
+								tabindex="0"
+								:aria-label="__('Edit customer')"
 								@mousedown.prevent.stop
 								@click.stop="edit_customer"
+								@keyup.enter.space.prevent.stop="edit_customer"
 							>
 								mdi-account-edit
 							</v-icon>
@@ -48,8 +52,13 @@
 								v-bind="props"
 								class="icon-button ml-1"
 								:class="{ 'disabled-icon': !networkOnline }"
+								role="button"
+								:tabindex="networkOnline ? 0 : -1"
+								:aria-label="__('Reload customers')"
+								:aria-disabled="!networkOnline"
 								@mousedown.prevent.stop
 								@click.stop="reload_customers"
+								@keyup.enter.space.prevent.stop="reload_customers"
 							>
 								mdi-reload
 							</v-icon>
@@ -64,8 +73,12 @@
 							<v-icon
 								v-bind="props"
 								class="icon-button"
+								role="button"
+								tabindex="0"
+								:aria-label="__('Add new customer')"
 								@mousedown.prevent.stop
 								@click.stop="new_customer"
+								@keyup.enter.space.prevent.stop="new_customer"
 							>
 								mdi-plus
 							</v-icon>

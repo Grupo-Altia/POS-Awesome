@@ -60,6 +60,22 @@
 			</template>
 			<v-list density="compact" min-width="220">
 				<v-list-item
+					prepend-icon="mdi-tag-outline"
+					data-pos-keyboard-target="invoice-action"
+					data-testid="invoice-action-offers"
+					@click="$emit('open-offers')"
+				>
+					<v-list-item-title>{{ __("Offers") }}</v-list-item-title>
+				</v-list-item>
+				<v-list-item
+					prepend-icon="mdi-ticket-percent-outline"
+					data-pos-keyboard-target="invoice-action"
+					data-testid="invoice-action-coupons"
+					@click="$emit('open-coupons')"
+				>
+					<v-list-item-title>{{ __("Coupons") }}</v-list-item-title>
+				</v-list-item>
+				<v-list-item
 					v-if="pos_profile.custom_allow_select_sales_order == 1"
 					prepend-icon="mdi-book-search"
 					data-testid="invoice-action-select-order"
@@ -92,7 +108,7 @@
 			color="error"
 			variant="tonal"
 			prepend-icon="mdi-close-circle-outline"
-			class="counter-grid-action"
+			class="counter-grid-action counter-grid-action--cancel"
 			data-pos-keyboard-target="invoice-action"
 			data-testid="invoice-action-cancel-sale"
 			:loading="cancelLoading"
@@ -290,6 +306,8 @@ defineEmits([
 	"print-draft",
 	"show-payment",
 	"open-customer-display",
+	"open-offers",
+	"open-coupons",
 ]);
 
 const __ = window.__;
@@ -299,6 +317,7 @@ const showCustomerDisplayButton = computed(() =>
 );
 const showMoreActions = computed(
 	() =>
+		isCounterGrid.value ||
 		props.pos_profile?.custom_allow_select_sales_order == 1 ||
 		Boolean(props.pos_profile?.posa_allow_print_draft_invoices) ||
 		showCustomerDisplayButton.value,
@@ -311,16 +330,35 @@ const showMoreActions = computed(
 	grid-template-columns: repeat(auto-fit, minmax(108px, 1fr));
 	gap: 6px;
 	min-width: 0;
+	--counter-rugged-navy: #09253d;
+	--counter-rugged-blue: #0f70d7;
+	--counter-rugged-green: #079b55;
+	--counter-rugged-red: #dc343d;
 }
 
 .counter-grid-action {
 	height: 38px !important;
 	min-width: 0 !important;
 	padding-inline: 10px !important;
-	border-radius: 4px !important;
+	border: 1px solid #9db2c4 !important;
+	border-radius: 3px !important;
+	background: #e8eef3 !important;
+	color: #10263b !important;
 	font-size: 0.76rem !important;
 	font-weight: 650 !important;
 	text-transform: none !important;
+}
+
+.counter-grid-action:hover {
+	border-color: var(--counter-rugged-blue) !important;
+	background: #dbeafa !important;
+}
+
+.counter-grid-action.text-error,
+.counter-grid-action--cancel {
+	border-color: #b7202a !important;
+	background: var(--counter-rugged-red) !important;
+	color: #ffffff !important;
 }
 
 .counter-grid-action :deep(.v-btn__content) {
@@ -331,7 +369,14 @@ const showMoreActions = computed(
 
 .counter-grid-action--pay {
 	grid-column: span 2;
+	border-color: #05743f !important;
+	background: var(--counter-rugged-green) !important;
+	color: #ffffff !important;
 	font-size: 0.86rem !important;
+}
+
+.counter-grid-action--pay:hover {
+	background: #07884b !important;
 }
 
 .white-text-btn {

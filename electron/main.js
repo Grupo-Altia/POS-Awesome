@@ -150,7 +150,7 @@ function loadServer(serverUrl) {
 function buildAppMenu() {
 	const template = [
 		{
-			label: "POS Awesome",
+			label: "RetailMind-POS",
 			submenu: [
 				{
 					label: "Change server",

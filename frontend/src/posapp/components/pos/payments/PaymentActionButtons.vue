@@ -87,15 +87,15 @@ const __ = window.__;
 }
 
 .payment-submit-btn {
-	background-color: rgb(var(--v-theme-primary)) !important;
+	background-color: #0b5cab !important;
 }
 
 .payment-submit-print-btn {
-	background-color: rgb(var(--v-theme-success)) !important;
+	background-color: #047857 !important;
 }
 
 .payment-cancel-btn {
-	background-color: rgb(var(--v-theme-error)) !important;
+	background-color: #b91c1c !important;
 }
 
 .payment-footer-btn:hover,
@@ -110,21 +110,21 @@ const __ = window.__;
 .payment-submit-btn:focus,
 .payment-submit-btn:focus-visible,
 .payment-submit-btn:active {
-	background-color: rgba(var(--v-theme-primary), 0.9) !important;
+	background-color: #084d96 !important;
 }
 
 .payment-submit-print-btn:hover,
 .payment-submit-print-btn:focus,
 .payment-submit-print-btn:focus-visible,
 .payment-submit-print-btn:active {
-	background-color: rgba(var(--v-theme-success), 0.9) !important;
+	background-color: #065f46 !important;
 }
 
 .payment-cancel-btn:hover,
 .payment-cancel-btn:focus,
 .payment-cancel-btn:focus-visible,
 .payment-cancel-btn:active {
-	background-color: rgba(var(--v-theme-error), 0.9) !important;
+	background-color: #991b1b !important;
 }
 
 .payment-action-col {
@@ -139,6 +139,10 @@ const __ = window.__;
 :deep(.payment-footer-btn .v-btn__underlay) {
 	opacity: 0 !important;
 	background: transparent !important;
+}
+
+:deep(.payment-footer-btn .v-btn__content) {
+	color: #ffffff !important;
 }
 
 @media (max-width: 768px) {

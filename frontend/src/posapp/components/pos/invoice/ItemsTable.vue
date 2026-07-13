@@ -4,9 +4,8 @@
 		class="my-0 py-0 overflow-y-auto posa-items-table-container posa-responsive-table-container pos-themed-card"
 		:style="containerStyles"
 		:class="[containerClasses, gridContainerClasses]"
-		role="grid"
+		role="region"
 		:aria-label="__('Invoice Items')"
-		:aria-activedescendant="activeGridDescendant || undefined"
 		@keydown.capture="handleGridKeydown"
 		@dragover="onDragOverFromSelector($event)"
 		@drop="onDropFromSelector($event)"
@@ -20,7 +19,7 @@
 			show-expand
 			item-value="posa_row_id"
 			class="posa-cart-table elevation-2 pos-themed-card"
-			:class="tableClasses"
+			:class="[tableClasses, { 'posa-cart-table--counter-grid': counterGrid }]"
 			:items-per-page="virtualScrollConfig.itemsPerPage"
 			:item-height="virtualScrollConfig.itemHeight"
 			:buffer-size="virtualScrollConfig.bufferSize"
@@ -167,14 +166,15 @@ import { useRtl } from "../../../composables/core/useRtl";
 import {
 	activateCartGridCell,
 	ensureCartGridRowRendered,
+	getAdjacentCartGridColumnKey,
 	getCartGridCellTarget,
 	focusCartItemField,
 	focusCartGridCell,
 	focusCartGridRow,
-	getCartGridCellId,
-	getCartGridRowId,
 	getNavigableCartColumnKeys,
+	isCartGridColumnKey,
 	isCartGridDirectEditColumnKey,
+	resolveCounterGridKeyboardCommand,
 	shouldDelegateCartGridKeyToEditor,
 	type CartGridColumnKey,
 	type CartFieldFocusOptions,
@@ -315,16 +315,6 @@ const gridContainerClasses = computed(() => ({
 	"posa-cart-grid-cell-mode": gridMode.value === "cell",
 	"posa-items-table-container--counter-grid": props.counterGrid,
 }));
-const activeGridDescendant = computed(() => {
-	if (gridMode.value === "inactive" || activeRowIndex.value < 0) {
-		return "";
-	}
-	if (gridMode.value === "cell" && activeCellKey.value) {
-		return getCartGridCellId(activeRowIndex.value, activeCellKey.value);
-	}
-	return getCartGridRowId(activeRowIndex.value);
-});
-
 const virtualScrollConfig = computed(() => {
 	const itemCount = items.value?.length || 0;
 	const height = containerHeight.value || 600;
@@ -463,9 +453,12 @@ const moveGridCell = (delta: number) => {
 		return false;
 	}
 
-	const currentIndex = activeCellKey.value ? keys.indexOf(activeCellKey.value) : -1;
-	const nextIndex = Math.max(0, Math.min((currentIndex < 0 ? 0 : currentIndex) + delta, keys.length - 1));
-	activeCellKey.value = keys[nextIndex] ?? null;
+	const nextCellKey = getAdjacentCartGridColumnKey(keys, activeCellKey.value, delta);
+	if (!nextCellKey) {
+		void focusActiveGridTarget({ activateDirectEdit: false });
+		return false;
+	}
+	activeCellKey.value = nextCellKey;
 	rememberSelectedRow(activeRowIndex.value);
 	void focusActiveGridTarget();
 	return true;
@@ -476,6 +469,11 @@ const getEditableKeysForRow = (rowIndex: number) =>
 		(key) =>
 			isCartGridDirectEditColumnKey(key) &&
 			Boolean(getCartGridCellTarget(tableContainer.value, rowIndex, key)),
+	);
+
+const getAvailableKeysForRow = (rowIndex: number) =>
+	navigableGridColumnKeys.value.filter((key) =>
+		Boolean(getCartGridCellTarget(tableContainer.value, rowIndex, key)),
 	);
 
 const moveGridEntry = async (delta: number) => {
@@ -527,16 +525,60 @@ const moveGridEntry = async (delta: number) => {
 	return false;
 };
 
-const focusPreviousCounterGridEntry = () => {
+const moveGridTraversal = async (delta: number) => {
+	if (gridMode.value !== "cell" || delta === 0) {
+		return false;
+	}
+
+	const direction = delta > 0 ? 1 : -1;
+	const currentKeys = getAvailableKeysForRow(activeRowIndex.value);
+	const nextCellKey = getAdjacentCartGridColumnKey(currentKeys, activeCellKey.value, direction);
+	if (nextCellKey) {
+		activeCellKey.value = nextCellKey;
+		void focusActiveGridTarget();
+		return true;
+	}
+
+	for (
+		let rowIndex = activeRowIndex.value + direction;
+		rowIndex >= 0 && rowIndex < items.value.length;
+		rowIndex += direction
+	) {
+		await ensureCartGridRowRendered(
+			tableContainer.value,
+			rowIndex,
+			virtualTable.value?.scrollToIndex,
+			waitForVirtualRowRender,
+		);
+		const rowKeys = getAvailableKeysForRow(rowIndex);
+		if (!rowKeys.length) continue;
+		rememberActiveRow(rowIndex);
+		rememberSelectedRow(rowIndex);
+		activeCellKey.value = direction > 0 ? (rowKeys[0] ?? null) : (rowKeys[rowKeys.length - 1] ?? null);
+		void focusActiveGridTarget();
+		return true;
+	}
+
+	if (props.counterGrid && direction > 0) {
+		deactivateKeyboardGrid();
+		void focusCounterGridEntry();
+		return true;
+	}
+
+	void focusActiveGridTarget({ activateDirectEdit: false });
+	return false;
+};
+
+const focusPreviousCounterGridEntry = (method: "arrow-up" | "shift-tab" = "shift-tab") => {
 	const rowIndex = items.value.length - 1;
 	if (rowIndex < 0) return false;
-	const keys = getEditableKeysForRow(rowIndex);
+	const keys = getAvailableKeysForRow(rowIndex);
 	if (!keys.length) return enterKeyboardGrid({ rowIndex, mode: "row" });
 	gridMode.value = "cell";
 	rememberActiveRow(rowIndex);
 	rememberSelectedRow(rowIndex);
-	activeCellKey.value = keys[keys.length - 1] ?? null;
-	void focusActiveGridTarget();
+	activeCellKey.value = method === "arrow-up" ? (keys[0] ?? null) : (keys[keys.length - 1] ?? null);
+	void focusActiveGridTarget({ activateDirectEdit: false });
 	return true;
 };
 
@@ -564,6 +606,33 @@ const commitActiveGridEditorAndMoveCell = async (delta: number) => {
 const commitActiveGridEditorAndMoveEntry = async (delta: number) => {
 	await commitActiveGridEditor();
 	await moveGridEntry(delta);
+};
+
+const commitActiveGridEditorAndMoveBoundary = async (
+	rowEdge: "current" | "first" | "last",
+	columnEdge: "first" | "last",
+) => {
+	await commitActiveGridEditor();
+	const rowIndex =
+		rowEdge === "first" ? 0 : rowEdge === "last" ? items.value.length - 1 : activeRowIndex.value;
+	const nextRowIndex = clampRowIndex(rowIndex);
+	if (nextRowIndex < 0) return false;
+
+	await ensureCartGridRowRendered(
+		tableContainer.value,
+		nextRowIndex,
+		virtualTable.value?.scrollToIndex,
+		waitForVirtualRowRender,
+	);
+	const keys = getAvailableKeysForRow(nextRowIndex);
+	if (!keys.length) return false;
+
+	gridMode.value = "cell";
+	rememberActiveRow(nextRowIndex);
+	rememberSelectedRow(nextRowIndex);
+	activeCellKey.value = columnEdge === "first" ? (keys[0] ?? null) : (keys[keys.length - 1] ?? null);
+	void focusActiveGridTarget({ activateDirectEdit: false });
+	return true;
 };
 
 const advanceGridEntryFromItem = (item: any, fromCellKey: CartGridColumnKey, delta = 1) => {
@@ -849,8 +918,34 @@ const getRowIndexFromEvent = (event: KeyboardEvent) => {
 	return Number.isInteger(parsed) ? parsed : -1;
 };
 
+const activateGridFromEventTarget = (event: KeyboardEvent) => {
+	const rowIndex = getRowIndexFromEvent(event);
+	const target = event.target as HTMLElement | null;
+	const cell = target?.closest?.("[data-column-key]") as HTMLElement | null;
+	const columnKey = cell?.dataset?.columnKey;
+	if (rowIndex < 0 || !isCartGridColumnKey(columnKey)) return false;
+
+	gridMode.value = "cell";
+	rememberActiveRow(rowIndex);
+	rememberSelectedRow(rowIndex);
+	activeCellKey.value = columnKey;
+	return true;
+};
+
 const handleGridKeydown = (event: KeyboardEvent) => {
-	if (shouldDelegateCartGridKeyToEditor(event.target, event.key)) return;
+	if (
+		shouldDelegateCartGridKeyToEditor(event.target, event.key, {
+			shiftKey: event.shiftKey,
+		})
+	)
+		return;
+	if (
+		props.counterGrid &&
+		gridMode.value === "inactive" &&
+		(event.key === "Home" || event.key === "End" || (event.key === "Enter" && event.shiftKey))
+	) {
+		activateGridFromEventTarget(event);
+	}
 	if (
 		gridMode.value === "inactive" &&
 		isArrowNavigationKey(event.key) &&
@@ -875,6 +970,23 @@ const handleGridKeydown = (event: KeyboardEvent) => {
 		return;
 	}
 
+	const counterGridCommand = props.counterGrid
+		? resolveCounterGridKeyboardCommand(event, {
+				mode: gridMode.value,
+				directEditCell: isCartGridDirectEditColumnKey(activeCellKey.value),
+			})
+		: null;
+	if (counterGridCommand) {
+		event.preventDefault();
+		event.stopPropagation();
+		if (counterGridCommand.type === "move-entry") {
+			void commitActiveGridEditorAndMoveEntry(counterGridCommand.delta);
+		} else {
+			void commitActiveGridEditorAndMoveBoundary(counterGridCommand.row, counterGridCommand.column);
+		}
+		return;
+	}
+
 	if (
 		gridMode.value === "inactive" ||
 		event.defaultPrevented ||
@@ -889,7 +1001,7 @@ const handleGridKeydown = (event: KeyboardEvent) => {
 		if (props.counterGrid && gridMode.value === "cell") {
 			event.preventDefault();
 			event.stopPropagation();
-			void commitActiveGridEditorAndMoveEntry(event.shiftKey ? -1 : 1);
+			void commitActiveGridEditor().then(() => moveGridTraversal(event.shiftKey ? -1 : 1));
 			return;
 		}
 		void commitActiveGridEditor();
@@ -949,7 +1061,7 @@ const handleGridKeydown = (event: KeyboardEvent) => {
 			event.preventDefault();
 			event.stopPropagation();
 			if (activeCellKey.value && isCartGridDirectEditColumnKey(activeCellKey.value)) {
-				void commitActiveGridEditorAndMoveEntry(1);
+				void commitActiveGridEditorAndMoveEntry(event.shiftKey ? -1 : 1);
 			} else {
 				activateGridCell();
 			}
@@ -997,6 +1109,28 @@ defineExpose({
 /* Scoped styles for ItemsTable component specific logic */
 .posa-items-table-container {
 	position: relative;
-	transition: all 0.3s ease;
+	transition: none;
+}
+
+.posa-items-table-container--counter-grid :deep(.posa-cart-table thead th) {
+	background: #174a70 !important;
+	color: #ffffff !important;
+}
+
+.posa-items-table-container--counter-grid
+	:deep(.posa-cart-table tbody tr:not(.posa-cart-item-row--keyboard-active):hover td) {
+	background: #dcecf7 !important;
+}
+
+.posa-items-table-container--counter-grid :deep(.posa-cart-item-row),
+.posa-items-table-container--counter-grid :deep(.posa-cart-item-row > td),
+.posa-items-table-container--counter-grid :deep(.posa-cart-item-row > td *) {
+	animation: none !important;
+	transition: none !important;
+}
+
+.posa-items-table-container--counter-grid :deep(.posa-cart-item-row--keyboard-active > td) {
+	background: #174a70 !important;
+	color: #ffffff !important;
 }
 </style>

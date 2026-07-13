@@ -42,15 +42,28 @@
 		>
 			<section class="counter-item-search-surface" aria-label="Item search">
 				<header class="counter-item-search-header">
-					<div>
-						<strong>{{ __("Find an item") }}</strong>
-						<span>{{ __("Search name, code, barcode, generic, company, pack or rack") }}</span>
+					<div class="counter-item-search-header__copy">
+						<strong>{{ counterItemSearchTitle }}</strong>
+						<span>{{ counterItemSearchSubtitle }}</span>
 					</div>
+					<v-select
+						v-if="counterAlternateSources.length > 1"
+						:model-value="counterAlternateSourceRowId"
+						:items="counterAlternateSources"
+						item-title="label"
+						item-value="row_id"
+						:label="__('Unavailable cart item')"
+						density="compact"
+						variant="outlined"
+						hide-details
+						class="counter-item-search-header__source"
+						@update:model-value="counterAlternateSourceRowId = $event"
+					/>
 					<v-btn
 						icon="mdi-close"
 						variant="text"
 						:aria-label="__('Close item search')"
-						@click="counterItemSearchOpen = false"
+						@click="closeCounterItemSearch"
 					/>
 				</header>
 				<ItemsSelector
@@ -58,7 +71,9 @@
 					context="pos"
 					presentation="counter-grid-dialog"
 					:initial-search="counterItemSearchQuery"
+					:alternate-request="counterAlternateRequest"
 					@item-added="handleCounterItemAdded"
+					@alternates-cancelled="handleCounterAlternatesCancelled"
 				/>
 			</section>
 		</v-dialog>
@@ -68,8 +83,9 @@
 			width="calc(100vw - 32px)"
 			max-width="1380"
 			@update:model-value="handleCounterAuxiliaryUpdate"
+			@after-leave="handleCounterAuxiliaryAfterLeave"
 		>
-			<section class="counter-auxiliary-surface">
+			<section class="counter-auxiliary-surface" :data-testid="`counter-grid-${activeView}`">
 				<PosOffers v-if="activeView === 'offers'" />
 				<PosCoupons v-else-if="activeView === 'coupons'" />
 			</section>
@@ -291,9 +307,11 @@ import { useRtl } from "../../../composables/core/useRtl";
 import { useUIStore } from "../../../stores/uiStore.js";
 import { useInvoiceStore } from "../../../stores/invoiceStore.js";
 import { useItemsStore } from "../../../stores/itemsStore.js";
+import { useToastStore } from "../../../stores/toastStore";
 import { storeToRefs } from "pinia";
 import { useCustomerDisplayPublisher } from "../../../composables/pos/shared/useCustomerDisplayPublisher";
 import { isCounterGridTemplate } from "../../../utils/posUiTemplate";
+import { collectUnavailableCartItems } from "../../../utils/alternateCart";
 
 export default {
 	setup() {
@@ -311,11 +329,13 @@ export default {
 		const uiStore = useUIStore();
 		const invoiceStore = useInvoiceStore();
 		const itemsStore = useItemsStore();
+		const toastStore = useToastStore();
 		const __ = window.__;
 		const { activeView, posProfile, paymentDialogOpen } = storeToRefs(uiStore);
 		const { totalItemCount, itemsLoaded } = storeToRefs(itemsStore);
 		const {
 			invoiceDoc,
+			items: invoiceItems,
 			itemsCount,
 			totalQty,
 			grossTotal,
@@ -337,6 +357,24 @@ export default {
 		const counterItemSearchQuery = ref("");
 		const counterItemsSelector = ref(null);
 		const pendingCounterAddedLine = ref(null);
+		const counterAlternateSources = ref([]);
+		const counterAlternateSourceRowId = ref("");
+		const counterAlternateRequest = computed(() => {
+			if (!counterAlternateSourceRowId.value) return null;
+			return (
+				counterAlternateSources.value.find(
+					(source) => source.row_id === counterAlternateSourceRowId.value,
+				) || null
+			);
+		});
+		const counterItemSearchTitle = computed(() =>
+			counterAlternateRequest.value ? __("Choose an alternate item") : __("Find an item"),
+		);
+		const counterItemSearchSubtitle = computed(() => {
+			const source = counterAlternateRequest.value;
+			if (!source) return __("Search name, code, barcode, generic, company, pack or rack");
+			return `${source.item_name || source.item_code} | ${__("Requested quantity")} ${source.qty}`;
+		});
 		const counterAuxiliaryOpen = computed(
 			() => counterGridActive.value && ["offers", "coupons"].includes(activeView.value),
 		);
@@ -519,18 +557,55 @@ export default {
 			}
 			showPaymentPanel();
 		};
+		const resetCounterAlternateState = () => {
+			counterAlternateSources.value = [];
+			counterAlternateSourceRowId.value = "";
+		};
+		const closeCounterItemSearch = () => {
+			counterItemSearchOpen.value = false;
+		};
 		const openCounterItemSearch = (payload = {}) => {
 			if (!counterGridActive.value) return;
 			const query = typeof payload === "string" ? payload : payload?.query;
 			const normalizedQuery = String(query || "").trim();
 			if (!normalizedQuery) return;
 			pendingCounterAddedLine.value = null;
+			resetCounterAlternateState();
 			counterItemSearchQuery.value = normalizedQuery;
 			counterItemSearchOpen.value = true;
 		};
-		const handleCounterItemAdded = (line) => {
+		const openCartAlternates = () => {
+			if (!counterGridActive.value) return;
+			const sources = collectUnavailableCartItems(invoiceItems.value, {
+				isReturn: Boolean(invoiceDoc.value?.is_return),
+				translate: __,
+			});
+			if (!sources.length) {
+				toastStore.show({
+					title: invoiceItems.value?.length
+						? __("All cart items have enough stock")
+						: __("The cart is empty"),
+					color: "info",
+				});
+				return;
+			}
+			pendingCounterAddedLine.value = null;
+			counterItemSearchQuery.value = "";
+			counterAlternateSources.value = sources;
+			counterAlternateSourceRowId.value = sources[0].row_id;
+			counterItemSearchOpen.value = true;
+		};
+		const handleCounterItemAdded = (line, alternateSelection = null) => {
+			if (alternateSelection?.origin === "cart" && alternateSelection?.rowId) {
+				invoiceStore.removeItemByRowId(alternateSelection.rowId);
+				eventBus?.emit?.("apply_pricing_rules");
+			}
 			pendingCounterAddedLine.value = line || null;
 			invoicePanel.value?.clearCounterGridEntry?.();
+			counterItemSearchOpen.value = false;
+		};
+		const handleCounterAlternatesCancelled = () => {
+			pendingCounterAddedLine.value = null;
 			counterItemSearchOpen.value = false;
 		};
 		const handleCounterItemSearchAfterEnter = () => {
@@ -543,6 +618,7 @@ export default {
 			const line = pendingCounterAddedLine.value;
 			pendingCounterAddedLine.value = null;
 			counterItemSearchQuery.value = "";
+			resetCounterAlternateState();
 			if (line) {
 				eventBus?.emit("focus_cart_item_qty", {
 					item: line,
@@ -555,6 +631,9 @@ export default {
 		};
 		const handleCounterAuxiliaryUpdate = (open) => {
 			if (!open) uiStore.setActiveView("items");
+		};
+		const handleCounterAuxiliaryAfterLeave = () => {
+			nextTick(() => invoicePanel.value?.focusCounterGridEntry?.());
 		};
 		const isSelectorViewActive = (view) => compactPanel.value === "selector" && activeView.value === view;
 		const getFallbackBottomSpace = () => {
@@ -637,11 +716,15 @@ export default {
 				eventBus.on("focus_additional_discount", focusAdditionalDiscountField);
 				eventBus.on("set_compact_panel", setCompactPanel);
 				eventBus.on("open_counter_item_search", openCounterItemSearch);
+				eventBus.on("open_cart_alternates", openCartAlternates);
 			}
 			nextTick(() => {
 				updateBottomDockHeight();
 				if (mobileDockObserver && mobileDock.value) {
 					mobileDockObserver.observe(mobileDock.value);
+				}
+				if (counterGridActive.value) {
+					invoicePanel.value?.focusCounterGridEntry?.();
 				}
 			});
 		});
@@ -657,6 +740,7 @@ export default {
 				eventBus.off("focus_additional_discount", focusAdditionalDiscountField);
 				eventBus.off("set_compact_panel", setCompactPanel);
 				eventBus.off("open_counter_item_search", openCounterItemSearch);
+				eventBus.off("open_cart_alternates", openCartAlternates);
 			}
 		});
 
@@ -670,6 +754,12 @@ export default {
 			if (!enabled && paymentDialogOpen.value) {
 				uiStore.closePaymentDialog();
 				uiStore.setActiveView("payment");
+			}
+		});
+
+		watch(counterGridActive, (enabled, wasEnabled) => {
+			if (enabled && !wasEnabled) {
+				nextTick(() => invoicePanel.value?.focusCounterGridEntry?.());
 			}
 		});
 
@@ -699,6 +789,7 @@ export default {
 				counterItemSearchOpen.value = false;
 				counterItemSearchQuery.value = "";
 				pendingCounterAddedLine.value = null;
+				resetCounterAlternateState();
 			}
 		});
 
@@ -746,6 +837,11 @@ export default {
 			counterGridActive,
 			counterItemSearchOpen,
 			counterItemSearchQuery,
+			counterAlternateSources,
+			counterAlternateSourceRowId,
+			counterAlternateRequest,
+			counterItemSearchTitle,
+			counterItemSearchSubtitle,
 			counterAuxiliaryOpen,
 			catalogStatusLabel,
 			useCompactPosSwitcher,
@@ -769,9 +865,12 @@ export default {
 			handlePaymentDialogUpdate,
 			handlePaymentDialogAfterLeave,
 			handleCounterItemAdded,
+			handleCounterAlternatesCancelled,
 			handleCounterItemSearchAfterEnter,
 			handleCounterItemSearchAfterLeave,
+			closeCounterItemSearch,
 			handleCounterAuxiliaryUpdate,
+			handleCounterAuxiliaryAfterLeave,
 			discountPercentageOfferName,
 			getCurrencySymbol,
 			invoicePanel,
@@ -870,6 +969,16 @@ export default {
 }
 
 .pos-main-container--counter-grid {
+	--counter-rugged-navy: #09253d;
+	--counter-rugged-navy-raised: #174a70;
+	--counter-rugged-blue: #0f70d7;
+	--counter-rugged-cyan: #38bdf8;
+	--counter-rugged-green: #079b55;
+	--counter-rugged-red: #dc343d;
+	--counter-rugged-line: #9db2c4;
+	--counter-rugged-soft-line: #c9d5df;
+	--counter-rugged-surface: #ffffff;
+	--counter-rugged-muted: #edf3f7;
 	padding: 0;
 	height: calc(100vh - 64px);
 	height: calc(100dvh - 64px);
@@ -882,7 +991,7 @@ export default {
 	grid-template-rows: minmax(0, 1fr) 32px;
 	height: 100%;
 	min-height: 0;
-	background: var(--pos-surface-muted);
+	background: #e7edf2;
 }
 
 .counter-grid-status {
@@ -891,9 +1000,9 @@ export default {
 	gap: 22px;
 	min-width: 0;
 	padding: 0 14px;
-	border-top: 1px solid var(--pos-border);
-	background: var(--pos-card-bg);
-	color: var(--pos-text-secondary);
+	border-top: 2px solid var(--counter-rugged-navy-raised);
+	background: var(--counter-rugged-surface);
+	color: #42566a;
 	font-size: 0.78rem;
 }
 
@@ -910,11 +1019,18 @@ export default {
 .counter-grid-status__template {
 	margin-inline-start: auto;
 	font-weight: 700;
-	color: rgb(var(--v-theme-primary));
+	color: var(--counter-rugged-blue);
 }
 
 .counter-item-search-surface,
 .counter-auxiliary-surface {
+	--counter-rugged-navy: #09253d;
+	--counter-rugged-navy-raised: #174a70;
+	--counter-rugged-blue: #0f70d7;
+	--counter-rugged-cyan: #38bdf8;
+	--counter-rugged-line: #9db2c4;
+	--counter-rugged-surface: #ffffff;
+	--counter-rugged-muted: #edf3f7;
 	display: flex;
 	flex-direction: column;
 	width: 100%;
@@ -922,10 +1038,10 @@ export default {
 	max-height: calc(100dvh - 24px);
 	min-height: 0;
 	overflow: hidden;
-	border: 1px solid var(--pos-border);
-	border-radius: 6px;
-	background: var(--pos-surface-muted);
-	box-shadow: 0 18px 54px rgba(15, 23, 42, 0.24);
+	border: 3px solid var(--counter-rugged-navy);
+	border-radius: 5px;
+	background: var(--counter-rugged-muted);
+	box-shadow: 0 5px 14px rgba(4, 22, 37, 0.34);
 }
 
 .counter-item-search-header {
@@ -933,29 +1049,50 @@ export default {
 	align-items: center;
 	justify-content: space-between;
 	gap: 16px;
-	min-height: 58px;
-	padding: 8px 12px 8px 16px;
-	border-bottom: 1px solid var(--pos-border);
-	background: var(--pos-card-bg);
+	min-height: 62px;
+	padding: 8px 10px 8px 16px;
+	border-bottom: 2px solid var(--counter-rugged-cyan);
+	background: var(--counter-rugged-navy);
 }
 
-.counter-item-search-header div {
+.counter-item-search-header__copy {
 	display: flex;
 	flex-direction: column;
+	flex: 1 1 auto;
 	min-width: 0;
 }
 
 .counter-item-search-header strong {
 	font-size: 1rem;
-	color: var(--pos-text-primary);
+	color: #ffffff;
 }
 
-.counter-item-search-header span {
+.counter-item-search-header__copy span {
 	overflow: hidden;
-	color: var(--pos-text-secondary);
+	color: #d6e7f3;
 	font-size: 0.78rem;
 	text-overflow: ellipsis;
 	white-space: nowrap;
+}
+
+.counter-item-search-header :deep(.v-btn) {
+	border-radius: 3px !important;
+	color: #ffffff !important;
+}
+
+.counter-item-search-header :deep(.v-btn:hover) {
+	background: #174a70 !important;
+}
+
+.counter-item-search-header__source {
+	flex: 0 1 420px;
+	max-width: 420px;
+}
+
+.counter-item-search-header__source :deep(.v-field) {
+	border-radius: 3px;
+	background: #ffffff;
+	color: #09253d;
 }
 
 .counter-item-search-surface :deep(.items-selector-shell) {
@@ -974,6 +1111,7 @@ export default {
 	border-radius: 0;
 	box-shadow: none;
 	resize: none !important;
+	background: var(--counter-rugged-muted) !important;
 }
 
 .dynamic-main-row {

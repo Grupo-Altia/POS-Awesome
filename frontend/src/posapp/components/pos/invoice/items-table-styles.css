@@ -48,40 +48,154 @@
 }
 
 .posa-items-table-container--counter-grid .posa-cart-table {
-	border: 1px solid rgba(var(--v-theme-primary), 0.28);
-	border-radius: 4px;
-	box-shadow: 0 2px 8px rgba(15, 23, 42, 0.08);
-	background: var(--pos-card-bg);
+	--counter-rugged-navy: #09253d;
+	--counter-rugged-navy-raised: #174a70;
+	--counter-rugged-blue: #0f70d7;
+	--counter-rugged-cyan: #38bdf8;
+	--counter-rugged-line: #9db2c4;
+	--counter-rugged-soft-line: #c9d5df;
+	border: 0;
+	border-radius: 0;
+	box-shadow: none;
+	background: #ffffff;
 }
 
 .posa-items-table-container--counter-grid .posa-cart-table th {
-	height: 42px;
+	height: 46px;
 	padding: 8px 10px;
-	border-right: 1px solid rgba(var(--v-theme-primary), 0.14);
-	border-bottom: 2px solid rgba(var(--v-theme-primary), 0.3);
-	background: rgba(var(--v-theme-primary), 0.08);
-	color: var(--pos-text-primary);
+	border-right: 1px solid #70b9e4;
+	border-bottom: 2px solid var(--counter-rugged-cyan);
+	background: var(--counter-rugged-navy-raised) !important;
+	color: #ffffff !important;
 	font-size: 0.76rem;
-	font-weight: 700;
+	font-weight: 800;
 	letter-spacing: 0;
+	text-transform: uppercase;
 }
 
 .posa-items-table-container--counter-grid .posa-cart-table td {
-	height: 48px;
+	height: 50px;
 	padding: 6px 10px;
-	border-right: 1px solid var(--pos-border-light);
+	border-right: 1px solid var(--counter-rugged-soft-line);
+	border-bottom: 1px solid var(--counter-rugged-line);
+	background: #ffffff;
+	color: #10263b;
+	font-weight: 550;
 }
 
 .posa-items-table-container--counter-grid .posa-cart-table td:last-child {
 	border-right: 0;
 }
 
-.posa-items-table-container--counter-grid .posa-cart-table tbody tr:nth-child(even) {
-	background: var(--pos-surface-muted);
+.posa-items-table-container--counter-grid .posa-cart-table tbody tr:hover {
+	background: #dcecf7;
 }
 
-.posa-items-table-container--counter-grid .posa-cart-table tbody tr:hover {
-	background: rgba(var(--v-theme-primary), 0.07);
+.posa-items-table-container--counter-grid .posa-cart-table tbody tr:hover > td {
+	background: #dcecf7;
+}
+
+.posa-items-table-container--counter-grid .posa-cart-item-row > td:first-child {
+	box-shadow: inset 4px 0 0 #8ca8bb;
+}
+
+.posa-items-table-container--counter-grid .posa-cart-item-row > td[data-column-key="item_name"] {
+	font-weight: 750;
+}
+
+.posa-items-table-container--counter-grid .posa-cart-item-row--keyboard-active > td {
+	background: var(--counter-rugged-navy-raised) !important;
+	color: #ffffff !important;
+}
+
+.posa-items-table-container--counter-grid .posa-cart-item-row--keyboard-active > td:first-child {
+	box-shadow: inset 5px 0 0 var(--counter-rugged-blue);
+}
+
+.posa-items-table-container--counter-grid .posa-cart-item-cell--keyboard-active {
+	background: var(--counter-rugged-navy-raised) !important;
+	box-shadow:
+		inset 0 0 0 3px var(--counter-rugged-cyan),
+		inset 0 0 0 5px #ffffff !important;
+}
+
+.posa-items-table-container--counter-grid .posa-cart-item-row,
+.posa-items-table-container--counter-grid .posa-cart-item-row > td,
+.posa-items-table-container--counter-grid .posa-cart-item-row > td * {
+	animation: none !important;
+	transition: none !important;
+}
+
+.posa-items-table-container--counter-grid .posa-cart-item-row--keyboard-active > td *,
+.posa-items-table-container--counter-grid .posa-cart-item-row--keyboard-active input,
+.posa-items-table-container--counter-grid .posa-cart-item-row--keyboard-active button {
+	color: #ffffff !important;
+}
+
+.posa-items-table-container--counter-grid .posa-cart-item-row--keyboard-active .v-field,
+.posa-items-table-container--counter-grid .posa-cart-item-row--keyboard-active .v-field__overlay,
+.posa-items-table-container--counter-grid
+	.posa-cart-item-row--keyboard-active
+	.posa-cart-table__editor-display,
+.posa-items-table-container--counter-grid .posa-cart-item-row--keyboard-active button {
+	background: transparent !important;
+}
+
+.posa-items-table-container--counter-grid .posa-cart-item-row--keyboard-active .v-field__outline {
+	color: var(--counter-rugged-cyan) !important;
+	--v-field-border-opacity: 1;
+}
+
+/* Direct table hook avoids Vuetify's generated container hierarchy outranking the grid skin. */
+.posa-cart-table--counter-grid {
+	--counter-rugged-navy: #09253d;
+	--counter-rugged-navy-raised: #174a70;
+	--counter-rugged-blue: #0f70d7;
+	--counter-rugged-cyan: #38bdf8;
+	--counter-rugged-line: #9db2c4;
+	--counter-rugged-soft-line: #c9d5df;
+	border: 0 !important;
+	border-radius: 0 !important;
+	background: #ffffff !important;
+	box-shadow: none !important;
+}
+
+.posa-cart-table--counter-grid th {
+	height: 46px !important;
+	padding: 8px 10px !important;
+	border-right: 1px solid #70b9e4 !important;
+	border-bottom: 2px solid var(--counter-rugged-cyan) !important;
+	background: var(--counter-rugged-navy-raised) !important;
+	color: #ffffff !important;
+	font-size: 0.76rem !important;
+	font-weight: 800 !important;
+	letter-spacing: 0 !important;
+	text-transform: uppercase;
+}
+
+.posa-cart-table--counter-grid td {
+	height: 50px !important;
+	padding: 6px 10px !important;
+	border-right: 1px solid var(--counter-rugged-soft-line) !important;
+	border-bottom: 1px solid var(--counter-rugged-line) !important;
+	background: #ffffff;
+	color: #10263b;
+}
+
+.posa-cart-table--counter-grid tbody tr:hover > td {
+	background: #dcecf7;
+}
+
+.posa-cart-table--counter-grid .posa-cart-item-row--keyboard-active > td {
+	background: var(--counter-rugged-navy-raised) !important;
+	color: #ffffff !important;
+}
+
+.posa-cart-table--counter-grid .posa-cart-item-cell--keyboard-active {
+	background: var(--counter-rugged-navy-raised) !important;
+	box-shadow:
+		inset 0 0 0 3px var(--counter-rugged-cyan),
+		inset 0 0 0 5px #ffffff !important;
 }
 
 /* =================================================================
@@ -132,11 +246,7 @@
 	gap: 12px;
 	text-align: center;
 	color: var(--pos-text-primary);
-	background: linear-gradient(
-		180deg,
-		var(--pos-surface-raised) 0%,
-		var(--pos-surface-muted) 100%
-	);
+	background: linear-gradient(180deg, var(--pos-surface-raised) 0%, var(--pos-surface-muted) 100%);
 	background:
 		radial-gradient(
 			circle at top,
@@ -252,7 +362,7 @@
 
 /* Table rows */
 .posa-cart-table tr {
-	transition: background-color 0.2s ease;
+	transition: none;
 	border-bottom: 1px solid var(--pos-border-light);
 	width: 100% !important;
 	max-width: 100% !important;
@@ -263,10 +373,6 @@
 
 .posa-cart-table tr:hover {
 	background-color: rgba(25, 118, 210, 0.04);
-}
-
-.posa-cart-table tbody tr:nth-child(even) {
-	background-color: var(--pos-surface-muted);
 }
 
 /* Table cells */

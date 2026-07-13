@@ -1,816 +1,439 @@
-import { expect, test, type Page } from "@playwright/test";
+import AxeBuilder from "@axe-core/playwright";
+import { expect, test, type Locator, type Page } from "@playwright/test";
 
+import {
+	cleanupProvisionedTerminalCashier,
+	ensureAuthoritativeTerminalUnlock,
+} from "./helpers/terminalAuth";
+
+const ENABLED =
+	process.env.POSA_COUNTER_GRID_A11Y_E2E === "1" ||
+	process.env.POSA_KEYBOARD_E2E === "1";
 const POS_PATH = process.env.POSA_SMOKE_PATH || "/desk/posapp";
-const ENABLED = process.env.POSA_KEYBOARD_E2E === "1";
-const POS_PROFILE =
-	process.env.POSA_KEYBOARD_POS_PROFILE || "POS Awesome - MedPlus";
-const TEST_ITEM_CODES = (
-	process.env.POSA_KEYBOARD_TEST_ITEMS ||
-	"02017,02016,02249,A3106,22203,AI167,AH076,CR044,IK154"
-)
-	.split(",")
-	.map((value) => value.trim())
-	.filter(Boolean);
 
-type TestItem = {
-	item_code: string;
-	item_name: string;
-	stock: number;
-	rate: number;
-};
-
-type LossGuardItem = TestItem & {
-	buyingRate: number;
-};
+const AMBIGUOUS_QUERIES = ["arinac", "panadol"] as const;
 
 test.skip(
 	!ENABLED,
-	"Set POSA_KEYBOARD_E2E=1 to run real POS keyboard E2E tests.",
+	"Set POSA_COUNTER_GRID_A11Y_E2E=1 to run Counter Grid accessibility E2E tests.",
 );
 
-async function loginIfCredentialsProvided(page: Page) {
-	const username = process.env.POSA_SMOKE_USER;
-	const password = process.env.POSA_SMOKE_PASSWORD;
-	if (!username || !password) return;
+test.afterEach(async ({ page }) => {
+	await cleanupProvisionedTerminalCashier(page);
+});
 
-	let lastError: unknown = null;
-	for (let attempt = 0; attempt < 3; attempt += 1) {
-		try {
-			await page.goto("/login", {
-				waitUntil: "networkidle",
-				timeout: 60000,
-			});
-			const userInput = page.locator(
-				'input[name="login_email"], input#login_email',
-			);
-			const passInput = page.locator(
-				'input[name="login_password"], input#login_password',
-			);
-			const loginButton = page
-				.locator("button.btn-login")
-				.or(
-					page.locator(
-						'button:has-text("Login"), button:has-text("Log In")',
-					),
-				);
+type AxeViolationSummary = {
+	id: string;
+	impact: string | null | undefined;
+	help: string;
+	targets: string[][];
+};
 
-			if (!(await userInput.count()) || !(await passInput.count()))
-				return;
-
-			await userInput.first().fill(username);
-			await passInput.first().fill(password);
-			await Promise.all([
-				page.waitForURL(/\/(app|desk)(\/|$)/, { timeout: 60000 }),
-				loginButton.first().click(),
-			]);
-			return;
-		} catch (error) {
-			lastError = error;
-			await page.waitForTimeout(2000);
-		}
-	}
-	throw lastError;
-}
-
-async function callFrappe<T = any>(
-	page: Page,
-	method: string,
-	args: Record<string, unknown> = {},
-) {
-	return page.evaluate(
-		async ({ method: callMethod, args: callArgs }) => {
-			const response = await (window as any).frappe.call({
-				method: callMethod,
-				args: callArgs,
-			});
-			return response?.message;
-		},
-		{ method, args },
-	) as Promise<T>;
-}
-
-async function getValue<T = any>(
-	page: Page,
-	doctype: string,
-	name: string,
-	fieldname: string | string[],
-) {
-	return callFrappe<T>(page, "frappe.client.get_value", {
-		doctype,
-		filters: { name },
-		fieldname,
-	});
-}
-
-async function setValue(
-	page: Page,
-	doctype: string,
-	name: string,
-	fieldname: string,
-	value: unknown,
-) {
-	return callFrappe(page, "frappe.client.set_value", {
-		doctype,
-		name,
-		fieldname,
-		value,
-	});
-}
-
-async function waitForPosReady(page: Page) {
-	for (let attempt = 0; attempt < 2; attempt += 1) {
-		await page.goto(POS_PATH, { waitUntil: "domcontentloaded" });
-		if (!/\/login/.test(page.url())) {
-			break;
-		}
-		await loginIfCredentialsProvided(page);
-	}
+async function waitForCounterGrid(page: Page) {
+	await page.goto(POS_PATH, { waitUntil: "domcontentloaded" });
 	if (/\/login/.test(page.url())) {
 		throw new Error(
-			"POS keyboard E2E reached the login page. Set POSA_SMOKE_USER and POSA_SMOKE_PASSWORD, or run with an authenticated Playwright storage/session.",
+			"Counter Grid accessibility E2E requires POSA_SMOKE_SID or login credentials.",
 		);
 	}
-	await expect(page).toHaveURL(
-		new RegExp("/(app/(posapp|point-of-sale)|desk/posapp)"),
-	);
-	await expect(page.locator(".main-section").first()).toBeVisible({
-		timeout: 90000,
-	});
-	await expect(
-		page.getByTestId("pos-item-search").locator("input"),
-	).toBeVisible({
-		timeout: 90000,
+	await ensureAuthoritativeTerminalUnlock(page);
+
+	await expect(page.getByTestId("counter-grid-pos")).toBeVisible({
+		timeout: 90_000,
 	});
 	await expect(page.locator(".loading-overlay")).toHaveCount(0, {
-		timeout: 90000,
+		timeout: 90_000,
+	});
+	await expect(page.getByTestId("counter-grid-item-entry")).toBeVisible({
+		timeout: 30_000,
+	});
+	await expect(page.getByTestId("counter-grid-item-entry")).toBeFocused({
+		timeout: 15_000,
 	});
 }
 
-function captureUnexpectedErrors(page: Page) {
-	const errors: string[] = [];
-	const isBenign = (message: string) => {
-		const normalized = message.toLowerCase();
-		return (
-			normalized.includes("remove_last_divider") ||
-			normalized.includes("request was cancelled") ||
-			(normalized.includes("offsetwidth") &&
-				normalized.includes("shortcut.js")) ||
-			(normalized.includes("failed to load resource") &&
-				normalized.includes("404"))
-		);
-	};
-	page.on("pageerror", (error) => {
-		const message = String(error?.message || error);
-		const stack = typeof error?.stack === "string" ? error.stack : "";
-		const detail =
-			stack && !stack.includes(message)
-				? `${message}\n${stack}`
-				: stack || message;
-		if (!isBenign(message)) errors.push(`pageerror: ${detail}`);
-	});
-	page.on("console", (msg) => {
-		if (msg.type() !== "error") return;
-		const message = msg.text();
-		if (!isBenign(message)) errors.push(`console.error: ${message}`);
-	});
-	return errors;
-}
-
-async function getPositiveStockItems(page: Page): Promise<TestItem[]> {
-	const items: TestItem[] = [];
-	for (const code of TEST_ITEM_CODES) {
-		const item = await getValue<{
-			item_code: string;
-			item_name: string;
-			disabled: number;
-			is_sales_item: number;
-		}>(page, "Item", code, [
-			"item_code",
-			"item_name",
-			"disabled",
-			"is_sales_item",
-		]);
-		if (!item?.item_code || item.disabled || !item.is_sales_item) {
-			continue;
-		}
-		const [stockRows, priceRows] = await Promise.all([
-			callFrappe<Array<{ actual_qty: number }>>(
-				page,
-				"frappe.client.get_list",
-				{
-					doctype: "Bin",
-					filters: { item_code: item.item_code },
-					fields: ["actual_qty"],
-					limit_page_length: 20,
-				},
-			),
-			callFrappe<Array<{ price_list_rate: number }>>(
-				page,
-				"frappe.client.get_list",
-				{
-					doctype: "Item Price",
-					filters: { item_code: item.item_code, selling: 1 },
-					fields: ["price_list_rate"],
-					limit_page_length: 5,
-				},
-			),
-		]);
-		const stock = (stockRows || []).reduce(
-			(total, row) => total + Number(row.actual_qty || 0),
-			0,
-		);
-		const rate = Math.max(
-			0,
-			...(priceRows || []).map((row) => Number(row.price_list_rate || 0)),
-		);
-		if (stock > 0 && rate > 0) {
-			items.push({ ...item, stock, rate });
-		}
-	}
-	return items.sort(
-		(left, right) =>
-			TEST_ITEM_CODES.indexOf(left.item_code) -
-			TEST_ITEM_CODES.indexOf(right.item_code),
-	);
-}
-
-async function getLossGuardItem(page: Page): Promise<LossGuardItem | null> {
-	const candidates = await getPositiveStockItems(page);
-	for (const item of candidates) {
-		const buyingRows = await callFrappe<Array<{ price_list_rate: number }>>(
-			page,
-			"frappe.client.get_list",
-			{
-				doctype: "Item Price",
-				filters: { item_code: item.item_code, buying: 1 },
-				fields: ["price_list_rate", "modified"],
-				order_by: "modified desc",
-				limit_page_length: 5,
-			},
-		);
-		const buyingRate = Math.max(
-			0,
-			...(buyingRows || []).map((row) =>
-				Number(row.price_list_rate || 0),
-			),
-		);
-		if (buyingRate > 0 && item.rate > buyingRate) {
-			return { ...item, buyingRate };
-		}
-	}
-	return null;
-}
-
-async function searchAndAddItem(page: Page, item: TestItem) {
+async function waitForSearchReady(page: Page, query: string) {
 	const search = page.getByTestId("pos-item-search").locator("input");
-	await search.click();
-	const exactResult = page.getByText(item.item_code, { exact: true }).first();
-	const queries = [item.item_code, item.item_name].filter(Boolean);
-	const deadline = Date.now() + 60000;
-	let found = false;
-	while (Date.now() < deadline && !found) {
-		for (const query of queries) {
-			await search.fill(query);
-			await page.keyboard.press("Enter");
-			if (
-				await exactResult
-					.isVisible({ timeout: 5000 })
-					.catch(() => false)
-			) {
-				found = true;
-				break;
-			}
-		}
-		if (!found) {
-			await page.waitForTimeout(2000);
-		}
-	}
-	await expect(
-		exactResult,
-		`POS search did not show ${item.item_code}`,
-	).toBeVisible();
+	const selector = page.locator(".items-selector-shell--counter-dialog");
+
+	await expect(page.locator(".counter-item-search-surface")).toBeVisible({
+		timeout: 30_000,
+	});
+	await expect(search).toBeVisible();
+	await expect(search).toBeFocused({ timeout: 15_000 });
+	await expect(search).toHaveValue(query);
+	await expect(selector).toHaveAttribute("data-search-ready-query", query, {
+		timeout: 30_000,
+	});
+	await expect(selector).toHaveAttribute("data-search-pending", "false", {
+		timeout: 30_000,
+	});
+
+	return search;
+}
+
+async function addAmbiguousItemByKeyboard(page: Page, query: string) {
+	const entry = page.getByTestId("counter-grid-item-entry");
+	await expect(entry).toBeFocused();
+	await expect(entry).toHaveValue("");
+
+	await page.keyboard.type(query);
+	await expect(entry).toHaveValue(query);
 	await page.keyboard.press("Enter");
-	if (
-		!(await page
-			.getByTestId(`cart-row-${item.item_code}`)
-			.first()
-			.isVisible({ timeout: 8000 })
-			.catch(() => false))
-	) {
-		await page.getByText(item.item_code, { exact: true }).first().click();
-	}
-	await expect(
-		page.getByTestId(`cart-row-${item.item_code}`).first(),
-	).toBeVisible({
-		timeout: 30000,
-	});
-}
+	const search = await waitForSearchReady(page, query);
 
-async function keyboardSearchAndAddItem(page: Page, item: TestItem) {
-	await expect(page.locator(".loading-overlay")).toHaveCount(0, {
-		timeout: 90000,
-	});
-	const search = page.getByTestId("pos-item-search").locator("input");
-	const itemRow = page.getByTestId(`pos-item-row-${item.item_code}`).first();
-	const queries = [
-		item.item_code,
-		item.item_name,
-		item.item_name?.split(/\s+/)[0],
-	].filter(Boolean);
-
-	for (const query of queries) {
-		await search.focus();
-		await search.fill(String(query));
-		await page.keyboard.press("Enter");
-		if (await itemRow.isVisible({ timeout: 8000 }).catch(() => false)) {
-			await page.keyboard.press("ArrowDown");
-			await page.keyboard.press("Enter");
-			await expect(
-				page.getByTestId(`cart-row-${item.item_code}`).first(),
-			).toBeVisible({ timeout: 30000 });
-			return;
-		}
-	}
-
-	throw new Error(`POS keyboard search did not show ${item.item_code}`);
-}
-
-async function enterInvoiceGrid(page: Page) {
-	await page.keyboard.press("Alt+ArrowRight");
-	await expect(
-		page.locator(".posa-cart-item-row--keyboard-active").first(),
-	).toBeVisible({
-		timeout: 10000,
-	});
-}
-
-async function activeCartCell(page: Page) {
-	return page.locator(".posa-cart-item-cell--keyboard-active").first();
-}
-
-async function moveActiveCartCellToColumn(page: Page, columnKey: string) {
-	for (let attempt = 0; attempt < 12; attempt += 1) {
-		const cell = await activeCartCell(page);
-		if (
-			(await cell.getAttribute("data-column-key").catch(() => null)) ===
-			columnKey
-		) {
-			return;
-		}
-		await page.keyboard.press("ArrowRight");
-	}
-	await expect(await activeCartCell(page)).toHaveAttribute(
-		"data-column-key",
-		columnKey,
+	const rows = page.locator(
+		'.items-selector-shell--counter-dialog [data-testid^="pos-item-row-"]',
 	);
-}
+	await expect(rows.nth(1)).toBeVisible({ timeout: 30_000 });
+	await expect(rows.nth(0)).toHaveAttribute("aria-selected", "true");
+	await expect(rows.nth(1)).toHaveAttribute("aria-selected", "false");
+	await expect(search).toHaveAttribute("role", "combobox");
+	await expect(search).toHaveAttribute("aria-activedescendant", /\S+/);
 
-async function setActiveNumericCell(page: Page, value: string) {
-	const cell = await activeCartCell(page);
-	await expect(cell).toBeVisible();
-	let input = cell.locator("input").first();
-	if (!(await input.count())) {
-		const target = cell
-			.locator("[data-pos-keyboard-target], button")
-			.first();
-		if (await target.count()) {
-			await target.click();
-		} else {
-			await page.keyboard.press("Enter");
-		}
-		input = cell.locator("input").first();
-	}
-	await expect(input).toBeFocused({ timeout: 10000 });
-	await input.fill(value);
+	await page.keyboard.press("ArrowDown");
+	await expect(rows.nth(0)).toHaveAttribute("aria-selected", "false");
+	await expect(rows.nth(1)).toHaveAttribute("aria-selected", "true");
+	const itemCode = await rows.nth(1).getAttribute("data-item-code");
+	expect(
+		itemCode,
+		`${query} second result must expose a stable item code`,
+	).toBeTruthy();
+
 	await page.keyboard.press("Enter");
+	await expect(page.locator(".counter-item-search-surface")).toBeHidden({
+		timeout: 30_000,
+	});
+	const cartRow = page.getByTestId(`cart-row-${itemCode}`).first();
+	await expect(cartRow).toBeVisible({ timeout: 30_000 });
+	await expect(cartRow.locator('[data-column-key="qty"] input')).toBeFocused({
+		timeout: 15_000,
+	});
+
+	return { itemCode: String(itemCode), cartRow };
 }
 
-async function expectNoActiveInvoiceGrid(page: Page) {
-	await expect(
-		page.locator(".posa-cart-item-row--keyboard-active"),
-	).toHaveCount(0);
-	await expect(
-		page.locator(".posa-cart-item-cell--keyboard-active"),
-	).toHaveCount(0);
-}
+async function advanceEditableRowByKeyboard(
+	page: Page,
+	cartRow: Locator,
+	quantity: string,
+) {
+	const qty = cartRow.locator('[data-column-key="qty"] input');
+	const discountPercentage = cartRow.locator(
+		'[data-column-key="discount_percentage"] input',
+	);
+	const discountAmount = cartRow.locator(
+		'[data-column-key="discount_amount"] input',
+	);
 
-async function openInvoiceManagement(page: Page) {
-	await page.getByTestId("invoice-action-management").click();
-	await expect(page.getByTestId("invoice-management-dialog")).toBeVisible({
-		timeout: 30000,
+	await expect(qty).toBeFocused();
+	await page.keyboard.press("Control+A");
+	await page.keyboard.type(quantity);
+	await page.keyboard.press("Enter");
+	await expect(discountPercentage).toBeFocused({ timeout: 15_000 });
+
+	await page.keyboard.press("Enter");
+	await expect(discountAmount).toBeFocused({ timeout: 15_000 });
+
+	await page.keyboard.press("Enter");
+	await expect(page.getByTestId("counter-grid-item-entry")).toBeFocused({
+		timeout: 15_000,
 	});
 }
 
-async function submitCurrentInvoice(page: Page) {
-	await page.getByTestId("invoice-action-pay").click();
+async function addOneItemAndReturnToEntry(page: Page) {
+	const result = await addAmbiguousItemByKeyboard(page, AMBIGUOUS_QUERIES[0]);
+	await advanceEditableRowByKeyboard(page, result.cartRow, "1");
+	return result;
+}
+
+async function openPaymentByKeyboard(page: Page) {
+	await page.keyboard.press("F9");
 	await expect(page.getByTestId("payment-root")).toBeVisible({
-		timeout: 30000,
+		timeout: 30_000,
 	});
 	await expect(
 		page
 			.locator("[data-pos-keyboard-target='payment-amount'] input")
 			.first(),
-	).toBeFocused({
-		timeout: 15000,
-	});
-	await page.keyboard.press("Control+Enter");
-	await expect(page.locator(".v-snackbar, .v-toast, body")).toBeVisible();
+	).toBeFocused({ timeout: 15_000 });
 }
 
-async function latestSubmittedInvoice(page: Page) {
-	const mode = await getValue<{
-		create_pos_invoice_instead_of_sales_invoice?: number;
-	}>(
-		page,
-		"POS Profile",
-		POS_PROFILE,
-		"create_pos_invoice_instead_of_sales_invoice",
+async function assertSeriousAndCriticalAxeClean(
+	page: Page,
+	state: string,
+	include: string,
+) {
+	const result = await new AxeBuilder({ page }).include(include).analyze();
+	const violations: AxeViolationSummary[] = result.violations
+		.filter(
+			(violation) =>
+				violation.impact === "serious" ||
+				violation.impact === "critical",
+		)
+		.map((violation) => ({
+			id: violation.id,
+			impact: violation.impact,
+			help: violation.help,
+			targets: violation.nodes.map((node) => node.target),
+		}));
+
+	await test.info().attach(`axe-${state}`, {
+		body: Buffer.from(JSON.stringify(result, null, 2)),
+		contentType: "application/json",
+	});
+	expect(violations, `${state} serious/critical axe violations`).toEqual([]);
+}
+
+async function assertNoPageHorizontalOverflow(page: Page) {
+	const dimensions = await page.locator("html").evaluate((html) => ({
+		clientWidth: html.clientWidth,
+		scrollWidth: html.scrollWidth,
+	}));
+	expect(dimensions.scrollWidth).toBeLessThanOrEqual(
+		dimensions.clientWidth + 1,
 	);
-	const doctype = Number(
-		mode?.create_pos_invoice_instead_of_sales_invoice || 0,
-	)
-		? "POS Invoice"
-		: "Sales Invoice";
-	const rows = await callFrappe<Array<{ name: string; grand_total: number }>>(
-		page,
-		"frappe.client.get_list",
-		{
-			doctype,
-			filters: { docstatus: 1, is_return: 0 },
-			fields: ["name", "grand_total", "modified"],
-			order_by: "modified desc",
-			limit_page_length: 1,
-		},
-	);
-	expect(rows?.length || 0).toBeGreaterThan(0);
-	return {
-		doctype,
-		name: rows[0].name,
-		grand_total: Number(rows[0].grand_total || 0),
-	};
 }
 
-async function openSubmittedInvoiceEdit(page: Page, invoiceName: string) {
-	await openInvoiceManagement(page);
-	const searchInput = page.locator(".invoice-management-card input").first();
-	await searchInput.fill(invoiceName);
-	await expect(
-		page.getByTestId(`invoice-management-edit-${invoiceName}`),
-	).toBeVisible({
-		timeout: 30000,
-	});
-	await page.getByTestId(`invoice-management-edit-${invoiceName}`).click();
-	await expect(page.getByTestId("invoice-edit-modal")).toBeVisible({
-		timeout: 30000,
-	});
+async function assertFocusedEntryInsideViewport(page: Page) {
+	const entry = page.getByTestId("counter-grid-item-entry");
+	await expect(entry).toBeFocused({ timeout: 15_000 });
+	await entry.scrollIntoViewIfNeeded();
+	const box = await entry.boundingBox();
+	expect(box).not.toBeNull();
+	const viewport = page.viewportSize();
+	expect(viewport).not.toBeNull();
+	expect(box!.x).toBeGreaterThanOrEqual(0);
+	expect(box!.y).toBeGreaterThanOrEqual(0);
+	expect(box!.x + box!.width).toBeLessThanOrEqual(viewport!.width + 1);
+	expect(box!.y + box!.height).toBeLessThanOrEqual(viewport!.height + 1);
 }
 
-test.describe.serial("POS keyboard accessibility E2E", () => {
-	let originalQuickEditFlag = 0;
-	let items: TestItem[] = [];
-	let submittedInvoiceName = "";
-	let capturedErrors: string[] = [];
-
-	test.beforeAll(async ({ browser }) => {
-		const page = await browser.newPage();
-		await loginIfCredentialsProvided(page);
-		await waitForPosReady(page);
-		const profile = await getValue<{ posa_allow_item_quick_edit?: number }>(
-			page,
-			"POS Profile",
-			POS_PROFILE,
-			"posa_allow_item_quick_edit",
-		);
-		originalQuickEditFlag = Number(
-			profile?.posa_allow_item_quick_edit || 0,
-		);
-		await setValue(
-			page,
-			"POS Profile",
-			POS_PROFILE,
-			"posa_allow_item_quick_edit",
-			1,
-		);
-		await page.close();
-	});
-
-	test.afterAll(async ({ browser }) => {
-		const page = await browser.newPage();
-		await loginIfCredentialsProvided(page);
-		await waitForPosReady(page);
-		await setValue(
-			page,
-			"POS Profile",
-			POS_PROFILE,
-			"posa_allow_item_quick_edit",
-			originalQuickEditFlag,
-		);
-		await page.close();
-	});
-
-	test.beforeEach(async ({ page }) => {
-		capturedErrors = captureUnexpectedErrors(page);
-		await loginIfCredentialsProvided(page);
-		await waitForPosReady(page);
-	});
-
-	test.afterEach(() => {
-		expect(capturedErrors, capturedErrors.join("\n")).toHaveLength(0);
-	});
-
-	test("product search down arrow stays in product results and does not steal focus to cart", async ({
+test.describe.serial("Counter Grid keyboard and accessibility", () => {
+	test("completes the core two-item cashier flow without a mouse", async ({
 		page,
 	}) => {
-		items = await getPositiveStockItems(page);
-		expect(
-			items.length,
-			`Need at least 3 positive-stock items from ${TEST_ITEM_CODES.join(", ")}`,
-		).toBeGreaterThanOrEqual(3);
+		await page.setViewportSize({ width: 1280, height: 720 });
+		await waitForCounterGrid(page);
+		await expect(page.locator(".posa-cart-item-row")).toHaveCount(0);
 
-		await searchAndAddItem(page, items[0]);
-		const search = page.getByTestId("pos-item-search").locator("input");
-		await search.click();
-		await search.fill(items[1].item_code);
-		await page.keyboard.press("Enter");
-		await expect(
-			page.getByText(items[1].item_code, { exact: true }).first(),
-		).toBeVisible();
-		await page.keyboard.press("ArrowDown");
-
-		await expect(search).toBeFocused();
-		await expectNoActiveInvoiceGrid(page);
-		await page.keyboard.press("Enter");
-		await expect(
-			page.getByTestId(`cart-row-${items[1].item_code}`).first(),
-		).toBeVisible({
-			timeout: 30000,
-		});
-	});
-
-	test("operator can add items and edit invoice grid fully from keyboard", async ({
-		page,
-	}) => {
-		if (!items.length) items = await getPositiveStockItems(page);
-		expect(items.length).toBeGreaterThanOrEqual(3);
-
-		await searchAndAddItem(page, items[0]);
-		await searchAndAddItem(page, items[1]);
-		await enterInvoiceGrid(page);
-
-		await page.keyboard.press("ArrowRight");
-		await expect(await activeCartCell(page)).toBeVisible();
-		await setActiveNumericCell(page, "2");
-
-		await expect(await activeCartCell(page)).toBeVisible();
-		await setActiveNumericCell(
+		const first = await addAmbiguousItemByKeyboard(
 			page,
-			String(Math.max(1, Math.round(items[0].rate))),
+			AMBIGUOUS_QUERIES[0],
 		);
+		await advanceEditableRowByKeyboard(page, first.cartRow, "2");
 
-		await page.keyboard.press("Escape");
-		await expect(
-			page.locator(".posa-cart-item-row--keyboard-active").first(),
-		).toBeVisible();
-		await page.keyboard.press("Enter");
-		await expect(page.getByTestId("item-history-modal")).toBeVisible({
-			timeout: 30000,
-		});
-		await expect(
-			page.locator(".posa-modal-keyboard-box").first(),
-		).toBeVisible();
-		await page.keyboard.press("ArrowRight");
-		await page.keyboard.press("Enter");
-		await expect(
-			page.getByTestId("item-history-details-tab"),
-		).toHaveAttribute("aria-selected", "true");
-		await page.keyboard.press("ArrowLeft");
-		await page.keyboard.press("Enter");
-		await expect(
-			page.getByTestId("item-history-sales-tab"),
-		).toHaveAttribute("aria-selected", "true");
+		const second = await addAmbiguousItemByKeyboard(
+			page,
+			AMBIGUOUS_QUERIES[1],
+		);
+		expect(second.itemCode).not.toBe(first.itemCode);
+		await advanceEditableRowByKeyboard(page, second.cartRow, "1");
 
-		await expect(page.getByTestId("item-history-row-0")).toBeVisible({
-			timeout: 30000,
-		});
-		await page.getByTestId("item-history-row-0").click();
-		await page.keyboard.press("Enter");
+		const entry = page.getByTestId("counter-grid-item-entry");
+		await page.keyboard.press("Shift+Tab");
 		await expect(
-			page.getByTestId("item-history-invoice-detail-dialog"),
-		).toBeVisible({ timeout: 30000 });
-		await page.keyboard.press("Escape");
+			second.cartRow.locator('[data-column-key="discount_amount"] input'),
+		).toBeFocused({ timeout: 15_000 });
+		await page.keyboard.press("ArrowUp");
 		await expect(
-			page.getByTestId("item-history-invoice-detail-dialog"),
-		).toBeHidden({ timeout: 15000 });
+			first.cartRow.locator('[data-column-key="discount_amount"] input'),
+		).toBeFocused({ timeout: 15_000 });
 		await page.keyboard.press("ArrowDown");
 		await expect(
-			page.locator(".posa-modal-keyboard-box").first(),
-		).toBeVisible();
+			second.cartRow.locator('[data-column-key="discount_amount"] input'),
+		).toBeFocused({ timeout: 15_000 });
+		await page.keyboard.press("Enter");
+		await expect(entry).toBeFocused({ timeout: 15_000 });
 
+		await openPaymentByKeyboard(page);
 		await page.keyboard.press("Escape");
-		await expect(page.getByTestId("item-history-modal")).toBeHidden({
-			timeout: 15000,
+		await expect(page.getByTestId("payment-root")).toBeHidden({
+			timeout: 30_000,
 		});
+		await expect(entry).toBeFocused({ timeout: 15_000 });
+		await expect(entry).toHaveValue("");
 	});
 
-	test("below buying price sale turns row red and blocks keyboard submit", async ({
+	test("navigates item history and permitted quick edit without a mouse", async ({
 		page,
 	}) => {
-		const item = await getLossGuardItem(page);
-		expect(
-			item,
-			`Need one positive-stock item with a buying Item Price below selling rate from ${TEST_ITEM_CODES.join(", ")}`,
-		).not.toBeNull();
-		const lossItem = item!;
+		await page.setViewportSize({ width: 1280, height: 720 });
+		await waitForCounterGrid(page);
+		await addOneItemAndReturnToEntry(page);
 
-		await page.evaluate(() => {
-			localStorage.setItem(
-				"posawesome_selected_columns",
-				JSON.stringify(["price_list_rate", "discount_percentage"]),
-			);
-		});
-		await waitForPosReady(page);
-		await keyboardSearchAndAddItem(page, lossItem);
-
-		const lossDiscountPercent = Math.min(
-			95,
-			Math.ceil((1 - lossItem.buyingRate / lossItem.rate) * 100) + 2,
-		);
-		await enterInvoiceGrid(page);
-		await page.keyboard.press("ArrowRight");
-		await moveActiveCartCellToColumn(page, "discount_percentage");
-		await page.keyboard.press("Enter");
-		const discountInput = (await activeCartCell(page))
-			.locator("input")
-			.first();
-		await expect(discountInput).toBeFocused({ timeout: 10000 });
-		await page.keyboard.press("Control+A");
-		await page.keyboard.type(String(lossDiscountPercent));
-		await page.keyboard.press("Enter");
-
-		const cartRow = page
-			.getByTestId(`cart-row-${lossItem.item_code}`)
-			.first();
-		await expect(cartRow).toHaveClass(/posa-cart-item-row--loss-risk/, {
-			timeout: 15000,
-		});
-
-		await page.keyboard.press("Alt+X");
-		await expect(
-			page.locator(".v-dialog").filter({ hasText: /Open Payments/i }),
-		).toBeVisible({ timeout: 15000 });
-		await page.keyboard.press("Enter");
-		await expect(page.getByTestId("payment-root")).toBeVisible({
-			timeout: 30000,
-		});
-		await expect
-			.poll(
-				() =>
-					capturedErrors.some((message) =>
-						/below buying\/trade price/i.test(message),
-					),
-				{ timeout: 30000 },
-			)
-			.toBe(true);
-		capturedErrors = capturedErrors.filter(
-			(message) =>
-				!/below buying\/trade price|status of 417|EXPECTATION FAILED|Network request failed|Error submitting invoice|Submission failed propagate/i.test(
-					message,
-				),
-		);
-	});
-
-	test("item workspace and update item are reachable from the selected cart row", async ({
-		page,
-	}) => {
-		if (!items.length) items = await getPositiveStockItems(page);
-		await searchAndAddItem(page, items[0]);
-		await enterInvoiceGrid(page);
 		await page.keyboard.press("F12");
+		const history = page.getByTestId("item-history-modal");
+		const salesTab = page.getByTestId("item-history-sales-tab");
+		const detailsTab = page.getByTestId("item-history-details-tab");
+		const updateItem = page.getByTestId("item-workspace-update-item");
+		await expect(history).toBeVisible({ timeout: 30_000 });
+		await expect(salesTab).toHaveAttribute("aria-selected", "true");
 
-		await expect(page.getByTestId("item-history-modal")).toBeVisible({
-			timeout: 30000,
-		});
-		await expect(
-			page.getByTestId("item-history-sales-tab"),
-		).toHaveAttribute("aria-selected", "true");
-		await page.getByTestId("item-workspace-update-item").click();
-
-		await expect(page.getByTestId("item-quick-edit-modal")).toBeVisible({
-			timeout: 30000,
-		});
-		await expect(
-			page.getByTestId("item-quick-edit-lookup").locator("input"),
-		).toHaveValue(items[0].item_code, {
-			timeout: 30000,
-		});
-		await expect(
-			page.locator(".posa-quick-edit-keyboard-box").first(),
-		).toBeVisible();
+		await page.keyboard.press("ArrowRight");
 		await page.keyboard.press("Enter");
-		await expect(
-			page.getByTestId("item-quick-edit-name").locator("input"),
-		).toBeFocused();
-		await page.keyboard.press("Enter");
-		await expect(
-			page.locator(".posa-quick-edit-keyboard-box").first(),
-		).toBeVisible();
-		await page.keyboard.press("ArrowDown");
-		await expect(
-			page.locator(".posa-quick-edit-keyboard-box").first(),
-		).toBeVisible();
-		await page.keyboard.press("Escape");
-		await expect(page.getByTestId("item-quick-edit-modal")).toBeHidden({
-			timeout: 15000,
-		});
-	});
-
-	test("drafts drawer supports keyboard load and escape paths", async ({
-		page,
-	}) => {
-		if (!items.length) items = await getPositiveStockItems(page);
-		await searchAndAddItem(page, items[0]);
-		await page.getByTestId("invoice-action-save-clear").click();
-		await page.waitForTimeout(1000);
-
-		await page.keyboard.press("Alt+L");
-		const activeDraftsSurface = page
-			.locator(
-				".v-navigation-drawer:not([inert]) .drafts-list, [data-test='mobile-drafts-dialog']:visible",
-			)
-			.first();
-		await expect(activeDraftsSurface).toBeVisible({
-			timeout: 30000,
-		});
-		await page.keyboard.press("ArrowDown");
-		await page.keyboard.press("Escape");
-		await expect(
-			page.locator(
-				".v-navigation-drawer:not([inert]) .drafts-list, [data-test='mobile-drafts-dialog']:visible",
-			),
-		).toHaveCount(0, {
-			timeout: 15000,
-		});
-	});
-
-	test("payment keyboard flow submits a real invoice", async ({ page }) => {
-		if (!items.length) items = await getPositiveStockItems(page);
-		await searchAndAddItem(page, items[0]);
-		await searchAndAddItem(page, items[1]);
-		await submitCurrentInvoice(page);
-
-		const invoice = await latestSubmittedInvoice(page);
-		submittedInvoiceName = invoice.name;
-		expect(submittedInvoiceName).toMatch(/.+/);
-	});
-
-	test("invoice management and submitted invoice edit modal are keyboard operable", async ({
-		page,
-	}) => {
-		if (!submittedInvoiceName) {
-			const invoice = await latestSubmittedInvoice(page);
-			submittedInvoiceName = invoice.name;
-		}
-		await openSubmittedInvoiceEdit(page, submittedInvoiceName);
-
-		await expect(page.locator(".edit-keyboard-box").first()).toBeVisible({
-			timeout: 15000,
-		});
-		await page.keyboard.press("ArrowDown");
-		await page.keyboard.press("Enter");
-		const activeTag = await page.evaluate(() =>
-			document.activeElement?.tagName?.toLowerCase(),
-		);
-		expect(["input", "textarea", "select"]).toContain(activeTag);
-
-		await page.keyboard.press("Control+A");
-		await page.keyboard.type("1");
+		await expect(detailsTab).toHaveAttribute("aria-selected", "true");
 		await page.keyboard.press("ArrowLeft");
-		const stillInput = await page.evaluate(() =>
-			document.activeElement?.tagName?.toLowerCase(),
-		);
-		expect(stillInput).toBe("input");
-
 		await page.keyboard.press("Enter");
-		await expect(page.locator(".edit-keyboard-box").first()).toBeVisible();
+		await expect(salesTab).toHaveAttribute("aria-selected", "true");
 
-		const qtyInput = page
-			.getByTestId("invoice-edit-item-0-qty")
-			.locator("input");
-		await qtyInput.fill("3");
-		await expect(
-			page.getByTestId("invoice-edit-settlement-summary"),
-		).toContainText(
-			/Collect from customer|Refund to customer|No cash difference/,
-			{ timeout: 30000 },
+		test.skip(
+			!(await updateItem.isVisible()),
+			"Current cashier/profile does not permit Item quick edit.",
 		);
-		const paymentInput = page
-			.getByTestId("invoice-edit-payment-0-amount")
-			.locator("input");
-		await expect(paymentInput).toHaveAttribute("readonly", /readonly|/);
+		await page.keyboard.press("ArrowUp");
+		await expect(updateItem).toHaveClass(/posa-modal-keyboard-box/);
+		await page.keyboard.press("Enter");
+		await expect(history).toBeHidden({ timeout: 30_000 });
 
-		await page.keyboard.press("Escape");
-		await expect(page.getByTestId("invoice-edit-modal")).toBeHidden({
-			timeout: 15000,
+		const quickEdit = page.getByTestId("item-quick-edit-modal");
+		const nameField = page.getByTestId("item-quick-edit-name");
+		await expect(quickEdit).toBeVisible({ timeout: 30_000 });
+		await expect(nameField).toHaveClass(/posa-quick-edit-keyboard-box/);
+		await page.keyboard.press("Enter");
+		await expect(nameField.locator("input")).toBeFocused({
+			timeout: 15_000,
 		});
+		await page.keyboard.press("Escape");
+		await expect(nameField).toHaveClass(/posa-quick-edit-keyboard-box/);
+		await page.keyboard.press("Escape");
+		await expect(quickEdit).toBeHidden({ timeout: 30_000 });
+		await expect(page.getByTestId("counter-grid-item-entry")).toBeFocused({
+			timeout: 15_000,
+		});
+	});
+
+	test("has no serious or critical axe violations in the empty grid", async ({
+		page,
+	}) => {
+		await page.setViewportSize({ width: 1280, height: 720 });
+		await waitForCounterGrid(page);
+		await assertSeriousAndCriticalAxeClean(
+			page,
+			"empty-grid",
+			'[data-testid="counter-grid-pos"]',
+		);
+	});
+
+	test("has no serious or critical axe violations in the populated grid", async ({
+		page,
+	}) => {
+		await page.setViewportSize({ width: 1280, height: 720 });
+		await waitForCounterGrid(page);
+		await addOneItemAndReturnToEntry(page);
+		await assertSeriousAndCriticalAxeClean(
+			page,
+			"populated-grid",
+			'[data-testid="counter-grid-pos"]',
+		);
+	});
+
+	test("has no serious or critical axe violations in pharmacy search", async ({
+		page,
+	}) => {
+		await page.setViewportSize({ width: 1280, height: 720 });
+		await waitForCounterGrid(page);
+		await page.keyboard.type(AMBIGUOUS_QUERIES[0]);
+		await page.keyboard.press("Enter");
+		await waitForSearchReady(page, AMBIGUOUS_QUERIES[0]);
+		await expect(
+			page
+				.locator(
+					'.items-selector-shell--counter-dialog [data-testid^="pos-item-row-"]',
+				)
+				.first(),
+		).toBeVisible({ timeout: 30_000 });
+		await assertSeriousAndCriticalAxeClean(
+			page,
+			"pharmacy-search",
+			".counter-item-search-surface",
+		);
+	});
+
+	test("has no serious or critical axe violations in item sales history", async ({
+		page,
+	}) => {
+		await page.setViewportSize({ width: 1280, height: 720 });
+		await waitForCounterGrid(page);
+		await addOneItemAndReturnToEntry(page);
+		await page.keyboard.press("F12");
+		await expect(page.getByTestId("item-history-modal")).toBeVisible({
+			timeout: 30_000,
+		});
+		await assertSeriousAndCriticalAxeClean(
+			page,
+			"item-sales-history",
+			'[data-testid="item-history-modal"]',
+		);
+	});
+
+	test("has no serious or critical axe violations in quick edit when permitted", async ({
+		page,
+	}) => {
+		await page.setViewportSize({ width: 1280, height: 720 });
+		await waitForCounterGrid(page);
+		await addOneItemAndReturnToEntry(page);
+		await page.keyboard.press("F12");
+		const updateItem = page.getByTestId("item-workspace-update-item");
+		await expect(page.getByTestId("item-history-modal")).toBeVisible({
+			timeout: 30_000,
+		});
+		test.skip(
+			!(await updateItem.isVisible()),
+			"Current cashier/profile does not permit Item quick edit.",
+		);
+		await updateItem.click();
+		await expect(page.getByTestId("item-quick-edit-modal")).toBeVisible({
+			timeout: 30_000,
+		});
+		await assertSeriousAndCriticalAxeClean(
+			page,
+			"item-quick-edit",
+			'[data-testid="item-quick-edit-modal"]',
+		);
+	});
+
+	test("has no serious or critical axe violations in payment", async ({
+		page,
+	}) => {
+		await page.setViewportSize({ width: 1280, height: 720 });
+		await waitForCounterGrid(page);
+		await addOneItemAndReturnToEntry(page);
+		await openPaymentByKeyboard(page);
+		await assertSeriousAndCriticalAxeClean(
+			page,
+			"payment",
+			'[data-testid="payment-root"]',
+		);
 	});
 });
+
+for (const viewport of [
+	{ width: 1024, height: 768 },
+	{ width: 1280, height: 720 },
+]) {
+	test(`keeps focus visible without page overflow at 200% zoom (${viewport.width}x${viewport.height})`, async ({
+		page,
+	}) => {
+		await page.setViewportSize(viewport);
+		await waitForCounterGrid(page);
+		await page.addStyleTag({ content: "html { zoom: 2 !important; }" });
+		await expect(page.getByTestId("counter-grid-item-entry")).toBeVisible();
+		await assertNoPageHorizontalOverflow(page);
+		await assertFocusedEntryInsideViewport(page);
+	});
+
+	test(`keeps focus visible without page overflow in forced colors (${viewport.width}x${viewport.height})`, async ({
+		page,
+	}) => {
+		await page.emulateMedia({ forcedColors: "active" });
+		await page.setViewportSize(viewport);
+		await waitForCounterGrid(page);
+		await assertNoPageHorizontalOverflow(page);
+		await assertFocusedEntryInsideViewport(page);
+		await expect(page.getByTestId("counter-grid-item-entry")).toHaveCSS(
+			"forced-color-adjust",
+			"auto",
+		);
+	});
+}

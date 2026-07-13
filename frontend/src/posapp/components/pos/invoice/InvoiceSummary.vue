@@ -88,6 +88,8 @@
 				@print-draft="handlePrintDraft"
 				@show-payment="handleShowPayment"
 				@open-customer-display="handleOpenCustomerDisplay"
+				@open-offers="$emit('open-offers')"
+				@open-coupons="$emit('open-coupons')"
 			/>
 		</div>
 
@@ -331,6 +333,8 @@ const emit = defineEmits([
 	"print-draft",
 	"show-payment",
 	"open-customer-display",
+	"open-offers",
+	"open-coupons",
 	"resume-parked-order",
 ]);
 
@@ -686,9 +690,10 @@ defineExpose({
 .counter-grid-summary-card {
 	position: static;
 	padding: 8px 10px !important;
-	border-top: 1px solid var(--pos-border);
+	border-top: 2px solid #174a70;
 	border-radius: 0 !important;
 	box-shadow: none;
+	background: #ffffff !important;
 }
 
 .counter-grid-summary {
@@ -712,15 +717,16 @@ defineExpose({
 	padding: 5px 9px;
 	flex-direction: column;
 	justify-content: center;
-	border: 1px solid var(--pos-border);
-	border-radius: 4px;
-	background: var(--pos-surface-muted);
+	border: 1px solid #9db2c4;
+	border-left: 4px solid #174a70;
+	border-radius: 3px;
+	background: #edf3f7;
 }
 
 .counter-grid-summary__metric span {
 	font-size: 0.68rem;
 	font-weight: 600;
-	color: var(--pos-text-secondary);
+	color: #52687a;
 }
 
 .counter-grid-summary__metric strong {
@@ -729,16 +735,18 @@ defineExpose({
 	font-variant-numeric: tabular-nums;
 	text-overflow: ellipsis;
 	white-space: nowrap;
+	color: #10263b;
 }
 
 .counter-grid-summary__metric--total {
-	border-color: rgba(var(--v-theme-success), 0.42);
-	background: rgba(var(--v-theme-success), 0.09);
+	border-color: #079b55;
+	border-left-color: #079b55;
+	background: #e6f7ee;
 }
 
 .counter-grid-summary__metric--total strong {
 	font-size: 1.05rem;
-	color: rgb(var(--v-theme-success));
+	color: #087a46;
 }
 
 .counter-grid-summary__discount {
@@ -747,7 +755,8 @@ defineExpose({
 
 .counter-grid-summary__discount :deep(.v-field) {
 	height: 48px;
-	background: rgb(var(--v-theme-surface));
+	border-radius: 3px;
+	background: #ffffff;
 }
 
 .counter-grid-summary__discount :deep(.v-field__input) {

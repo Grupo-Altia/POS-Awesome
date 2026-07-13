@@ -1,7 +1,7 @@
 <template>
 	<div class="dashboard-toolbar mb-4">
 		<div>
-			<h1 class="text-h5 text-sm-h4 font-weight-bold mb-1">{{ __("Awesome Dashboard") }}</h1>
+			<h1 class="text-h5 text-sm-h4 font-weight-bold mb-1">{{ __("RetailMind Dashboard") }}</h1>
 			<p class="text-body-2 text-medium-emphasis mb-0">
 				{{ __("Real-time POS insights for retail operations.") }}
 			</p>

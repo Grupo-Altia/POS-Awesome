@@ -173,6 +173,35 @@ describe("useItemsSelectorSearch", () => {
 		expect(preventDefault).toHaveBeenCalled();
 		expect(selectHighlightedItem).toHaveBeenCalledTimes(1);
 	});
+
+	it("preserves Shift+Enter as an explicit Qty-focus selection intent", () => {
+		const selectHighlightedItem = vi.fn();
+		const preventDefault = vi.fn();
+		const vm = {
+			first_search: "abcd",
+			search_input: "abcd",
+			pos_profile: { posa_use_limit_search: 1 },
+			itemSelection: {
+				highlightedIndex: { value: 0 },
+				selectHighlightedItem,
+			},
+		};
+		const api = useItemsSelectorSearch({
+			getVM: () => vm,
+			scannerInput: createScannerInput(),
+			itemSelection: vm.itemSelection,
+		});
+
+		api.onEnter({
+			preventDefault,
+			shiftKey: true,
+		} as unknown as KeyboardEvent);
+
+		expect(preventDefault).toHaveBeenCalled();
+		expect(selectHighlightedItem).toHaveBeenCalledWith({
+			postAddFocus: "qty",
+		});
+	});
 });
 
 describe("resolveBooleanSetting", () => {

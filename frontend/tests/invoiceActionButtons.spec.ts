@@ -51,7 +51,7 @@ describe("InvoiceActionButtons", () => {
 				},
 			},
 			global: {
-				stubs: {
+				components: {
 					VBtn: {
 						template: '<button v-bind="$attrs"><slot /></button>',
 					},
@@ -59,6 +59,13 @@ describe("InvoiceActionButtons", () => {
 						template:
 							'<div><slot name="activator" :props="{}" /><slot /></div>',
 					},
+					VList: { template: "<div><slot /></div>" },
+					VListItem: {
+						emits: ["click"],
+						template:
+							'<button v-bind="$attrs" @click="$emit(\'click\')"><slot /></button>',
+					},
+					VListItemTitle: { template: "<span><slot /></span>" },
 				},
 			},
 		});
@@ -73,5 +80,15 @@ describe("InvoiceActionButtons", () => {
 		expect(
 			wrapper.get('[data-testid="counter-grid-actions"]').exists(),
 		).toBe(true);
+		expect(
+			wrapper.get('[data-testid="invoice-action-offers"]').text(),
+		).toContain("Offers");
+		expect(
+			wrapper.get('[data-testid="invoice-action-coupons"]').text(),
+		).toContain("Coupons");
+
+		expect((InvoiceActionButtons as any).emits).toEqual(
+			expect.arrayContaining(["open-offers", "open-coupons"]),
+		);
 	});
 });

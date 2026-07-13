@@ -1,33 +1,3 @@
-/**
- * Terminal cashier identity, multi-cashier switching, and terminal lock.
- *
- * **`TerminalEmployee` interface**
- * `user` (Frappe user ID) and `full_name` are always present. `enabled`,
- * `is_current`, and `is_supervisor` are optional flags set by the server.
- *
- * **Cashier persistence**
- * The active cashier's `user` string is persisted in `localStorage` under
- * `"posa_terminal_cashier"` (`STORAGE_KEY`). On store creation `currentCashier`
- * is seeded from `frappe.session` (the logged-in browser user) so it is never
- * null at startup.
- *
- * **`setTerminalEmployees(employees)`**
- * Normalises the list from the server, then calls `ensureCurrentCashier()` to
- * resolve the active cashier using the following priority:
- * 1. Stored user from `localStorage`.
- * 2. Employee marked `is_current` in the list.
- * 3. The logged-in `frappe.session` user.
- * 4. First employee in the list.
- *
- * **Supervisor flag**
- * `setCurrentCashier` detects when the `is_supervisor` flag changes for the same
- * user and triggers a refresh so the UI reflects the correct role immediately.
- *
- * **Terminal lock**
- * `lockTerminal()` closes the switch dialog and opens `lockDialogOpen`.
- * `unlockTerminal(cashier?)` closes the lock and optionally switches the active
- * cashier in one step. `isLocked` is a computed alias for `lockDialogOpen`.
- */
 import { computed, ref } from "vue";
 import { defineStore } from "pinia";
 
@@ -39,104 +9,61 @@ export interface TerminalEmployee {
 	is_supervisor?: boolean;
 }
 
-const STORAGE_KEY = "posa_terminal_cashier";
+export interface AuthoritativeTerminalState {
+	pos_profile?: string;
+	active_cashier?: string | null;
+	locked?: boolean;
+	verified_at?: string | null;
+	locked_at?: string | null;
+}
 
-const getBrowserGlobal = (): any =>
-	typeof window !== "undefined" ? window : globalThis;
+export type TerminalEmployeesLoadStatus =
+	| "idle"
+	| "loading"
+	| "ready"
+	| "error";
 
-const getSessionCashier = (): TerminalEmployee | null => {
-	const session = getBrowserGlobal()?.frappe?.session;
-	if (!session?.user) {
-		return null;
-	}
-
-	return {
-		user: String(session.user),
-		full_name: String(session.user_fullname || session.user),
-		enabled: 1,
-		is_current: true,
-	};
-};
-
-const readStoredCashierUser = (): string => {
-	try {
-		return getBrowserGlobal()?.localStorage?.getItem(STORAGE_KEY) || "";
-	} catch {
-		return "";
-	}
-};
-
-const persistCashierUser = (user: string) => {
-	try {
-		if (user) {
-			getBrowserGlobal()?.localStorage?.setItem(STORAGE_KEY, user);
-		} else {
-			getBrowserGlobal()?.localStorage?.removeItem(STORAGE_KEY);
-		}
-	} catch {
-		// Ignore storage failures.
-	}
-};
+const normalizeEmployee = (cashier: TerminalEmployee): TerminalEmployee => ({
+	user: String(cashier.user),
+	full_name: String(cashier.full_name || cashier.user),
+	enabled: Number(cashier.enabled ?? 1),
+	is_current: Boolean(cashier.is_current),
+	is_supervisor: Boolean(cashier.is_supervisor),
+});
 
 export const useEmployeeStore = defineStore("employee", () => {
 	const terminalEmployees = ref<TerminalEmployee[]>([]);
-	const currentCashier = ref<TerminalEmployee | null>(getSessionCashier());
+	const currentCashier = ref<TerminalEmployee | null>(null);
 	const switchDialogOpen = ref(false);
-	const lockDialogOpen = ref(false);
+	const lockDialogOpen = ref(true);
+	const terminalStateLoaded = ref(false);
+	const terminalLockPending = ref(false);
+	const terminalEmployeesLoadStatus =
+		ref<TerminalEmployeesLoadStatus>("idle");
+	const terminalEmployeesLoadError = ref("");
+	const terminalEmployeesProfile = ref("");
 
 	const currentCashierDisplay = computed(
-		() => currentCashier.value?.full_name || currentCashier.value?.user || "",
+		() =>
+			currentCashier.value?.full_name || currentCashier.value?.user || "",
 	);
 	const isLocked = computed(() => lockDialogOpen.value);
 
 	const setCurrentCashier = (cashier: TerminalEmployee | string | null) => {
 		if (!cashier) {
 			currentCashier.value = null;
-			persistCashierUser("");
 			return;
 		}
 
 		const nextCashier =
 			typeof cashier === "string"
-				? terminalEmployees.value.find((employee) => employee.user === cashier) ||
-					(getSessionCashier()?.user === cashier ? getSessionCashier() : null)
-				: {
-						user: String(cashier.user),
-						full_name: String(cashier.full_name || cashier.user),
-						enabled: Number(cashier.enabled ?? 1),
-						is_current: Boolean(cashier.is_current),
-						is_supervisor: Boolean(cashier.is_supervisor),
-					};
+				? terminalEmployees.value.find(
+						(employee) => employee.user === cashier,
+					) || null
+				: normalizeEmployee(cashier);
 
-		if (!nextCashier) {
-			return;
-		}
-
-		currentCashier.value = nextCashier;
-		persistCashierUser(nextCashier.user);
-	};
-
-	const ensureCurrentCashier = () => {
-		const preferredUser =
-			readStoredCashierUser() || getSessionCashier()?.user || "";
-		const preferredCashier =
-			terminalEmployees.value.find((employee) => employee.user === preferredUser) ||
-			terminalEmployees.value.find((employee) => employee.is_current) ||
-			getSessionCashier() ||
-			terminalEmployees.value[0] ||
-			null;
-
-		const shouldRefreshCurrentCashier =
-			!currentCashier.value
-			|| currentCashier.value.user !== preferredCashier?.user
-			|| (
-				preferredCashier
-				&& currentCashier.value.user === preferredCashier.user
-				&& Boolean(currentCashier.value.is_supervisor) !== Boolean(preferredCashier.is_supervisor)
-			);
-
-		if (shouldRefreshCurrentCashier) {
-			setCurrentCashier(preferredCashier);
+		if (nextCashier) {
+			currentCashier.value = nextCashier;
 		}
 	};
 
@@ -144,21 +71,129 @@ export const useEmployeeStore = defineStore("employee", () => {
 		terminalEmployees.value = Array.isArray(employees)
 			? employees
 					.filter((employee) => employee?.user)
-					.map((employee) => ({
-						user: String(employee.user),
-						full_name: String(employee.full_name || employee.user),
-						enabled: Number(employee.enabled ?? 1),
-						is_current: Boolean(employee.is_current),
-						is_supervisor: Boolean(employee.is_supervisor),
-					}))
+					.map(normalizeEmployee)
 			: [];
+		terminalEmployeesLoadStatus.value = "ready";
+		terminalEmployeesLoadError.value = "";
 
-		ensureCurrentCashier();
+		if (currentCashier.value) {
+			const refreshedCashier = terminalEmployees.value.find(
+				(employee) => employee.user === currentCashier.value?.user,
+			);
+			currentCashier.value = refreshedCashier || null;
+		}
+	};
+
+	const beginTerminalEmployeesLoad = (profileName: string) => {
+		terminalEmployeesProfile.value = String(profileName || "").trim();
+		terminalEmployeesLoadStatus.value = "loading";
+		terminalEmployeesLoadError.value = "";
+		terminalEmployees.value = [];
+		currentCashier.value = null;
+		lockDialogOpen.value = true;
+		terminalStateLoaded.value = false;
+		switchDialogOpen.value = false;
+	};
+
+	const completeTerminalEmployeesLoad = (
+		profileName: string,
+		employees: TerminalEmployee[] = [],
+	) => {
+		if (
+			terminalEmployeesProfile.value !== String(profileName || "").trim()
+		) {
+			return false;
+		}
+		setTerminalEmployees(employees);
+		terminalEmployeesLoadStatus.value = "ready";
+		terminalEmployeesLoadError.value = "";
+		return true;
+	};
+
+	const failTerminalEmployeesLoad = (
+		profileName: string,
+		message: string,
+	) => {
+		if (
+			terminalEmployeesProfile.value !== String(profileName || "").trim()
+		) {
+			return false;
+		}
+		setTerminalEmployees([]);
+		terminalEmployeesLoadStatus.value = "error";
+		terminalEmployeesLoadError.value = String(message || "").trim();
+		return true;
+	};
+
+	const resetTerminalEmployeesLoad = () => {
+		setTerminalEmployees([]);
+		terminalEmployeesProfile.value = "";
+		terminalEmployeesLoadStatus.value = "idle";
+		terminalEmployeesLoadError.value = "";
+	};
+
+	const applyTerminalState = (
+		state: AuthoritativeTerminalState | null | undefined,
+		verifiedCashier?: TerminalEmployee | null,
+	) => {
+		const activeCashier = String(state?.active_cashier || "").trim();
+		const candidate =
+			verifiedCashier?.user === activeCashier
+				? normalizeEmployee(verifiedCashier)
+				: terminalEmployees.value.find(
+						(employee) => employee.user === activeCashier,
+					) ||
+					(state?.locked === false && activeCashier
+						? normalizeEmployee({
+								user: activeCashier,
+								full_name: activeCashier,
+								enabled: 1,
+							})
+						: null);
+
+		currentCashier.value = candidate;
+		lockDialogOpen.value = state?.locked !== false || !candidate;
+		terminalLockPending.value = false;
+		terminalStateLoaded.value = true;
+		if (lockDialogOpen.value) {
+			switchDialogOpen.value = false;
+		}
+	};
+
+	const applyVerifiedCashier = (
+		cashier: TerminalEmployee & {
+			terminal_state?: AuthoritativeTerminalState;
+		},
+	) => {
+		const state = cashier?.terminal_state;
+		if (
+			!cashier?.user ||
+			state?.locked !== false ||
+			state?.active_cashier !== cashier.user
+		) {
+			throw new Error(
+				"The server did not confirm the active terminal cashier.",
+			);
+		}
+		applyTerminalState(state, cashier);
+	};
+
+	const ensureCurrentCashier = () => {
+		if (!currentCashier.value) return;
+		const serverListedCashier = terminalEmployees.value.find(
+			(employee) => employee.user === currentCashier.value?.user,
+		);
+		currentCashier.value = serverListedCashier || null;
+		if (!currentCashier.value) {
+			lockDialogOpen.value = true;
+		}
 	};
 
 	const openEmployeeSwitch = () => {
 		ensureCurrentCashier();
-		switchDialogOpen.value = true;
+		if (!lockDialogOpen.value) {
+			switchDialogOpen.value = true;
+		}
 	};
 
 	const closeEmployeeSwitch = () => {
@@ -170,11 +205,17 @@ export const useEmployeeStore = defineStore("employee", () => {
 		lockDialogOpen.value = true;
 	};
 
-	const unlockTerminal = (cashier?: TerminalEmployee | string | null) => {
-		if (cashier) {
-			setCurrentCashier(cashier);
-		}
-		lockDialogOpen.value = false;
+	const markTerminalLockPending = () => {
+		lockTerminal();
+		terminalLockPending.value = true;
+	};
+
+	const unlockTerminal = (
+		cashier: TerminalEmployee & {
+			terminal_state?: AuthoritativeTerminalState;
+		},
+	) => {
+		applyVerifiedCashier(cashier);
 	};
 
 	return {
@@ -183,13 +224,25 @@ export const useEmployeeStore = defineStore("employee", () => {
 		currentCashierDisplay,
 		switchDialogOpen,
 		lockDialogOpen,
+		terminalStateLoaded,
+		terminalLockPending,
+		terminalEmployeesLoadStatus,
+		terminalEmployeesLoadError,
+		terminalEmployeesProfile,
 		isLocked,
 		setTerminalEmployees,
+		beginTerminalEmployeesLoad,
+		completeTerminalEmployeesLoad,
+		failTerminalEmployeesLoad,
+		resetTerminalEmployeesLoad,
 		setCurrentCashier,
+		applyTerminalState,
+		applyVerifiedCashier,
 		ensureCurrentCashier,
 		openEmployeeSwitch,
 		closeEmployeeSwitch,
 		lockTerminal,
+		markTerminalLockPending,
 		unlockTerminal,
 	};
 });

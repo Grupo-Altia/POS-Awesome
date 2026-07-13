@@ -283,6 +283,12 @@ const invoiceShortcuts: Record<string, unknown> & ThisType<InvoiceShortcutsVm> =
 				return;
 			}
 
+			if (key === "F9") {
+				consumeEvent(event);
+				this.show_payment?.();
+				return;
+			}
+
 			if (!isAltOnly(event)) {
 				return;
 			}
@@ -390,6 +396,12 @@ const invoiceShortcuts: Record<string, unknown> & ThisType<InvoiceShortcutsVm> =
 				consumeEvent(event);
 				frappe.set_route("/");
 				location.reload();
+				return;
+			}
+
+			if (this.isCounterGridPresentation && isLetter(event, "g")) {
+				consumeEvent(event);
+				this.eventBus.emit("open_cart_alternates");
 				return;
 			}
 

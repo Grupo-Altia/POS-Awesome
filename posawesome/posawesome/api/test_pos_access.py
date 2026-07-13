@@ -115,6 +115,49 @@ class TestPosAccess(unittest.TestCase):
 
         self.assertIs(result, self.profile)
 
+    def test_supervisor_role_does_not_bypass_profile_assignment(self):
+        self.assigned_users.clear()
+        self.fake_frappe.get_roles = lambda user: ["POS Awesome Supervisor"]
+
+        with patch.object(pos_access, "frappe", self.fake_frappe):
+            with self.assertRaisesRegex(PermissionError, "not assigned"):
+                pos_access.get_authorized_pos_profile("POS-1")
+
+    def test_pos_manager_may_access_unassigned_profile(self):
+        self.assigned_users.clear()
+        self.fake_frappe.get_roles = lambda user: ["POS Manager"]
+
+        with patch.object(pos_access, "frappe", self.fake_frappe):
+            result = pos_access.get_authorized_pos_profile("POS-1")
+
+        self.assertIs(result, self.profile)
+
+    def test_supervisor_or_manager_gate_uses_authenticated_session_identity(self):
+        self.fake_frappe.session.user = "cashier@example.com"
+        self.fake_frappe.get_roles = lambda user: ["Sales User"]
+
+        with patch.object(pos_access, "frappe", self.fake_frappe):
+            with self.assertRaisesRegex(PermissionError, "POS supervisor or manager"):
+                pos_access.require_pos_supervisor_or_manager()
+
+        self.fake_frappe.session.user = "supervisor@example.com"
+        self.fake_frappe.get_roles = lambda user: ["POS Awesome Supervisor"]
+        with patch.object(pos_access, "frappe", self.fake_frappe):
+            self.assertEqual(
+                pos_access.require_pos_supervisor_or_manager(),
+                "supervisor@example.com",
+            )
+
+    def test_item_manager_profile_access_does_not_grant_pin_or_dashboard_authority(self):
+        self.fake_frappe.session.user = "item-manager@example.com"
+        self.fake_frappe.get_roles = lambda user: ["Item Manager"]
+
+        with patch.object(pos_access, "frappe", self.fake_frappe):
+            self.assertTrue(pos_access.user_is_pos_profile_manager("item-manager@example.com"))
+            self.assertFalse(pos_access.user_can_manage_pos("item-manager@example.com"))
+            with self.assertRaisesRegex(PermissionError, "POS supervisor or manager"):
+                pos_access.require_pos_supervisor_or_manager()
+
     def test_requested_company_must_match_canonical_profile_company(self):
         with patch.object(pos_access, "frappe", self.fake_frappe):
             with self.assertRaisesRegex(PermissionError, "not available for company"):

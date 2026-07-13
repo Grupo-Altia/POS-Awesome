@@ -30,6 +30,7 @@ from posawesome.posawesome.api.payment_processing.utils import get_bank_cash_acc
 from posawesome.posawesome.api.utilities import ensure_child_doctype, set_batch_nos_for_bundels
 from posawesome.posawesome.api.payments import redeeming_customer_credit
 from posawesome.posawesome.api.idempotency import (
+    assert_invoice_request_scope,
     extract_invoice_client_request_id,
     find_invoice_by_client_request_id,
     normalize_invoice_request_identity,
@@ -41,8 +42,18 @@ from posawesome.posawesome.api.item_sale_controls import (
     collect_item_sale_control_errors,
     validate_invoice_item_sale_controls,
 )
+from posawesome.posawesome.api.terminal_state import (
+    get_active_terminal_cashier,
+    validate_assigned_terminal_cashier,
+)
+from posawesome.posawesome.api.pos_access import (
+    get_authorized_pos_profile,
+    require_pos_supervisor_or_manager,
+)
 import json
 import hashlib
+import time
+from contextlib import contextmanager
 from frappe.utils import money_in_words
 from frappe.utils.background_jobs import enqueue
 
@@ -54,11 +65,205 @@ STATE_SUBMITTED = "SUBMITTED"
 STATE_POST_SUBMIT_DONE = "POST_SUBMIT_DONE"
 STATE_FAILED = "FAILED"
 FINAL_LEDGER_STATES = {STATE_SUBMITTED, STATE_POST_SUBMIT_DONE}
+AUTHORITATIVE_CASHIER_FIELD = "posa_cashier"
+CLIENT_CASHIER_KEYS = {AUTHORITATIVE_CASHIER_FIELD, "_posa_authoritative_cashier"}
+TRUSTED_SHIFT_AUDIT_KEY = "_posa_shift_reassignment_audit"
+TRUSTED_SHIFT_SOURCES = {"offline_sync", "submitted_amendment"}
 
 RETURN_OUTSTANDING_MESSAGE_MARKERS = (
     "Updating the outstanding to this invoice.",
     "Update Outstanding for Self",
 )
+
+
+def _permission_denied(message):
+    frappe.throw(message, getattr(frappe, "PermissionError", PermissionError))
+
+
+def _request_profile_name(value):
+    if isinstance(value, dict):
+        return str(value.get("name") or "").strip()
+    if value is not None and not isinstance(value, str) and hasattr(value, "get"):
+        return str(value.get("name") or "").strip()
+    return str(value or "").strip()
+
+
+def _resolve_authorized_invoice_profile(*payloads):
+    """Resolve one canonical profile/company from mutually consistent request payloads."""
+
+    payloads = tuple(payload for payload in payloads if isinstance(payload, dict))
+    requested_profiles = {
+        _request_profile_name(payload.get("pos_profile"))
+        for payload in payloads
+        if _request_profile_name(payload.get("pos_profile"))
+    }
+    requested_companies = {
+        str(payload.get("company") or "").strip()
+        for payload in payloads
+        if str(payload.get("company") or "").strip()
+    }
+    if len(requested_profiles) > 1 or len(requested_companies) > 1:
+        _permission_denied(_("The invoice POS Profile and company do not match."))
+
+    profile_doc = get_authorized_pos_profile(
+        next(iter(requested_profiles), None),
+        company=next(iter(requested_companies), None),
+    )
+    profile_name = str(profile_doc.get("name") or "").strip()
+    profile_company = str(profile_doc.get("company") or "").strip()
+    if not profile_name or not profile_company:
+        _permission_denied(_("The authorized POS Profile must have a company."))
+
+    for payload in payloads:
+        payload["pos_profile"] = profile_name
+        payload["company"] = profile_company
+    return profile_doc
+
+
+def _doc_value(doc, key, default=None):
+    if isinstance(doc, dict):
+        return doc.get(key, default)
+    getter = getattr(doc, "get", None)
+    if callable(getter):
+        try:
+            return getter(key, default)
+        except TypeError:
+            pass
+    return getattr(doc, key, default)
+
+
+def _validate_invoice_opening_shift(
+    profile_doc,
+    *payloads,
+    allow_closed_replay=False,
+    required=False,
+):
+    """Validate a client-supplied shift independently of the mutable ``is_pos`` flag."""
+
+    payloads = tuple(payload for payload in payloads if isinstance(payload, dict))
+    shift_names = {
+        str(payload.get("posa_pos_opening_shift") or "").strip()
+        for payload in payloads
+        if str(payload.get("posa_pos_opening_shift") or "").strip()
+    }
+    if len(shift_names) > 1:
+        _permission_denied(_("The invoice POS Opening Shift values do not match."))
+    if not shift_names:
+        if required:
+            _permission_denied(_("A valid POS Opening Shift is required."))
+        return None
+
+    shift_name = next(iter(shift_names))
+    profile_name = str(profile_doc.get("name") or "").strip()
+    company = str(profile_doc.get("company") or "").strip()
+    shift_doc = frappe.get_doc("POS Opening Shift", shift_name)
+
+    if (
+        str(_doc_value(shift_doc, "pos_profile") or "").strip() != profile_name
+        or str(_doc_value(shift_doc, "company") or "").strip() != company
+    ):
+        _permission_denied(_("The POS Opening Shift does not belong to this POS Profile."))
+
+    shift_user = str(_doc_value(shift_doc, "user") or "").strip()
+    session_user = str(getattr(getattr(frappe, "session", None), "user", "") or "").strip()
+    flags = getattr(frappe, "flags", None)
+    background_shift = str(getattr(flags, "posa_background_opening_shift", "") or "").strip()
+    background_user = str(getattr(flags, "posa_background_opening_user", "") or "").strip()
+    background_accepted = bool(
+        getattr(flags, "posa_background_opening_accepted", False)
+    )
+    accepted_background = bool(
+        background_accepted
+        and background_shift == shift_name
+        and background_user
+        and background_user == shift_user
+    )
+    if not shift_user or (not accepted_background and shift_user != session_user):
+        _permission_denied(_("The POS Opening Shift does not belong to the current user."))
+
+    if cint(_doc_value(shift_doc, "docstatus")) != 1:
+        _permission_denied(_("The POS Opening Shift is not submitted."))
+    if not accepted_background and not allow_closed_replay and (
+        str(_doc_value(shift_doc, "status") or "").strip() != "Open"
+        or _doc_value(shift_doc, "pos_closing_shift")
+    ):
+        _permission_denied(_("The POS Opening Shift is not open."))
+
+    for payload in payloads:
+        if payload.get("posa_pos_opening_shift"):
+            payload["posa_pos_opening_shift"] = shift_name
+    return shift_doc
+
+
+def _get_scoped_invoice_doc(doctype, invoice_name, pos_profile, company, permission_type):
+    return assert_invoice_request_scope(
+        frappe.get_doc(doctype, invoice_name),
+        pos_profile=pos_profile,
+        company=company,
+        permission_type=permission_type,
+    )
+
+
+def _assert_submission_ledger_scope(ledger_doc, pos_profile, company, document_type):
+    if not ledger_doc:
+        return None
+    if (
+        str(ledger_doc.get("pos_profile") or "").strip() != str(pos_profile or "").strip()
+        or str(ledger_doc.get("company") or "").strip() != str(company or "").strip()
+        or str(ledger_doc.get("document_type") or "").strip()
+        != str(document_type or "").strip()
+    ):
+        _permission_denied(_("This invoice request is not available for the selected POS Profile."))
+    return ledger_doc
+
+
+def _strip_client_cashier_identity(*payloads):
+    for payload in payloads:
+        if not isinstance(payload, dict):
+            continue
+        for key in CLIENT_CASHIER_KEYS:
+            payload.pop(key, None)
+
+
+def _supports_authoritative_cashier(doctype):
+    has_column = getattr(frappe.db, "has_column", None)
+    if not callable(has_column):
+        return False
+    try:
+        return bool(has_column(doctype, AUTHORITATIVE_CASHIER_FIELD))
+    except Exception:
+        return False
+
+
+def _set_authoritative_cashier(invoice_doc, cashier):
+    if not invoice_doc or not cashier:
+        return
+    if _supports_authoritative_cashier(invoice_doc.doctype):
+        invoice_doc.set(AUTHORITATIVE_CASHIER_FIELD, cashier)
+
+
+def _resolve_authoritative_cashier(pos_profile, ledger_doc=None):
+    owned_ledger_name = getattr(
+        getattr(frappe, "flags", None),
+        "posa_owned_submission_ledger",
+        None,
+    )
+    background_cashier = str(
+        getattr(
+            getattr(frappe, "flags", None),
+            "posa_background_authoritative_cashier",
+            "",
+        )
+        or ""
+    ).strip()
+    if (
+        background_cashier
+        and ledger_doc
+        and ledger_doc.get("name") == owned_ledger_name
+    ):
+        return validate_assigned_terminal_cashier(pos_profile, background_cashier)
+
+    return get_active_terminal_cashier(pos_profile)
 
 
 def _json_dumps(value):
@@ -188,9 +393,9 @@ def _update_submission_ledger(ledger_doc, state, **fields):
     return _save_submission_ledger(ledger_doc)
 
 
-def _get_or_create_submission_ledger(client_request_id, invoice, data, document_type):
+def _get_or_create_submission_ledger(client_request_id, invoice, data, document_type, return_created=False):
     if not client_request_id:
-        return None
+        return (None, False) if return_created else None
 
     scope = _resolve_ledger_scope(invoice, data, document_type)
     ledger_key = _submission_ledger_key(
@@ -201,7 +406,7 @@ def _get_or_create_submission_ledger(client_request_id, invoice, data, document_
     )
     existing = _get_submission_ledger_by_key(ledger_key)
     if existing:
-        return existing
+        return (existing, False) if return_created else existing
 
     payload = {
         "doctype": LEDGER_DOCTYPE,
@@ -217,7 +422,8 @@ def _get_or_create_submission_ledger(client_request_id, invoice, data, document_
     }
     try:
         ledger_doc = frappe.get_doc(payload)
-        return _save_submission_ledger(ledger_doc)
+        saved = _save_submission_ledger(ledger_doc)
+        return (saved, True) if return_created else saved
     except frappe.DuplicateEntryError:
         # A concurrent request already created this ledger row — fall back to
         # fetching it. Any other error (e.g. validation) must propagate so the
@@ -225,19 +431,19 @@ def _get_or_create_submission_ledger(client_request_id, invoice, data, document_
         ledger = _get_submission_ledger_by_key(ledger_key)
         if not ledger:
             frappe.throw(_("A concurrent request is already processing this invoice. Please try again."))
-        return ledger
+        return (ledger, False) if return_created else ledger
 
 
 def _ledger_response(ledger_doc, replayed=True):
     if not ledger_doc or not ledger_doc.get("invoice_name"):
         return None
-    try:
-        invoice_doc = frappe.get_doc(
-            ledger_doc.get("document_type") or "Sales Invoice",
-            ledger_doc.get("invoice_name"),
-        )
-    except Exception:
-        return None
+    invoice_doc = _get_scoped_invoice_doc(
+        ledger_doc.get("document_type") or "Sales Invoice",
+        ledger_doc.get("invoice_name"),
+        ledger_doc.get("pos_profile"),
+        ledger_doc.get("company"),
+        "read",
+    )
 
     docstatus = cint(invoice_doc.get("docstatus"))
     return {
@@ -260,11 +466,67 @@ def _ledger_final_replay_response(ledger_doc):
     return _ledger_response(ledger_doc, replayed=True)
 
 
+def _wait_for_submission_ledger_result(ledger_doc, timeout_seconds=12, interval_seconds=0.25):
+    """Wait for the request currently owning this ledger to publish a replayable result."""
+
+    if not ledger_doc or ledger_doc.get("state") == STATE_FAILED:
+        return None
+
+    deadline = time.monotonic() + timeout_seconds
+    current = ledger_doc
+    while time.monotonic() < deadline:
+        replay_response = _ledger_final_replay_response(current)
+        if replay_response:
+            return replay_response
+
+        if current.get("invoice_name"):
+            invoice_response = _ledger_response(current, replayed=True)
+            if invoice_response and cint(invoice_response.get("docstatus")) == 1:
+                # The invoice can commit before asynchronous payment/change work.
+                # Do not infer completion from docstatus alone.
+                return invoice_response
+
+        time.sleep(interval_seconds)
+        refreshed = _get_submission_ledger_by_name(current.get("name"))
+        if not refreshed or refreshed.get("state") == STATE_FAILED:
+            return None
+        current = refreshed
+
+    return None
+
+
 def _mark_ledger_failed(ledger_doc, error):
     return _update_submission_ledger(
         ledger_doc,
         STATE_FAILED,
         error_message=str(error),
+    )
+
+
+def _enqueue_payload_background_submission(
+    invoice,
+    data,
+    doctype,
+    ledger_doc,
+    cashier,
+    opening_shift_doc=None,
+):
+    enqueue(
+        method=submit_payload_in_background_job,
+        queue="default",
+        timeout=3000,
+        is_async=True,
+        enqueue_after_commit=True,
+        kwargs={
+            "invoice": invoice,
+            "data": data,
+            "doctype": doctype,
+            "ledger_name": ledger_doc.name if ledger_doc else None,
+            "cashier": cashier,
+            "user": getattr(getattr(frappe, "session", None), "user", None),
+            "opening_shift": _doc_value(opening_shift_doc, "name"),
+            "opening_user": _doc_value(opening_shift_doc, "user"),
+        },
     )
 
 
@@ -279,9 +541,19 @@ def _has_post_submit_payment_work(data):
 def _apply_invoice_gift_card_settlement(invoice_doc, data):
     from posawesome.posawesome.api.gift_cards import apply_invoice_gift_card_redemptions
 
+    data = data or {}
+    authoritative_cashier = data.get("_posa_authoritative_cashier")
+    redemption_rows = []
+    for row in data.get("gift_card_redemptions") or []:
+        normalized_row = dict(row or {})
+        normalized_row.pop("cashier", None)
+        if authoritative_cashier:
+            normalized_row["cashier"] = authoritative_cashier
+        redemption_rows.append(normalized_row)
+
     apply_invoice_gift_card_redemptions(
         invoice_doc,
-        (data or {}).get("gift_card_redemptions") or [],
+        redemption_rows,
     )
 
 
@@ -491,6 +763,145 @@ def process_post_submit_payments_job(kwargs):
                 {"invoice": invoice, "error": error_msg},
                 user=user,
             )
+
+
+def _repair_submitted_invoice_post_submit(ledger_doc, invoice_doc):
+    """Explicitly retry stored post-submit work while preserving FAILED on error."""
+
+    context = _json_loads(ledger_doc.get("payment_context"))
+    data = _json_loads(ledger_doc.get("request_data"))
+    _update_submission_ledger(
+        ledger_doc,
+        STATE_SUBMITTED,
+        invoice_name=invoice_doc.name,
+        error_message="",
+    )
+    try:
+        _process_post_submit_payments(
+            invoice_doc,
+            data,
+            context.get("is_payment_entry"),
+            context.get("total_cash"),
+            context.get("cash_account"),
+            context.get("payments") or [],
+            False,
+            getattr(getattr(frappe, "session", None), "user", None),
+            ledger_doc.name,
+        )
+        _update_submission_ledger(
+            ledger_doc,
+            STATE_POST_SUBMIT_DONE,
+            invoice_name=invoice_doc.name,
+            error_message="",
+        )
+    except Exception as error:
+        # Discard any partial financial repair before durably recording only the
+        # ledger failure in a fresh transaction.
+        frappe.db.rollback()
+        persisted_ledger = _get_submission_ledger_by_name(ledger_doc.name) or ledger_doc
+        _mark_ledger_failed(persisted_ledger, error)
+        frappe.db.commit()
+        ledger_doc.state = STATE_FAILED
+        ledger_doc.error_message = str(error)
+        raise
+    return ledger_doc
+
+
+def _resolve_current_invoice_opening_shift(profile_doc, opening_shift=None):
+    profile_name = str(profile_doc.get("name") or "").strip()
+    company = str(profile_doc.get("company") or "").strip()
+    session_user = str(getattr(getattr(frappe, "session", None), "user", "") or "").strip()
+    opening_shift = str(opening_shift or "").strip()
+    if not opening_shift:
+        opening_shift = frappe.db.get_value(
+            "POS Opening Shift",
+            {
+                "pos_profile": profile_name,
+                "company": company,
+                "user": session_user,
+                "docstatus": 1,
+                "status": "Open",
+                "pos_closing_shift": ["is", "not set"],
+            },
+            "name",
+        )
+    return _validate_invoice_opening_shift(
+        profile_doc,
+        {"posa_pos_opening_shift": opening_shift},
+        required=True,
+    )
+
+
+@contextmanager
+def trusted_invoice_shift_reassignment(invoice, data, source):
+    """Rebind delayed server-owned workflows to the session's current open shift."""
+
+    if source not in TRUSTED_SHIFT_SOURCES:
+        _permission_denied(_("Unsupported trusted shift reassignment source."))
+    invoice = invoice if isinstance(invoice, dict) else {}
+    data = data if isinstance(data, dict) else {}
+    profile_doc = _resolve_authorized_invoice_profile(invoice, data)
+    profile_name = str(profile_doc.get("name") or "").strip()
+    company = str(profile_doc.get("company") or "").strip()
+    supplied_shifts = {
+        str(payload.get("posa_pos_opening_shift") or "").strip()
+        for payload in (invoice, data)
+        if str(payload.get("posa_pos_opening_shift") or "").strip()
+    }
+    if len(supplied_shifts) > 1:
+        _permission_denied(_("The invoice POS Opening Shift values do not match."))
+
+    original_shift_name = next(iter(supplied_shifts), "")
+    original_shift = None
+    session_user = str(getattr(getattr(frappe, "session", None), "user", "") or "").strip()
+    if original_shift_name:
+        original_shift = frappe.get_doc("POS Opening Shift", original_shift_name)
+        if (
+            str(_doc_value(original_shift, "pos_profile") or "").strip() != profile_name
+            or str(_doc_value(original_shift, "company") or "").strip() != company
+        ):
+            _permission_denied(_("The POS Opening Shift does not belong to this POS Profile."))
+
+    original_is_current = bool(
+        original_shift
+        and cint(_doc_value(original_shift, "docstatus")) == 1
+        and str(_doc_value(original_shift, "status") or "").strip() == "Open"
+        and not _doc_value(original_shift, "pos_closing_shift")
+        and str(_doc_value(original_shift, "user") or "").strip() == session_user
+    )
+    selected_shift = (
+        original_shift
+        if original_is_current
+        else _resolve_current_invoice_opening_shift(profile_doc)
+    )
+    selected_shift_name = str(_doc_value(selected_shift, "name") or "").strip()
+    invoice["posa_pos_opening_shift"] = selected_shift_name
+    data["posa_pos_opening_shift"] = selected_shift_name
+
+    audit = {
+        "source": source,
+        "client_request_id": (
+            invoice.get("posa_client_request_id")
+            or data.get("client_request_id")
+            or data.get("idempotency_key")
+        ),
+        "source_invoice_name": invoice.get("name") or invoice.get("amended_from"),
+        "original_opening_shift": original_shift_name or None,
+        "original_opening_user": _doc_value(original_shift, "user"),
+        "original_opening_status": _doc_value(original_shift, "status"),
+        "original_closing_shift": _doc_value(original_shift, "pos_closing_shift"),
+        "assigned_opening_shift": selected_shift_name,
+        "assigned_opening_user": _doc_value(selected_shift, "user"),
+    }
+    previous = getattr(frappe.flags, "posa_trusted_shift_audit", None)
+    frappe.flags.posa_trusted_shift_audit = audit
+    try:
+        yield audit
+    finally:
+        if previous is not None:
+            frappe.flags.posa_trusted_shift_audit = previous
+        elif hasattr(frappe.flags, "posa_trusted_shift_audit"):
+            delattr(frappe.flags, "posa_trusted_shift_audit")
 
 
 def _resolve_write_off_limit(pos_profile_doc):
@@ -766,7 +1177,7 @@ def _clear_stale_party_fields_for_customer_change(
     return invoice_doc
 
 
-def _get_mutable_invoice_doc(data, doctype):
+def _get_mutable_invoice_doc(data, doctype, pos_profile, company):
     invoice_name = (data or {}).get("name")
     if not invoice_name:
         return frappe.get_doc(data)
@@ -774,7 +1185,13 @@ def _get_mutable_invoice_doc(data, doctype):
     if not frappe.db.exists(doctype, invoice_name):
         return frappe.get_doc(_build_fresh_invoice_payload(data, doctype))
 
-    invoice_doc = frappe.get_doc(doctype, invoice_name)
+    invoice_doc = _get_scoped_invoice_doc(
+        doctype,
+        invoice_name,
+        pos_profile,
+        company,
+        "read",
+    )
     previous_customer = invoice_doc.get("customer")
     previous_values = {
         fieldname: invoice_doc.get(fieldname)
@@ -798,6 +1215,13 @@ def _get_mutable_invoice_doc(data, doctype):
             previous_values=previous_values,
         )
         return frappe.get_doc(fresh_payload)
+
+    assert_invoice_request_scope(
+        invoice_doc,
+        pos_profile=pos_profile,
+        company=company,
+        permission_type="write",
+    )
 
     invoice_doc.update(data)
     invoice_doc = _clear_stale_party_fields_for_customer_change(
@@ -1020,6 +1444,7 @@ def _guard_return_cash_refund(invoice_doc):
 def update_invoice(data):
     currency_cache = {}
     data = json.loads(data)
+    _strip_client_cashier_identity(data)
     client_request_id = extract_invoice_client_request_id(data)
     if not doctype_supports_client_request_id(data.get("doctype") or "Sales Invoice"):
         strip_invoice_client_request_id(data)
@@ -1029,23 +1454,31 @@ def update_invoice(data):
     # Determine doctype based on POS Profile setting. Submitted-invoice
     # amendments preserve the source doctype even when the active profile has
     # since switched between Sales Invoice and POS Invoice mode.
-    pos_profile = data.get("pos_profile")
+    profile_doc = _resolve_authorized_invoice_profile(data)
+    pos_profile = profile_doc.get("name")
+    company = profile_doc.get("company")
+    _validate_invoice_opening_shift(profile_doc, data, required=True)
     forced_doctype = data.pop("_force_invoice_doctype", None)
     doctype = "Sales Invoice"
     if forced_doctype in {"Sales Invoice", "POS Invoice"}:
         doctype = forced_doctype
-    elif pos_profile and frappe.db.get_value(
-        "POS Profile", pos_profile, "create_pos_invoice_instead_of_sales_invoice"
-    ):
+    elif profile_doc.get("create_pos_invoice_instead_of_sales_invoice"):
         doctype = "POS Invoice"
 
     # Ensure the document type is set for new invoices to prevent validation errors
     data["doctype"] = doctype
+    authoritative_cashier = get_active_terminal_cashier(pos_profile)
 
     return_validity_enabled, default_validity_days = _get_return_validity_settings(pos_profile)
 
-    invoice_doc = _get_mutable_invoice_doc(data, doctype)
+    invoice_doc = _get_mutable_invoice_doc(
+        data,
+        doctype,
+        pos_profile,
+        company,
+    )
     set_invoice_client_request_id(invoice_doc, client_request_id)
+    _set_authoritative_cashier(invoice_doc, authoritative_cashier)
 
     # Set currency from data before set_missing_values
     # Validate return items if this is a return invoice
@@ -1242,6 +1675,7 @@ def update_invoice(data):
     response["conversion_rate"] = invoice_doc.conversion_rate
     response["plc_conversion_rate"] = invoice_doc.plc_conversion_rate
     response["exchange_rate_date"] = exchange_rate_date
+    response[AUTHORITATIVE_CASHIER_FIELD] = authoritative_cashier
     return response
 
 
@@ -1249,40 +1683,102 @@ def update_invoice(data):
 def submit_invoice(invoice, data, submit_in_background=False):
     data = json.loads(data)
     invoice = json.loads(invoice)
+    invoice.pop(TRUSTED_SHIFT_AUDIT_KEY, None)
+    data.pop(TRUSTED_SHIFT_AUDIT_KEY, None)
+    trusted_shift_audit = getattr(
+        getattr(frappe, "flags", None), "posa_trusted_shift_audit", None
+    )
+    if isinstance(trusted_shift_audit, dict):
+        data[TRUSTED_SHIFT_AUDIT_KEY] = dict(trusted_shift_audit)
+    _strip_client_cashier_identity(invoice, data)
     client_request_id = normalize_invoice_request_identity(invoice, data)
     _sanitize_delivery_dates(invoice)
     _apply_manual_posting_controls(invoice)
     submit_in_background = cint(submit_in_background)
     _strip_client_freebies_from_payload(invoice)
-    pos_profile = invoice.get("pos_profile")
+    profile_doc = _resolve_authorized_invoice_profile(invoice, data)
+    pos_profile = profile_doc.get("name")
+    company = profile_doc.get("company")
     forced_doctype = invoice.pop("_force_invoice_doctype", None) or data.pop("_force_invoice_doctype", None)
     doctype = "Sales Invoice"
     if forced_doctype in {"Sales Invoice", "POS Invoice"}:
         doctype = forced_doctype
         invoice["doctype"] = doctype
         invoice["_force_invoice_doctype"] = doctype
-    elif pos_profile and frappe.db.get_value(
-        "POS Profile", pos_profile, "create_pos_invoice_instead_of_sales_invoice"
-    ):
+    elif profile_doc.get("create_pos_invoice_instead_of_sales_invoice"):
         doctype = "POS Invoice"
 
     if not doctype_supports_client_request_id(doctype):
         strip_invoice_client_request_id(invoice)
 
-    ledger_doc = _get_or_create_submission_ledger(client_request_id, invoice, data, doctype)
+    client_invoice_name = invoice.get("name")
+    if client_invoice_name and frappe.db.exists(doctype, client_invoice_name):
+        client_invoice_doc = _get_scoped_invoice_doc(
+            doctype,
+            client_invoice_name,
+            pos_profile,
+            company,
+            "read",
+        )
+        if cint(client_invoice_doc.get("docstatus")) == 0:
+            assert_invoice_request_scope(
+                client_invoice_doc,
+                pos_profile=pos_profile,
+                company=company,
+                permission_type="write",
+            )
+
+    ledger_scope = _resolve_ledger_scope(invoice, data, doctype)
+    ledger_doc = _get_submission_ledger(
+        client_request_id,
+        ledger_scope.get("company"),
+        ledger_scope.get("pos_profile"),
+        ledger_scope.get("document_type"),
+    )
+    _assert_submission_ledger_scope(ledger_doc, pos_profile, company, doctype)
+    existing_by_request = find_invoice_by_client_request_id(
+        client_request_id,
+        preferred_doctype=doctype,
+        pos_profile=pos_profile,
+        company=company,
+        permission_type="read",
+    )
+    final_replay = bool(
+        (ledger_doc and ledger_doc.get("state") in FINAL_LEDGER_STATES)
+        or (existing_by_request and cint(existing_by_request.docstatus) == 1)
+    )
+    opening_shift_doc = _validate_invoice_opening_shift(
+        profile_doc,
+        invoice,
+        data,
+        allow_closed_replay=final_replay,
+        required=not final_replay,
+    )
     replay_response = _ledger_final_replay_response(ledger_doc)
     if replay_response:
         return replay_response
-
-    existing_by_request = find_invoice_by_client_request_id(client_request_id, preferred_doctype=doctype)
     if existing_by_request:
         if cint(existing_by_request.docstatus) == 1:
             if ledger_doc:
-                _update_submission_ledger(
-                    ledger_doc,
-                    STATE_POST_SUBMIT_DONE,
-                    invoice_name=existing_by_request.name,
-                )
+                if ledger_doc.get("state") == STATE_FAILED:
+                    frappe.throw(
+                        _(
+                            "Invoice {0} was submitted, but its post-submit processing failed. "
+                            "Repair the failed submission before retrying it."
+                        ).format(existing_by_request.name)
+                    )
+                if _has_post_submit_payment_work(_json_loads(ledger_doc.get("request_data"))):
+                    _update_submission_ledger(
+                        ledger_doc,
+                        ledger_doc.get("state"),
+                        invoice_name=existing_by_request.name,
+                    )
+                else:
+                    _update_submission_ledger(
+                        ledger_doc,
+                        STATE_POST_SUBMIT_DONE,
+                        invoice_name=existing_by_request.name,
+                    )
             return {
                 "name": existing_by_request.name,
                 "status": existing_by_request.docstatus,
@@ -1293,26 +1789,131 @@ def submit_invoice(invoice, data, submit_in_background=False):
                 "ledger_state": ledger_doc.get("state") if ledger_doc else STATE_POST_SUBMIT_DONE,
                 "client_request_id": client_request_id,
             }
+        assert_invoice_request_scope(
+            existing_by_request,
+            pos_profile=pos_profile,
+            company=company,
+            permission_type="write",
+        )
         invoice["name"] = existing_by_request.name
         doctype = existing_by_request.doctype
     elif ledger_doc and ledger_doc.get("invoice_name"):
         ledger_invoice_name = ledger_doc.get("invoice_name")
         if frappe.db.exists(doctype, ledger_invoice_name):
-            ledger_invoice = frappe.get_doc(doctype, ledger_invoice_name)
+            ledger_invoice = _get_scoped_invoice_doc(
+                doctype,
+                ledger_invoice_name,
+                pos_profile,
+                company,
+                "read",
+            )
             if cint(ledger_invoice.docstatus) == 1:
-                _update_submission_ledger(
-                    ledger_doc,
-                    STATE_POST_SUBMIT_DONE,
-                    invoice_name=ledger_invoice.name,
-                )
+                if ledger_doc.get("state") == STATE_FAILED:
+                    frappe.throw(
+                        _(
+                            "Invoice {0} was submitted, but its post-submit processing failed. "
+                            "Repair the failed submission before retrying it."
+                        ).format(ledger_invoice.name)
+                    )
+                if not _has_post_submit_payment_work(
+                    _json_loads(ledger_doc.get("request_data"))
+                ):
+                    _update_submission_ledger(
+                        ledger_doc,
+                        STATE_POST_SUBMIT_DONE,
+                        invoice_name=ledger_invoice.name,
+                    )
                 replay_response = _ledger_response(ledger_doc, replayed=True)
                 if replay_response:
                     return replay_response
+            assert_invoice_request_scope(
+                ledger_invoice,
+                pos_profile=pos_profile,
+                company=company,
+                permission_type="write",
+            )
             invoice["name"] = ledger_invoice.name
 
+    authoritative_cashier = _resolve_authoritative_cashier(pos_profile, ledger_doc)
+    data["_posa_authoritative_cashier"] = authoritative_cashier
+    allow_background_submit = frappe.get_value(
+        "POS Profile",
+        pos_profile,
+        "posa_allow_submissions_in_background_job",
+    )
+    if ledger_doc:
+        ledger_created = False
+    else:
+        ledger_doc, ledger_created = _get_or_create_submission_ledger(
+            client_request_id,
+            invoice,
+            data,
+            doctype,
+            return_created=True,
+        )
+    owned_ledger_name = getattr(
+        getattr(frappe, "flags", None),
+        "posa_owned_submission_ledger",
+        None,
+    )
+    if (
+        ledger_doc
+        and not ledger_created
+        and ledger_doc.get("state") != STATE_FAILED
+        and ledger_doc.get("name") != owned_ledger_name
+    ):
+        concurrent_response = _wait_for_submission_ledger_result(ledger_doc)
+        if concurrent_response:
+            return concurrent_response
+        frappe.throw(_("This invoice request is already being processed. Please try again."))
+
     invoice_name = invoice.get("name")
+    if (
+        submit_in_background
+        and allow_background_submit
+        and ledger_doc
+        and invoice_name
+        and frappe.db.exists(doctype, invoice_name)
+    ):
+        if client_request_id:
+            invoice["posa_client_request_id"] = client_request_id
+        if authoritative_cashier:
+            invoice[AUTHORITATIVE_CASHIER_FIELD] = authoritative_cashier
+        _update_submission_ledger(
+            ledger_doc,
+            STATE_DRAFT_CREATED,
+            invoice_name=invoice_name,
+            request_data=_json_dumps(data),
+            invoice_payload=_json_dumps(invoice),
+        )
+        _enqueue_payload_background_submission(
+            invoice,
+            data,
+            doctype,
+            ledger_doc,
+            authoritative_cashier,
+            opening_shift_doc,
+        )
+        return {
+            "name": invoice_name,
+            "status": 0,
+            "docstatus": 0,
+            "doctype": doctype,
+            "ledger_state": ledger_doc.get("state"),
+            "client_request_id": client_request_id,
+            "idempotent": bool(client_request_id),
+            "queued": True,
+            AUTHORITATIVE_CASHIER_FIELD: authoritative_cashier,
+        }
+
     if invoice_name and frappe.db.exists(doctype, invoice_name):
-        existing_doc = frappe.get_doc(doctype, invoice_name)
+        existing_doc = _get_scoped_invoice_doc(
+            doctype,
+            invoice_name,
+            pos_profile,
+            company,
+            "write",
+        )
         if cint(existing_doc.docstatus) != 0:
             invoice = _build_fresh_invoice_payload(invoice, doctype)
             invoice_name = None
@@ -1322,16 +1923,29 @@ def submit_invoice(invoice, data, submit_in_background=False):
             invoice["posa_client_request_id"] = client_request_id
         created = update_invoice(json.dumps(invoice))
         invoice_name = created.get("name")
-        invoice_doc = frappe.get_doc(doctype, invoice_name)
+        invoice_doc = _get_scoped_invoice_doc(
+            doctype,
+            invoice_name,
+            pos_profile,
+            company,
+            "write",
+        )
     else:
         # Prevent TimestampMismatchError by relying on server-side timestamp
         if "modified" in invoice:
             del invoice["modified"]
         invoice.pop("_force_invoice_doctype", None)
-        invoice_doc = frappe.get_doc(doctype, invoice_name)
+        invoice_doc = _get_scoped_invoice_doc(
+            doctype,
+            invoice_name,
+            pos_profile,
+            company,
+            "write",
+        )
         invoice_doc.update(invoice)
 
     set_invoice_client_request_id(invoice_doc, client_request_id)
+    _set_authoritative_cashier(invoice_doc, authoritative_cashier)
     if ledger_doc:
         _update_submission_ledger(
             ledger_doc,
@@ -1445,11 +2059,6 @@ def submit_invoice(invoice, data, submit_in_background=False):
             update_modified=False,
         )
 
-    allow_background_submit = frappe.get_value(
-        "POS Profile",
-        invoice_doc.pos_profile,
-        "posa_allow_submissions_in_background_job",
-    )
     if ledger_doc:
         _update_submission_ledger(
             ledger_doc,
@@ -1461,6 +2070,7 @@ def submit_invoice(invoice, data, submit_in_background=False):
                     "total_cash": total_cash,
                     "cash_account": cash_account,
                     "payments": payments,
+                    "cashier": authoritative_cashier,
                 }
             ),
         )
@@ -1481,7 +2091,10 @@ def submit_invoice(invoice, data, submit_in_background=False):
                 "cash_account": cash_account,
                 "payments": payments,
                 "user": getattr(getattr(frappe, "session", None), "user", None),
+                "cashier": authoritative_cashier,
                 "ledger_name": ledger_doc.name if ledger_doc else None,
+                "opening_shift": _doc_value(opening_shift_doc, "name"),
+                "opening_user": _doc_value(opening_shift_doc, "user"),
             },
         )
     else:
@@ -1497,6 +2110,7 @@ def submit_invoice(invoice, data, submit_in_background=False):
                         "total_cash": total_cash,
                         "cash_account": cash_account,
                         "payments": payments,
+                        "cashier": authoritative_cashier,
                     }
                 ),
             )
@@ -1520,11 +2134,22 @@ def submit_invoice(invoice, data, submit_in_background=False):
         "ledger_state": ledger_doc.get("state") if ledger_doc else None,
         "client_request_id": client_request_id,
         "idempotent": bool(client_request_id),
+        AUTHORITATIVE_CASHIER_FIELD: authoritative_cashier,
     }
 
 
 def submit_in_background_job(kwargs):
     invoice = kwargs.get("invoice")
+    previous_owned_ledger = getattr(frappe.flags, "posa_owned_submission_ledger", None)
+    previous_background_opening_shift = getattr(
+        frappe.flags, "posa_background_opening_shift", None
+    )
+    previous_background_opening_user = getattr(
+        frappe.flags, "posa_background_opening_user", None
+    )
+    previous_background_opening_accepted = getattr(
+        frappe.flags, "posa_background_opening_accepted", None
+    )
     try:
         doctype = kwargs.get("doctype") or "Sales Invoice"
         data = kwargs.get("data") or {}
@@ -1533,10 +2158,60 @@ def submit_in_background_job(kwargs):
         cash_account = kwargs.get("cash_account")
         payments = kwargs.get("payments") or []
         user = kwargs.get("user") or getattr(getattr(frappe, "session", None), "user", None)
+        cashier = kwargs.get("cashier")
         ledger_name = kwargs.get("ledger_name")
+        opening_shift = kwargs.get("opening_shift")
+        opening_user = kwargs.get("opening_user")
+        if ledger_name:
+            frappe.flags.posa_owned_submission_ledger = ledger_name
+        if opening_shift:
+            frappe.flags.posa_background_opening_shift = opening_shift
+        if opening_user:
+            frappe.flags.posa_background_opening_user = opening_user
+        if opening_shift and opening_user:
+            frappe.flags.posa_background_opening_accepted = True
         ledger_doc = _get_submission_ledger_by_name(ledger_name) if ledger_name else None
 
-        invoice_doc = frappe.get_doc(doctype, invoice)
+        if ledger_doc:
+            _assert_submission_ledger_scope(
+                ledger_doc,
+                ledger_doc.get("pos_profile"),
+                ledger_doc.get("company"),
+                doctype,
+            )
+            invoice_doc = _get_scoped_invoice_doc(
+                doctype,
+                invoice,
+                ledger_doc.get("pos_profile"),
+                ledger_doc.get("company"),
+                "read",
+            )
+            profile_doc = frappe.get_doc("POS Profile", ledger_doc.get("pos_profile"))
+        else:
+            invoice_doc = frappe.get_doc(doctype, invoice)
+            profile_doc = _resolve_authorized_invoice_profile(
+                {
+                    "pos_profile": invoice_doc.get("pos_profile"),
+                    "company": invoice_doc.get("company"),
+                }
+            )
+            assert_invoice_request_scope(
+                invoice_doc,
+                pos_profile=profile_doc.get("name"),
+                company=profile_doc.get("company"),
+                permission_type="read",
+            )
+        _validate_invoice_opening_shift(
+            profile_doc,
+            {"posa_pos_opening_shift": opening_shift or invoice_doc.get("posa_pos_opening_shift")},
+            required=True,
+        )
+        if cashier:
+            cashier = validate_assigned_terminal_cashier(
+                invoice_doc.get("pos_profile"),
+                cashier,
+            )
+            _set_authoritative_cashier(invoice_doc, cashier)
 
         if invoice_doc.docstatus == 1:
             if ledger_doc:
@@ -1616,15 +2291,136 @@ def submit_in_background_job(kwargs):
             {"invoice": invoice, "error": error_msg},
             user=user,
         )
+    finally:
+        for key, previous in (
+            ("posa_owned_submission_ledger", previous_owned_ledger),
+            ("posa_background_opening_shift", previous_background_opening_shift),
+            ("posa_background_opening_user", previous_background_opening_user),
+            ("posa_background_opening_accepted", previous_background_opening_accepted),
+        ):
+            if previous is not None:
+                setattr(frappe.flags, key, previous)
+            elif hasattr(frappe.flags, key):
+                delattr(frappe.flags, key)
+
+
+def submit_payload_in_background_job(kwargs):
+    invoice = kwargs.get("invoice") or {}
+    data = kwargs.get("data") or {}
+    ledger_name = kwargs.get("ledger_name")
+    cashier = kwargs.get("cashier")
+    opening_shift = kwargs.get("opening_shift")
+    opening_user = kwargs.get("opening_user")
+    user = kwargs.get("user") or getattr(getattr(frappe, "session", None), "user", None)
+    previous_owned_ledger = getattr(
+        getattr(frappe, "flags", None),
+        "posa_owned_submission_ledger",
+        None,
+    )
+    previous_background_opening_accepted = getattr(
+        getattr(frappe, "flags", None),
+        "posa_background_opening_accepted",
+        None,
+    )
+    previous_background_cashier = getattr(
+        getattr(frappe, "flags", None),
+        "posa_background_authoritative_cashier",
+        None,
+    )
+    previous_background_opening_shift = getattr(
+        getattr(frappe, "flags", None),
+        "posa_background_opening_shift",
+        None,
+    )
+    previous_background_opening_user = getattr(
+        getattr(frappe, "flags", None),
+        "posa_background_opening_user",
+        None,
+    )
+    try:
+        if ledger_name:
+            frappe.flags.posa_owned_submission_ledger = ledger_name
+        if cashier:
+            frappe.flags.posa_background_authoritative_cashier = cashier
+            data["_posa_authoritative_cashier"] = cashier
+        if opening_shift:
+            frappe.flags.posa_background_opening_shift = opening_shift
+        if opening_user:
+            frappe.flags.posa_background_opening_user = opening_user
+        if opening_shift and opening_user:
+            frappe.flags.posa_background_opening_accepted = True
+        submit_invoice(
+            json.dumps(invoice, default=str),
+            json.dumps(data, default=str),
+            submit_in_background=0,
+        )
+    except Exception as e:
+        frappe.db.rollback()
+        error_msg = str(e)
+        if ledger_name:
+            try:
+                ledger_doc = _get_submission_ledger_by_name(ledger_name)
+                if ledger_doc:
+                    _mark_ledger_failed(ledger_doc, error_msg)
+            except Exception:
+                pass
+        frappe.log_error(
+            f"POS Background Payload Submission Failed for {invoice.get('name')}: {error_msg}"
+        )
+        if hasattr(frappe, "publish_realtime"):
+            frappe.publish_realtime(
+                "pos_invoice_submit_error",
+                {"invoice": invoice.get("name"), "error": error_msg},
+                user=user,
+            )
+    finally:
+        if previous_owned_ledger:
+            frappe.flags.posa_owned_submission_ledger = previous_owned_ledger
+        elif hasattr(frappe.flags, "posa_owned_submission_ledger"):
+            delattr(frappe.flags, "posa_owned_submission_ledger")
+        if previous_background_cashier:
+            frappe.flags.posa_background_authoritative_cashier = previous_background_cashier
+        elif hasattr(frappe.flags, "posa_background_authoritative_cashier"):
+            delattr(frappe.flags, "posa_background_authoritative_cashier")
+        if previous_background_opening_shift:
+            frappe.flags.posa_background_opening_shift = previous_background_opening_shift
+        elif hasattr(frappe.flags, "posa_background_opening_shift"):
+            delattr(frappe.flags, "posa_background_opening_shift")
+        if previous_background_opening_user:
+            frappe.flags.posa_background_opening_user = previous_background_opening_user
+        elif hasattr(frappe.flags, "posa_background_opening_user"):
+            delattr(frappe.flags, "posa_background_opening_user")
+        if previous_background_opening_accepted is not None:
+            frappe.flags.posa_background_opening_accepted = previous_background_opening_accepted
+        elif hasattr(frappe.flags, "posa_background_opening_accepted"):
+            delattr(frappe.flags, "posa_background_opening_accepted")
 
 
 @frappe.whitelist()
-def repair_invoice_submission(client_request_id, company, pos_profile, document_type="Sales Invoice"):
+def repair_invoice_submission(
+    client_request_id,
+    company,
+    pos_profile,
+    document_type="Sales Invoice",
+    pos_opening_shift=None,
+):
     """Reconcile an incomplete durable submission ledger row without creating a new invoice."""
 
     client_request_id = (client_request_id or "").strip()
     if not client_request_id:
         frappe.throw(_("client_request_id is required"))
+
+    if document_type not in {"Sales Invoice", "POS Invoice"}:
+        frappe.throw(_("Unsupported invoice document type."))
+
+    require_pos_supervisor_or_manager()
+    profile_doc = _resolve_authorized_invoice_profile(
+        {"pos_profile": pos_profile, "company": company}
+    )
+    pos_profile = profile_doc.get("name")
+    company = profile_doc.get("company")
+    get_active_terminal_cashier(pos_profile)
+    _resolve_current_invoice_opening_shift(profile_doc, pos_opening_shift)
 
     ledger_doc = _get_submission_ledger(
         client_request_id,
@@ -1634,12 +2430,21 @@ def repair_invoice_submission(client_request_id, company, pos_profile, document_
     )
     if not ledger_doc:
         frappe.throw(_("No invoice submission ledger found for this request"))
+    _assert_submission_ledger_scope(
+        ledger_doc,
+        pos_profile,
+        company,
+        document_type,
+    )
 
     invoice_name = ledger_doc.get("invoice_name")
     if not invoice_name:
         existing_invoice = find_invoice_by_client_request_id(
             client_request_id,
             preferred_doctype=document_type,
+            pos_profile=pos_profile,
+            company=company,
+            permission_type="read",
         )
         if existing_invoice:
             invoice_name = existing_invoice.name
@@ -1653,23 +2458,15 @@ def repair_invoice_submission(client_request_id, company, pos_profile, document_
             "message": _("No linked invoice was found for this ledger row"),
         }
 
-    invoice_doc = frappe.get_doc(document_type, invoice_name)
+    invoice_doc = _get_scoped_invoice_doc(
+        document_type,
+        invoice_name,
+        pos_profile,
+        company,
+        "read",
+    )
     if cint(invoice_doc.get("docstatus")) == 1:
-        context = _json_loads(ledger_doc.get("payment_context"))
-        data = _json_loads(ledger_doc.get("request_data"))
-        _update_submission_ledger(ledger_doc, STATE_SUBMITTED, invoice_name=invoice_doc.name)
-        _process_post_submit_payments(
-            invoice_doc,
-            data,
-            context.get("is_payment_entry"),
-            context.get("total_cash"),
-            context.get("cash_account"),
-            context.get("payments") or [],
-            False,
-            getattr(getattr(frappe, "session", None), "user", None),
-            ledger_doc.name,
-        )
-        _update_submission_ledger(ledger_doc, STATE_POST_SUBMIT_DONE, invoice_name=invoice_doc.name)
+        _repair_submitted_invoice_post_submit(ledger_doc, invoice_doc)
         return {
             "name": invoice_doc.name,
             "status": invoice_doc.docstatus,

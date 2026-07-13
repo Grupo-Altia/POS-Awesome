@@ -1,6 +1,6 @@
 {
-  "name": "POS Awesome",
-  "short_name": "POS",
+  "name": "RetailMind-POS",
+  "short_name": "RM-POS",
   "start_url": "/app/posapp",
   "display": "standalone",
   "background_color": "#FFFFFF",

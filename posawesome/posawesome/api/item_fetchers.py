@@ -239,11 +239,14 @@ def get_uoms(item_codes: Sequence[str], ttl: Optional[int] = None):
     return cached(tuple(item_codes))
 
 
-def _normalize_warehouses(warehouse: Optional[str]) -> Tuple[str, ...]:
+def _normalize_warehouses(warehouse: Optional[str | Sequence[str]]) -> Tuple[str, ...]:
     """Return a tuple of concrete warehouses for the provided warehouse or group."""
 
     if not warehouse:
         return tuple()
+
+    if not isinstance(warehouse, str):
+        return tuple(sorted({w for w in warehouse if w}))
 
     if frappe.db.get_value("Warehouse", warehouse, "is_group"):
         descendants = frappe.db.get_descendants("Warehouse", warehouse) or []
@@ -254,7 +257,7 @@ def _normalize_warehouses(warehouse: Optional[str]) -> Tuple[str, ...]:
     return (warehouse,)
 
 
-def _fetch_batches(warehouse: str, item_codes: Tuple[str, ...]):
+def _fetch_batches(warehouse: str | Sequence[str], item_codes: Tuple[str, ...]):
     """Collect batch information (including expired entries) for the given warehouse."""
 
     if not item_codes or not warehouse:
@@ -680,7 +683,7 @@ class ItemDetailAggregator:
                     self.customer,
                     today=self.today,
                     ttl=self.cache_ttl,
-                )
+                ) or []
             else:
                 price_rows = _fetch_item_prices(
                     self.price_list,
@@ -702,7 +705,7 @@ class ItemDetailAggregator:
                     None,
                     today=self.today,
                     ttl=self.cache_ttl,
-                )
+                ) or []
             else:
                 buying_price_rows = _fetch_item_prices(
                     buying_price_list,
@@ -715,11 +718,11 @@ class ItemDetailAggregator:
         # Stock, metadata, UOM and barcode data are reused both for batches and the
         # final merged item rows, so collect them up front.
         if use_cache:
-            stock_rows = get_bin_qty(self.warehouse, item_codes_tuple, ttl=self.cache_ttl)
-            meta_rows = get_item_meta(item_codes_tuple, ttl=self.cache_ttl)
-            uom_rows = get_uoms(item_codes_tuple, ttl=self.cache_ttl)
-            barcode_rows = get_barcodes(item_codes_tuple, ttl=self.cache_ttl)
-            bom_map = get_bom_costs(meta_rows, ttl=self.cache_ttl)
+            stock_rows = get_bin_qty(self.warehouse, item_codes_tuple, ttl=self.cache_ttl) or []
+            meta_rows = get_item_meta(item_codes_tuple, ttl=self.cache_ttl) or []
+            uom_rows = get_uoms(item_codes_tuple, ttl=self.cache_ttl) or []
+            barcode_rows = get_barcodes(item_codes_tuple, ttl=self.cache_ttl) or []
+            bom_map = get_bom_costs(meta_rows, ttl=self.cache_ttl) or {}
         else:
             stock_rows = _fetch_bin_qty(self.warehouse, item_codes_tuple)
             meta_rows = _fetch_item_meta(item_codes_tuple)
@@ -737,8 +740,8 @@ class ItemDetailAggregator:
         serial_items = [row.name for row in meta_rows if row.get("has_serial_no")]
 
         if use_cache:
-            batch_rows = get_batches(self.warehouse, _normalize_codes(batch_items), ttl=self.cache_ttl)
-            serial_rows = get_serials(self.warehouse, _normalize_codes(serial_items), ttl=self.cache_ttl)
+            batch_rows = get_batches(self.warehouse, _normalize_codes(batch_items), ttl=self.cache_ttl) or []
+            serial_rows = get_serials(self.warehouse, _normalize_codes(serial_items), ttl=self.cache_ttl) or []
         else:
             batch_rows = _fetch_batches(self.warehouse, _normalize_codes(batch_items))
             serial_rows = _fetch_serials(self.warehouse, _normalize_codes(serial_items))

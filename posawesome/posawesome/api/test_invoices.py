@@ -6,6 +6,17 @@ import unittest
 from datetime import datetime
 
 REPO_ROOT = pathlib.Path(__file__).resolve().parents[3]
+_ORIGINAL_MODULES = dict(sys.modules)
+
+
+def tearDownModule():
+    managed_prefixes = ("frappe", "erpnext", "posawesome")
+    for name in list(sys.modules):
+        if name.startswith(managed_prefixes) and name not in _ORIGINAL_MODULES:
+            sys.modules.pop(name, None)
+    for name, module in _ORIGINAL_MODULES.items():
+        if name.startswith(managed_prefixes):
+            sys.modules[name] = module
 
 
 def _install_frappe_stub():

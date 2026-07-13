@@ -162,7 +162,7 @@ def setup_qz_certificate() -> dict[str, str]:
     frappe.msgprint(
         _(
             "QZ Tray certificate generated successfully.<br><br>"
-            "Download the certificate from POS Awesome and import it into "
+            "Download the certificate from RetailMind-POS and import it into "
             "QZ Tray on each POS machine, then restart QZ Tray."
         ),
         title=_("QZ Certificate Ready"),

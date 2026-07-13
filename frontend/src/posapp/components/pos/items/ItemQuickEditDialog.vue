@@ -7,6 +7,7 @@
 		content-class="item-quick-edit-dialog"
 		persistent
 		@update:model-value="emit('update:modelValue', $event)"
+		@after-leave="emit('after-leave')"
 	>
 		<v-card
 			ref="modalRoot"
@@ -30,6 +31,7 @@
 					icon="mdi-close"
 					variant="text"
 					:disabled="saving"
+					:aria-label="__('Close item quick edit')"
 					data-quick-edit-keytarget
 					data-quick-edit-key="close"
 					@click="close"
@@ -356,6 +358,7 @@
 			<v-card-actions class="item-quick-edit__actions px-5 py-3">
 				<v-spacer></v-spacer>
 				<v-btn
+					class="item-quick-edit__cancel"
 					variant="text"
 					color="error"
 					:disabled="saving"
@@ -366,6 +369,7 @@
 					{{ __("Cancel") }}
 				</v-btn>
 				<v-btn
+					class="item-quick-edit__update"
 					color="primary"
 					variant="tonal"
 					data-testid="item-quick-edit-update"
@@ -410,6 +414,7 @@ const props = withDefaults(
 
 const emit = defineEmits<{
 	"update:modelValue": [value: boolean];
+	"after-leave": [];
 	saved: [payload: any];
 }>();
 
@@ -891,11 +896,21 @@ watch(
 
 <style scoped>
 .item-quick-edit {
+	--counter-rugged-navy: #09253d;
+	--counter-rugged-navy-raised: #174a70;
+	--counter-rugged-blue: #0f70d7;
+	--counter-rugged-cyan: #38bdf8;
+	--counter-rugged-line: #9db2c4;
+	--counter-rugged-soft-line: #c9d5df;
 	display: grid;
 	grid-template-rows: auto minmax(0, 1fr) auto;
 	width: 100%;
 	max-height: calc(100dvh - 24px);
 	overflow: hidden;
+	border: 3px solid var(--counter-rugged-navy);
+	border-radius: 5px !important;
+	background: #edf3f7 !important;
+	box-shadow: 0 5px 14px rgba(4, 22, 37, 0.34);
 }
 
 .item-quick-edit--fullscreen {
@@ -908,7 +923,11 @@ watch(
 	display: flex;
 	align-items: center;
 	gap: 12px;
-	padding: 18px 20px 8px;
+	min-height: 68px;
+	padding: 10px 10px 10px 16px;
+	border-bottom: 2px solid var(--counter-rugged-cyan);
+	background: var(--counter-rugged-navy);
+	color: #ffffff;
 }
 
 .item-quick-edit__identity {
@@ -919,12 +938,20 @@ watch(
 	overflow: hidden;
 	text-overflow: ellipsis;
 	white-space: nowrap;
+	color: #d6e7f3 !important;
+}
+
+.item-quick-edit__title :deep(.v-btn) {
+	border-radius: 3px !important;
+	color: #ffffff !important;
 }
 
 .item-quick-edit__body {
 	min-height: 0;
 	overflow-y: auto;
 	overscroll-behavior: contain;
+	padding: 14px 16px;
+	background: #edf3f7;
 }
 
 .item-quick-edit__lookup {
@@ -934,6 +961,27 @@ watch(
 	align-items: start;
 }
 
+.item-quick-edit__lookup :deep(.v-field) {
+	border-radius: 3px;
+	background: #ffffff;
+}
+
+.item-quick-edit__lookup :deep(.v-label),
+.item-quick-edit__lookup :deep(.v-field-label),
+.item-quick-edit__section :deep(.v-label),
+.item-quick-edit__section :deep(.v-field-label) {
+	color: #25384b !important;
+	opacity: 1;
+}
+
+.item-quick-edit__lookup :deep(.v-btn) {
+	min-height: 40px;
+	border: 1px solid #084d96;
+	border-radius: 3px !important;
+	background: var(--counter-rugged-blue) !important;
+	color: #ffffff !important;
+}
+
 .item-quick-edit__grid {
 	display: grid;
 	grid-template-columns: minmax(0, 1.1fr) minmax(260px, 0.8fr);
@@ -941,10 +989,11 @@ watch(
 }
 
 .item-quick-edit__section {
-	border: 1px solid rgba(var(--v-border-color), 0.18);
-	border-radius: 8px;
-	padding: 14px;
-	background: rgba(var(--v-theme-surface), 0.96);
+	border: 1px solid var(--counter-rugged-line);
+	border-radius: 3px;
+	padding: 0 12px 12px;
+	background: #ffffff;
+	box-shadow: 0 1px 3px rgba(9, 37, 61, 0.14);
 }
 
 .item-quick-edit__section--controls {
@@ -958,23 +1007,57 @@ watch(
 }
 
 .item-quick-edit__section-title {
-	font-size: 0.86rem;
-	font-weight: 700;
-	margin-bottom: 12px;
-	color: rgb(var(--v-theme-primary));
+	margin: 0 -12px 12px;
+	padding: 8px 12px;
+	border-bottom: 1px solid var(--counter-rugged-cyan);
+	background: var(--counter-rugged-navy-raised);
+	color: #ffffff;
+	font-size: 0.78rem;
+	font-weight: 800;
 	text-transform: uppercase;
 }
 
+.item-quick-edit__section :deep(.v-field) {
+	border-radius: 3px;
+	background: #ffffff;
+}
+
+.item-quick-edit__section :deep(.v-field__outline) {
+	color: var(--counter-rugged-line);
+	--v-field-border-opacity: 1;
+}
+
 .item-quick-edit__actions {
-	border-top: 1px solid rgba(var(--v-border-color), 0.18);
-	background: rgb(var(--v-theme-surface));
+	border-top: 2px solid var(--counter-rugged-navy-raised);
+	background: #ffffff;
+}
+
+.item-quick-edit__actions :deep(.v-btn) {
+	min-width: 110px;
+	border-radius: 3px !important;
+}
+
+.item-quick-edit__actions :deep(.v-btn.text-error),
+.item-quick-edit__actions :deep(.text-error.v-btn),
+.item-quick-edit__actions :deep(.item-quick-edit__cancel) {
+	border: 1px solid #b7202a;
+	background: #dc343d !important;
+	color: #ffffff !important;
+}
+
+.item-quick-edit__actions :deep(.v-btn.text-primary),
+.item-quick-edit__actions :deep(.text-primary.v-btn),
+.item-quick-edit__actions :deep(.item-quick-edit__update) {
+	border: 1px solid #084d96;
+	background: var(--counter-rugged-blue) !important;
+	color: #ffffff !important;
 }
 
 :deep(.posa-quick-edit-keyboard-box) {
 	position: relative;
 	outline: 3px solid rgb(var(--v-theme-primary));
 	outline-offset: 3px;
-	border-radius: 8px;
+	border-radius: 3px;
 	box-shadow: 0 0 0 5px rgba(var(--v-theme-primary), 0.16);
 	z-index: 1;
 }

@@ -39,14 +39,16 @@ describe("Chrome 109 build compatibility", () => {
 		);
 	});
 
-	it("audits Counter Grid color-mix declarations for preceding Chrome 109 fallbacks", () => {
+	it("audits Chrome 109 fallbacks and the solid Counter Grid selection contract", () => {
 		const itemTableCss = readFrontendFile(
 			"src/posapp/components/pos/invoice/items-table-styles.css",
 		);
 		const cartItemSource = readFrontendFile(
 			"src/posapp/components/pos/invoice/CartItemRow.vue",
 		);
-		const cartItemCss = cartItemSource.match(/<style[^>]*>([\s\S]*?)<\/style>/)?.[1];
+		const cartItemCss = cartItemSource.match(
+			/<style[^>]*>([\s\S]*?)<\/style>/,
+		)?.[1];
 		expect(cartItemCss).toBeTruthy();
 
 		expect(() =>
@@ -55,26 +57,25 @@ describe("Chrome 109 build compatibility", () => {
 				"relevant source CSS",
 			),
 		).not.toThrow();
-		expect(JSON.parse(readFrontendFile("package.json")).scripts.build).toContain(
-			"audit-chrome109-css.mjs",
-		);
+		expect(
+			JSON.parse(readFrontendFile("package.json")).scripts.build,
+		).toContain("audit-chrome109-css.mjs");
 	});
 
-	it("rejects a Counter Grid production rule that only provides color-mix", () => {
-		const unsupportedOnly = [
-			"posa-cart-empty-state",
-			"posa-cart-empty-state__icon-wrap",
-			"posa-cart-item-row--keyboard-active",
-			"posa-cart-item-cell--keyboard-active",
-		]
-			.map(
-				(className) =>
-					`.${className}{background:color-mix(in srgb, red 10%, white);}`,
-			)
-			.join("");
+	it("rejects color-mix selection, zebra rows, and animated focus changes", () => {
+		const unsupportedOnly =
+			["posa-cart-empty-state", "posa-cart-empty-state__icon-wrap"]
+				.map(
+					(className) =>
+						`.${className}{background:red;background:color-mix(in srgb, red 10%, white);}`,
+				)
+				.join("") +
+			`.posa-cart-table--counter-grid tbody tr:nth-child(even)>td{background:#fff;}` +
+			`.posa-cart-item-row--keyboard-active{background:color-mix(in srgb, #174a70 90%, white);transition:all .2s;animation:pulse 1s;}` +
+			`.posa-cart-item-cell--keyboard-active{background:#174a70;box-shadow:inset 0 0 0 3px #38bdf8;}`;
 
 		expect(() =>
 			auditChrome109CounterGridCss(unsupportedOnly, "fixture CSS"),
-		).toThrow("needs a preceding Chrome 109 fallback");
+		).toThrow("must use a fixed Chrome 109 selection color");
 	});
 });

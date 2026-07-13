@@ -212,16 +212,16 @@ const blurTarget = (event) => {
 .payment-method-card__badge {
 	padding: 6px 10px;
 	border-radius: 999px;
-	background: rgba(var(--v-theme-primary), 0.12);
-	color: rgb(var(--v-theme-primary));
+	background: #174a70;
+	color: #ffffff;
 	font-size: 0.78rem;
 	font-weight: 700;
 	white-space: nowrap;
 }
 
 .payment-method-card__badge--refund {
-	background: rgba(var(--v-theme-error), 0.12);
-	color: rgb(var(--v-theme-error));
+	background: #9f1239;
+	color: #ffffff;
 }
 
 :deep(.pos-themed-input--refund input) {
@@ -240,7 +240,7 @@ const blurTarget = (event) => {
 		box-shadow 0.18s ease,
 		background-color 0.18s ease,
 		transform 0.18s ease !important;
-	background-color: rgb(var(--v-theme-primary)) !important;
+	background-color: #0b5cab !important;
 	color: #ffffff !important;
 }
 
@@ -254,7 +254,7 @@ const blurTarget = (event) => {
 .payment-method-action-btn:active {
 	box-shadow: 0 4px 10px rgba(0, 0, 0, 0.18) !important;
 	transform: translateY(-1px);
-	background-color: rgba(var(--v-theme-primary), 0.9) !important;
+	background-color: #084d96 !important;
 }
 
 .payment-method-action-btn:active {
@@ -267,8 +267,12 @@ const blurTarget = (event) => {
 	background: transparent !important;
 }
 
+:deep(.payment-method-action-btn .v-btn__content) {
+	color: #ffffff !important;
+}
+
 .payment-method-action-btn--success {
-	background: rgb(var(--v-theme-success)) !important;
+	background: #047857 !important;
 	color: #ffffff !important;
 }
 
@@ -276,19 +280,19 @@ const blurTarget = (event) => {
 .payment-method-action-btn--success:focus,
 .payment-method-action-btn--success:focus-visible,
 .payment-method-action-btn--success:active {
-	background-color: rgba(var(--v-theme-success), 0.9) !important;
+	background-color: #065f46 !important;
 }
 
 .payment-method-action-btn--secondary {
-	background: rgba(var(--v-theme-success), 0.14) !important;
-	color: rgb(var(--v-theme-success)) !important;
+	background: #047857 !important;
+	color: #ffffff !important;
 }
 
 .payment-method-action-btn--secondary:hover,
 .payment-method-action-btn--secondary:focus,
 .payment-method-action-btn--secondary:focus-visible,
 .payment-method-action-btn--secondary:active {
-	background-color: rgba(var(--v-theme-success), 0.2) !important;
+	background-color: #065f46 !important;
 }
 
 .payment-denominations {

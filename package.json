@@ -71,7 +71,7 @@
   },
   "build": {
     "appId": "com.posawesome.desktop",
-    "productName": "POS Awesome Desktop",
+    "productName": "RetailMind-POS Desktop",
     "asar": true,
     "publish": [],
     "directories": {
@@ -93,18 +93,18 @@
       "target": [
         "nsis"
       ],
-      "artifactName": "POSAwesome-Setup-${version}.${ext}"
+      "artifactName": "RetailMind-POS-Setup-${version}.${ext}"
     },
     "linux": {
       "target": [
         "AppImage"
       ],
-      "artifactName": "POSAwesome-${version}.${ext}",
+      "artifactName": "RetailMind-POS-${version}.${ext}",
       "category": "Office"
     },
     "protocols": [
       {
-        "name": "POS Awesome Links",
+        "name": "RetailMind-POS Links",
         "schemes": [
           "posawesome"
         ]

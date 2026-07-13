@@ -1,5 +1,9 @@
 <template>
-	<nav :class="['pos-themed-card', rtlClasses]">
+	<nav
+		:class="['pos-themed-card', rtlClasses]"
+		data-test="pos-navbar"
+		:data-pos-profile="posProfile?.name || ''"
+	>
 		<!-- Use the modular NavbarAppBar component -->
 		<NavbarAppBar
 			:pos-profile="posProfile"
@@ -110,7 +114,7 @@
 
 		<!-- Use the modular AboutDialog component -->
 		<AboutDialog v-model="showAboutDialog" />
-		<EmployeeSwitchDialog />
+		<EmployeeSwitchDialog @retry-load="fetchTerminalEmployees" />
 
 		<!-- Keep existing dialogs -->
 		<v-dialog v-model="isFrozen" persistent max-width="290">
@@ -162,6 +166,7 @@ import AboutDialog from "./navbar/AboutDialog.vue";
 import OfflineInvoices from "./OfflineInvoices.vue";
 import EmployeeSwitchDialog from "./pos/employee/EmployeeSwitchDialog.vue";
 import posLogo from "./pos/pos.png";
+import { POS_BRAND_NAME } from "../config/branding";
 import { forceClearAllCache } from "../../offline/index";
 import { clearAllCaches } from "../../utils/clearAllCaches";
 import { isOffline } from "../../offline/index";
@@ -304,7 +309,7 @@ export default {
 				{ text: "Barcode Printing", icon: "mdi-barcode", to: "/barcode" },
 			],
 			items: [],
-			company: "POS Awesome",
+			company: POS_BRAND_NAME,
 			companyImg: posLogo,
 			showAboutDialog: false,
 			showOfflineInvoices: false,
@@ -313,6 +318,11 @@ export default {
 			syncNotificationPrimed: false,
 			employeeSwitchHandler: null,
 			lockPosHandler: null,
+			terminalSecurityChannel: null,
+			terminalLockRetryHandle: null,
+			terminalLockRetryAttempt: 0,
+			terminalLockRequestInFlight: null,
+			terminalEmployeesRequestId: 0,
 		};
 	},
 	watch: {
@@ -331,9 +341,14 @@ export default {
 		posProfile: {
 			handler() {
 				this.updateNavigationItems();
-				void this.fetchTerminalEmployees();
 			},
 			deep: true,
+			immediate: true,
+		},
+		posProfileName: {
+			handler() {
+				void this.fetchTerminalEmployees();
+			},
 			immediate: true,
 		},
 		offlineStatusState: {
@@ -351,6 +366,9 @@ export default {
 		},
 	},
 	computed: {
+		posProfileName() {
+			return String(this.posProfile?.name || "").trim();
+		},
 		appBarColor() {
 			return this.isDark ? this.$vuetify.theme.themes.dark.colors.surface : "white";
 		},
@@ -486,6 +504,7 @@ export default {
 		this.initializeNavbar();
 		this.setupEventListeners();
 		this.syncOfflineStatusSurface();
+		this.setupTerminalSecurityChannel();
 	},
 
 	created() {
@@ -493,6 +512,12 @@ export default {
 		this.preInitialize();
 	},
 	unmounted() {
+		if (this.terminalLockRetryHandle !== null) {
+			clearTimeout(this.terminalLockRetryHandle);
+			this.terminalLockRetryHandle = null;
+		}
+		this.terminalSecurityChannel?.close?.();
+		this.terminalSecurityChannel = null;
 		if (this.notificationUpdateHandle !== null) {
 			if (this.notificationUpdateUsesTimeout) {
 				clearTimeout(this.notificationUpdateHandle);
@@ -546,7 +571,7 @@ export default {
 			}
 			if (this.currentCashier?.is_supervisor) {
 				items.splice(1, 0, {
-					text: this.__("Awesome Dashboard"),
+					text: this.__("RetailMind Dashboard"),
 					icon: "mdi-view-dashboard-outline",
 					to: "/dashboard",
 				});
@@ -561,29 +586,134 @@ export default {
 			this.items = items;
 		},
 		async fetchTerminalEmployees() {
-			if (!this.posProfile?.name) {
-				this.employeeStore.setTerminalEmployees([]);
+			const profileName = this.posProfileName;
+			const requestId = ++this.terminalEmployeesRequestId;
+			if (!profileName) {
+				this.employeeStore.resetTerminalEmployeesLoad();
+				this.employeeStore.applyTerminalState(null);
 				return;
 			}
 
-			try {
-				const response = await frappe.call({
-					method: "posawesome.posawesome.api.employees.get_terminal_employees",
-					args: {
-						pos_profile: this.posProfile.name,
-					},
-				});
-				this.employeeStore.setTerminalEmployees(response?.message || []);
-			} catch (error) {
+			this.employeeStore.beginTerminalEmployeesLoad(profileName);
+			const [employeesResult, stateResult] = await Promise.allSettled([
+				Promise.resolve().then(() =>
+					frappe.call({
+						method: "posawesome.posawesome.api.employees.get_terminal_employees",
+						args: {
+							pos_profile: profileName,
+						},
+					}),
+				),
+				Promise.resolve().then(() =>
+					frappe.call({
+						method: "posawesome.posawesome.api.employees.get_terminal_state",
+						args: {
+							pos_profile: profileName,
+						},
+					}),
+				),
+			]);
+
+			if (requestId !== this.terminalEmployeesRequestId || profileName !== this.posProfileName) {
+				return;
+			}
+
+			if (employeesResult.status === "fulfilled" && Array.isArray(employeesResult.value?.message)) {
+				this.employeeStore.completeTerminalEmployeesLoad(profileName, employeesResult.value.message);
+			} else {
+				const error =
+					employeesResult.status === "rejected"
+						? employeesResult.reason
+						: new Error("Cashier API returned an invalid response.");
 				console.error("Failed to load terminal employees", error);
-				this.employeeStore.setTerminalEmployees([]);
+				this.employeeStore.failTerminalEmployeesLoad(
+					profileName,
+					this.__("Unable to load cashiers for this POS profile. Check the connection and retry."),
+				);
+			}
+
+			if (stateResult.status === "fulfilled") {
+				if (this.employeeStore.terminalLockPending && stateResult.value?.message?.locked !== true) {
+					this.scheduleTerminalLockRetry();
+				} else {
+					this.employeeStore.applyTerminalState(stateResult.value?.message);
+				}
+			} else {
+				console.error("Failed to load authoritative terminal state", stateResult.reason);
+				this.employeeStore.applyTerminalState(null);
 			}
 		},
 		openEmployeeSwitch() {
 			this.employeeStore.openEmployeeSwitch();
 		},
-		lockPosScreen() {
-			this.employeeStore.lockTerminal();
+		setupTerminalSecurityChannel() {
+			if (typeof window === "undefined" || typeof window.BroadcastChannel !== "function") {
+				return;
+			}
+			this.terminalSecurityChannel = new window.BroadcastChannel("posa-terminal-security");
+			this.terminalSecurityChannel.onmessage = (event) => {
+				const message = event?.data;
+				if (message?.type !== "lock-intent" || message?.posProfile !== this.posProfile?.name) {
+					return;
+				}
+				this.employeeStore.markTerminalLockPending();
+				this.scheduleTerminalLockRetry(0);
+			};
+		},
+		scheduleTerminalLockRetry(delay) {
+			if (this.terminalLockRetryHandle !== null) return;
+			const retryDelay =
+				delay ?? Math.min(1000 * 2 ** Math.min(this.terminalLockRetryAttempt, 5), 30000);
+			this.terminalLockRetryHandle = setTimeout(() => {
+				this.terminalLockRetryHandle = null;
+				void this.persistTerminalLock();
+			}, retryDelay);
+		},
+		async persistTerminalLock() {
+			if (!this.posProfile?.name) return false;
+			if (this.terminalLockRequestInFlight) {
+				return this.terminalLockRequestInFlight;
+			}
+
+			this.terminalLockRequestInFlight = (async () => {
+				try {
+					const response = await frappe.call({
+						method: "posawesome.posawesome.api.employees.lock_terminal",
+						args: {
+							pos_profile: this.posProfile.name,
+						},
+					});
+					if (response?.message?.locked !== true) {
+						throw new Error("Server did not confirm terminal lock.");
+					}
+					this.employeeStore.applyTerminalState(response.message);
+					this.terminalLockRetryAttempt = 0;
+					return true;
+				} catch (error) {
+					console.error("Failed to persist terminal lock", error);
+					this.employeeStore.markTerminalLockPending();
+					this.terminalLockRetryAttempt += 1;
+					this.scheduleTerminalLockRetry();
+					return false;
+				} finally {
+					this.terminalLockRequestInFlight = null;
+				}
+			})();
+			return this.terminalLockRequestInFlight;
+		},
+		async lockPosScreen() {
+			this.employeeStore.markTerminalLockPending();
+			this.terminalSecurityChannel?.postMessage?.({
+				type: "lock-intent",
+				posProfile: this.posProfile?.name,
+			});
+			const locked = await this.persistTerminalLock();
+			if (!locked) {
+				this.toastStore.show({
+					title: this.__("Server lock pending; this tab remains blocked."),
+					color: "warning",
+				});
+			}
 		},
 
 		initializeNavbar() {

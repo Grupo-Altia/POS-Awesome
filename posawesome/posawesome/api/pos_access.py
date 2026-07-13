@@ -20,6 +20,16 @@ POS_PROFILE_MANAGER_ROLES = frozenset(
         "POS Manager",
     }
 )
+POS_SUPERVISOR_ROLE = "POS Awesome Supervisor"
+POS_PRIVILEGED_MANAGER_ROLES = frozenset(
+    {
+        "System Manager",
+        "Accounts Manager",
+        "Sales Manager",
+        "Stock Manager",
+        "POS Manager",
+    }
+)
 
 
 def _profile_name(pos_profile: Any) -> str:
@@ -55,10 +65,41 @@ def get_authenticated_pos_user() -> str:
     return user
 
 
-def _user_can_access_unassigned_profile(user: str) -> bool:
+def get_pos_roles(user: str) -> frozenset[str]:
+    """Return canonical roles for a server-resolved user identity."""
+
+    return frozenset(frappe.get_roles(user) or [])
+
+
+def user_is_pos_profile_manager(user: str) -> bool:
     if user == "Administrator":
         return True
-    return bool(set(frappe.get_roles(user) or []).intersection(POS_PROFILE_MANAGER_ROLES))
+    return bool(get_pos_roles(user).intersection(POS_PROFILE_MANAGER_ROLES))
+
+
+def user_is_pos_supervisor(user: str) -> bool:
+    return POS_SUPERVISOR_ROLE in get_pos_roles(user)
+
+
+def user_is_pos_privileged_manager(user: str) -> bool:
+    if user == "Administrator":
+        return True
+    return bool(get_pos_roles(user).intersection(POS_PRIVILEGED_MANAGER_ROLES))
+
+
+def user_can_manage_pos(user: str) -> bool:
+    """Return whether a canonical user may perform supervisor-only POS actions."""
+
+    return user_is_pos_privileged_manager(user) or user_is_pos_supervisor(user)
+
+
+def require_pos_supervisor_or_manager() -> str:
+    """Authorize the authenticated session for a supervisor-only POS action."""
+
+    user = get_authenticated_pos_user()
+    if not user_can_manage_pos(user):
+        _permission_denied(_("A POS supervisor or manager is required for this action."))
+    return user
 
 
 def get_authorized_pos_profile(pos_profile=None, company=None):
@@ -94,7 +135,7 @@ def get_authorized_pos_profile(pos_profile=None, company=None):
         company_doc = frappe.get_doc("Company", profile_company)
         company_doc.check_permission("read")
 
-    if not _user_can_access_unassigned_profile(user):
+    if not user_is_pos_profile_manager(user):
         is_assigned = frappe.db.exists(
             "POS Profile User",
             {"parent": profile_name, "user": user},

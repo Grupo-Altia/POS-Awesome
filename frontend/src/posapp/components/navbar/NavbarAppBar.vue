@@ -4,6 +4,7 @@
 		:height="isMobile ? 64 : 56"
 		:class="[
 			'pos-navbar-enhanced elevation-2 pos-themed-card pos-theme-immediate',
+			{ 'pos-navbar-enhanced--counter-grid': isCounterGrid },
 			rtlClasses,
 			isRtl ? 'rtl-app-bar' : 'ltr-app-bar',
 			isMobile ? 'mobile-navbar' : 'desktop-navbar',
@@ -22,7 +23,7 @@
 
 			<v-img
 				:src="posLogo"
-				alt="POS Awesome"
+				:alt="POS_BRAND_NAME"
 				:max-width="isMobile ? 24 : 32"
 				:class="['pos-navbar-logo', isRtl ? 'rtl-logo' : 'ltr-logo']"
 				loading="lazy"
@@ -41,11 +42,11 @@
 				role="button"
 			>
 				<template v-if="isMobile">
-					<span class="pos-navbar-title-compact">{{ __("POS") }}</span>
+					<span class="pos-navbar-title-compact">{{ POS_BRAND_SHORT_NAME }}</span>
 				</template>
 				<template v-else>
-					<span class="font-weight-light pos-navbar-title-light">{{ __("POS") }}</span
-					><span class="pos-navbar-title-bold">{{ __("Awesome") }}</span>
+					<span class="font-weight-light pos-navbar-title-light">RetailMind</span
+					><span class="pos-navbar-title-bold">-POS</span>
 				</template>
 			</v-toolbar-title>
 		</div>
@@ -231,6 +232,8 @@
 
 <script>
 import { useRtl } from "../../composables/core/useRtl";
+import { POS_BRAND_NAME, POS_BRAND_SHORT_NAME } from "../../config/branding";
+import { isCounterGridTemplate } from "../../utils/posUiTemplate";
 import posLogo from "../pos/pos.png";
 import NavbarInfoGadgets from "./NavbarInfoGadgets.vue";
 
@@ -246,6 +249,8 @@ export default {
 			rtlStyles,
 			rtlClasses,
 			posLogo,
+			POS_BRAND_NAME,
+			POS_BRAND_SHORT_NAME,
 		};
 	},
 	data() {
@@ -350,6 +355,10 @@ export default {
 		isDesktop() {
 			return this.windowWidth >= 1024;
 		},
+
+		isCounterGrid() {
+			return isCounterGridTemplate(this.posProfile, this.windowWidth);
+		},
 	},
 
 	methods: {
@@ -403,6 +412,61 @@ export default {
 	padding-bottom: 4px !important;
 	overflow: visible !important;
 	color: var(--pos-text-primary) !important;
+}
+
+.pos-navbar-enhanced--counter-grid {
+	background: #09253d !important;
+	background-image: none !important;
+	border-bottom: 2px solid #38bdf8 !important;
+	box-shadow: 0 3px 0 rgba(5, 20, 34, 0.38) !important;
+	color: #ffffff !important;
+}
+
+.pos-navbar-enhanced--counter-grid .pos-navbar-title-light,
+.pos-navbar-enhanced--counter-grid .pos-navbar-title-compact {
+	color: #ffffff !important;
+}
+
+.pos-navbar-enhanced--counter-grid .pos-navbar-title-bold {
+	color: #39a0ff !important;
+}
+
+.pos-navbar-enhanced--counter-grid .nav-icon,
+.pos-navbar-enhanced--counter-grid .offline-invoices-btn,
+.pos-navbar-enhanced--counter-grid .profile-chip {
+	background: #102f4a !important;
+	border: 1px solid #315773 !important;
+	border-radius: 5px !important;
+	box-shadow: none !important;
+	color: #ffffff !important;
+}
+
+.pos-navbar-enhanced--counter-grid .profile-chip__meta {
+	color: #c4d4e1 !important;
+}
+
+.pos-navbar-enhanced--counter-grid .pos-text-primary,
+.pos-navbar-enhanced--counter-grid .v-icon.pos-text-primary,
+.pos-navbar-enhanced--counter-grid .mdi-menu-down,
+.pos-navbar-enhanced--counter-grid .v-icon--end.pos-text-primary {
+	color: #eaf6ff !important;
+}
+
+.pos-navbar-enhanced--counter-grid :deep(.status-btn-enhanced),
+.pos-navbar-enhanced--counter-grid :deep(.notification-bell-trigger),
+.pos-navbar-enhanced--counter-grid :deep(.menu-btn-compact) {
+	background: #102f4a !important;
+	border: 1px solid #315773 !important;
+	border-radius: 5px !important;
+	box-shadow: none !important;
+	color: #ffffff !important;
+}
+
+.pos-navbar-enhanced--counter-grid :deep(.status-title-inline),
+.pos-navbar-enhanced--counter-grid :deep(.menu-btn-compact .v-btn__content),
+.pos-navbar-enhanced--counter-grid :deep(.notification-bell-trigger .v-icon),
+.pos-navbar-enhanced--counter-grid :deep(.menu-btn-compact .v-icon) {
+	color: #ffffff !important;
 }
 
 /* RTL/LTR App Bar Layout */

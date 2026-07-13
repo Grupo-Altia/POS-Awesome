@@ -14,6 +14,7 @@ from posawesome.posawesome.api.idempotency import (
 from posawesome.posawesome.api.invoice_processing.creation import (
     _reapply_incoming_payment_amounts,
     submit_invoice,
+    trusted_invoice_shift_reassignment,
 )
 from posawesome.posawesome.api.utils import assert_pos_profile_write_allowed
 
@@ -429,9 +430,31 @@ def submit_submitted_invoice_edit(
     pos_profile=None,
     company=None,
 ):
+    from posawesome.posawesome.api.pos_access import get_authorized_pos_profile
+
     doctype = _normalize_doctype(doctype)
     client_request_id = (client_request_id or "").strip() or f"submitted-edit-{uuid.uuid4()}"
-    existing = find_invoice_by_client_request_id(client_request_id, preferred_doctype=doctype)
+    scoped_original = frappe.get_doc(doctype, name)
+    profile_doc = get_authorized_pos_profile(
+        pos_profile or scoped_original.get("pos_profile"),
+        company=company or scoped_original.get("company"),
+    )
+    canonical_profile = profile_doc.get("name")
+    canonical_company = profile_doc.get("company")
+    if (
+        scoped_original.get("pos_profile") != canonical_profile
+        or scoped_original.get("company") != canonical_company
+    ):
+        frappe.throw(_("This invoice is not available for the selected POS Profile."))
+    scoped_original.check_permission("read")
+
+    existing = find_invoice_by_client_request_id(
+        client_request_id,
+        preferred_doctype=doctype,
+        pos_profile=canonical_profile,
+        company=canonical_company,
+        permission_type="read",
+    )
     if existing and existing.get("amended_from") == name and cint(existing.docstatus) == 1:
         return {
             "name": existing.name,
@@ -456,15 +479,21 @@ def submit_submitted_invoice_edit(
             correction_data=correction_data,
             client_request_id=client_request_id,
         )
-        original_doc.flags.ignore_permissions = True
-        frappe.flags.ignore_account_permission = True
-        original_doc.cancel()
+        submission_data = {"client_request_id": client_request_id}
+        with trusted_invoice_shift_reassignment(
+            payload,
+            submission_data,
+            "submitted_amendment",
+        ):
+            original_doc.flags.ignore_permissions = True
+            frappe.flags.ignore_account_permission = True
+            original_doc.cancel()
 
-        response = submit_invoice(
-            json.dumps(payload, default=str),
-            json.dumps({"client_request_id": client_request_id}, default=str),
-            submit_in_background=False,
-        )
+            response = submit_invoice(
+                json.dumps(payload, default=str),
+                json.dumps(submission_data, default=str),
+                submit_in_background=False,
+            )
         amended_doc = frappe.get_doc(response.get("doctype") or doctype, response.get("name"))
         set_invoice_client_request_id(amended_doc, client_request_id)
         amended_doc.db_update()

@@ -5,6 +5,8 @@
 		:style="responsiveStyles"
 		:data-search-ready-query="counterSearchReadyQuery || undefined"
 		:data-search-pending="counterSearchPending ? 'true' : 'false'"
+		:data-alternate-mode="alternateMode ? 'true' : 'false'"
+		@keydown.capture="handleSelectorKeydownCapture"
 	>
 		<ScanErrorDialog
 			v-model="scanErrorDialog"
@@ -27,12 +29,14 @@
 				absolute
 				location="top"
 				color="info"
+				:aria-label="__('Loading item search results')"
 			></v-progress-linear>
 
 			<!-- Add dynamic-padding wrapper like Invoice component -->
 			<div class="dynamic-padding">
 				<v-card flat class="selector-section-card selector-header-card pos-themed-card">
 					<ItemHeader
+						v-if="!alternateMode"
 						v-model:search-input="search_input"
 						v-model:qty-input="debounce_qty"
 						:pos-profile="pos_profile"
@@ -44,6 +48,10 @@
 						:sync-progress="syncProgressValue"
 						:sync-items-count="syncItemsCount"
 						:context="context"
+						:search-combobox="presentation === 'counter-grid-dialog'"
+						:search-expanded="presentation === 'counter-grid-dialog'"
+						:search-controls="counterSearchResultsGridId"
+						:search-active-descendant="counterSearchActiveDescendant"
 						@esc="esc_event"
 						@enter="onEnter"
 						@search-keydown="handleSearchKeydown"
@@ -60,9 +68,30 @@
 						@reload-items="forceReloadItems"
 						ref="itemHeader"
 					/>
+					<div
+						v-else
+						class="alternate-selector-header"
+						role="status"
+						aria-live="polite"
+						data-testid="alternate-items-header"
+					>
+						<v-icon icon="mdi-swap-horizontal-bold" size="24" />
+						<div>
+							<strong>{{ __("Choose an in-stock alternate") }}</strong>
+							<span>{{ alternateHeaderDetail }}</span>
+						</div>
+						<v-progress-circular
+							v-if="alternates.loading.value"
+							indeterminate
+							size="22"
+							width="3"
+							:aria-label="__('Loading alternate items')"
+						/>
+					</div>
 				</v-card>
 
 				<ItemSettingsDialog
+					v-if="!alternateMode"
 					v-model="show_item_settings"
 					:allow-new-line-setting="!!pos_profile?.posa_new_line"
 					:initial-settings="{
@@ -84,10 +113,11 @@
 						<v-col cols="12" class="pt-0 mt-0">
 							<PharmacyItemSearchTable
 								v-if="presentation === 'counter-grid-dialog'"
-								:displayed-items="selectableDisplayedItems"
-								:search-term="search_input"
+								ref="pharmacyResultsTable"
+								:displayed-items="activeResultItems"
+								:search-term="alternateMode ? '' : search_input"
 								:search-field="pharmacySearchField"
-								:include-zero-stock="pharmacyIncludeZeroStock"
+								:include-zero-stock="alternateMode || pharmacyIncludeZeroStock"
 								:highlighted-item-code="itemSelection.highlightedItemCode.value || ''"
 								:pos-profile="pos_profile"
 								:selected-currency="selected_currency"
@@ -100,10 +130,24 @@
 								:item-groups="items_group"
 								:item-group="item_group"
 								:active-price-list="active_price_list"
+								:search-pending="
+									alternateMode ? alternates.loading.value : counterSearchPending
+								"
+								:results-grid-id="counterSearchResultsGridId"
+								:mode="alternateMode ? 'alternates' : 'search'"
+								:alternate-requested-item="
+									alternates.response.value?.requested_item || undefined
+								"
+								:alternate-reason="alternates.reason.value || ''"
+								:allow-alternate-back="alternateOrigin === 'search'"
 								@update:item-group="item_group = $event"
 								@update:search-field="pharmacySearchField = $event"
 								@update:include-zero-stock="pharmacyIncludeZeroStock = $event"
 								@row-click="click_item_row"
+								@navigation-boundary="handlePharmacyResultBoundary"
+								@navigation-key="handlePharmacyResultNavigation"
+								@select-highlighted="onEnter"
+								@alternate-back="exitAlternateMode"
 								@list-scroll="onListScroll"
 							/>
 							<ItemsSelectorCards
@@ -264,6 +308,7 @@ import { useScannerInput } from "../../../composables/pos/items/useScannerInput"
 import { useItemAvailability } from "../../../composables/pos/items/useItemAvailability";
 import { useItemDetailFetcher } from "../../../composables/pos/items/useItemDetailFetcher";
 import { useItemAddition } from "../../../composables/pos/items/useItemAddition";
+import { useAlternateItems } from "../../../composables/pos/items/useAlternateItems";
 import { useItemSelection } from "../../../composables/pos/items/useItemSelection";
 import { useItemSelectorLayout } from "../../../composables/pos/items/useItemSelectorLayout";
 import { useLastInvoiceRate } from "../../../composables/pos/items/useLastInvoiceRate";
@@ -280,7 +325,7 @@ import { useBarcodeIndexing } from "../../../composables/pos/items/useBarcodeInd
 import { useScanProcessor } from "../../../composables/pos/items/useScanProcessor";
 import { useItemCurrency } from "../../../composables/pos/items/useItemCurrency";
 import { startItemsSelectorInitialization } from "../../../composables/pos/items/useItemsSelectorInitialization";
-import { filterPharmacySearchItems } from "../../../utils/pharmacyItem";
+import { filterPharmacySearchItems, projectPackLooseStock } from "../../../utils/pharmacyItem";
 import { registerItemsSelectorEvents } from "../../../composables/pos/items/useItemsSelectorEvents";
 import { registerItemsSelectorTypeToSearch } from "../../../composables/pos/items/useItemsSelectorTypeToSearch";
 import { useItemsSelectorLayoutLifecycle } from "../../../composables/pos/items/useItemsSelectorLayoutLifecycle";
@@ -299,6 +344,10 @@ import { useEmployeeStore } from "../../../stores/employeeStore";
 
 import { parseBooleanSetting } from "../../../utils/stock";
 import { createItemSearchFocusClearGuard } from "../../../utils/itemSearchFocusClearGuard";
+import {
+	getPharmacyItemResultId,
+	PHARMACY_ITEM_RESULTS_GRID_ID,
+} from "../../../utils/itemSearchAccessibility";
 
 const props = defineProps({
 	context: {
@@ -321,9 +370,13 @@ const props = defineProps({
 		type: String,
 		default: "",
 	},
+	alternateRequest: {
+		type: Object,
+		default: null,
+	},
 });
 
-const emit = defineEmits(["add-item", "add-items", "item-added"]);
+const emit = defineEmits(["add-item", "add-items", "item-added", "alternates-cancelled"]);
 
 // 1. Initialize Stores and Core Composables
 const vmInstance = getCurrentInstance();
@@ -382,6 +435,7 @@ const scannerInput = useScannerInput();
 const itemAvailability = useItemAvailability();
 const itemDetailFetcher = useItemDetailFetcher();
 const itemSelection = useItemSelection();
+const alternates = useAlternateItems();
 const itemSync = useItemSync();
 const itemDisplay = useItemDisplay();
 const itemsLoader = useItemsLoader();
@@ -420,6 +474,11 @@ const virtualScrollBuffer = ref(200);
 const localStorageAvailable = ref(true);
 const counterSearchPending = ref(false);
 const counterSearchReadyQuery = ref("");
+const pharmacyResultsTable = ref<any>(null);
+const counterSearchResultsGridId = PHARMACY_ITEM_RESULTS_GRID_ID;
+const alternateMode = ref(false);
+const alternateOrigin = ref<"search" | "cart" | null>(null);
+const alternateSource = ref<any>(null);
 let counterSearchToken = 0;
 
 // Settings Refs
@@ -521,7 +580,9 @@ const displayedItems = computed(() => {
 });
 
 const pharmacySearchField = ref("all");
-const pharmacyIncludeZeroStock = ref(false);
+// Counter Grid must expose unavailable requested medicines so Enter can offer
+// same-generic in-stock alternates. Classic item browsing keeps its own policy.
+const pharmacyIncludeZeroStock = ref(props.presentation === "counter-grid-dialog");
 const selectableDisplayedItems = computed(() => {
 	if (props.presentation !== "counter-grid-dialog") return displayedItems.value;
 	return filterPharmacySearchItems(displayedItems.value as any[], {
@@ -530,16 +591,60 @@ const selectableDisplayedItems = computed(() => {
 		includeZeroStock: pharmacyIncludeZeroStock.value,
 	});
 });
+const alternateDisplayItems = computed(
+	() =>
+		alternates.items.value.map((item: any) => ({
+			...item,
+			is_stock_item: 1,
+			actual_qty: Number(item.available_qty || 0),
+			_base_actual_qty: Number(item.available_qty || 0),
+			price_list_rate: Number(item.rate || 0),
+			original_rate: Number(item.rate || 0),
+			original_currency: item.currency,
+			brand: item.company,
+			retailmind_old_pos_pack: item.pack,
+			retailmind_old_pos_company_code: item.company_code,
+			retailmind_old_pos_generic_code: item.generic_code,
+			retailmind_old_pos_generic_name: item.generic_name,
+			retailmind_old_pos_rack: item.rack,
+			retailmind_units_per_pack: item.units_per_pack,
+			item_uoms: item.stock_uom ? [{ uom: item.stock_uom, conversion_factor: 1 }] : [],
+		})) as any[],
+);
+const activeResultItems = computed(() =>
+	alternateMode.value ? alternateDisplayItems.value : selectableDisplayedItems.value,
+);
+const alternateHeaderDetail = computed(() => {
+	const requested = alternates.response.value?.requested_item;
+	if (alternates.error.value) return alternates.error.value.message;
+	if (!requested) return __("Checking live stock and profitability");
+	const itemLabel = requested.item_name || requested.item_code;
+	return requested.generic ? `${itemLabel} | ${requested.generic}` : itemLabel;
+});
+const counterSearchActiveDescendant = computed(() => {
+	if (props.presentation !== "counter-grid-dialog") return "";
+	const activeCode = itemSelection.highlightedItemCode.value;
+	if (!activeCode || !activeResultItems.value.some((item: any) => item?.item_code === activeCode)) {
+		return "";
+	}
+	return getPharmacyItemResultId(activeCode);
+});
+
+const focusHighlightedPharmacyResult = async () => {
+	await nextTick();
+	return pharmacyResultsTable.value?.focusActiveResult?.();
+};
 
 watch([pharmacySearchField, pharmacyIncludeZeroStock, item_group], async () => {
 	if (props.presentation !== "counter-grid-dialog") return;
+	if (alternateMode.value) return;
 	itemSelection.clearHighlightedItem();
 	await nextTick();
 	itemSelection.highlightFirstItem();
 });
 
 watch(
-	selectableDisplayedItems,
+	activeResultItems,
 	async (nextItems) => {
 		if (props.presentation !== "counter-grid-dialog") return;
 		if (!nextItems.length) {
@@ -547,10 +652,7 @@ watch(
 			return;
 		}
 		const highlightedCode = itemSelection.highlightedItemCode.value;
-		if (
-			highlightedCode &&
-			nextItems.some((item: any) => item?.item_code === highlightedCode)
-		) {
+		if (highlightedCode && nextItems.some((item: any) => item?.item_code === highlightedCode)) {
 			return;
 		}
 		await nextTick();
@@ -734,7 +836,36 @@ const itemsSelectorFocus = useItemsSelectorFocus({
 	getVM: () => vmInstance?.proxy,
 	scannerInput,
 	itemSelection,
+	focusHighlightedResult: focusHighlightedPharmacyResult,
 });
+
+let pharmacyNavigationFrame: number | null = null;
+const handlePharmacyResultBoundary = (event: KeyboardEvent) => {
+	event.preventDefault();
+	event.stopPropagation();
+	event.stopImmediatePropagation();
+	if (pharmacyNavigationFrame !== null) {
+		window.cancelAnimationFrame(pharmacyNavigationFrame);
+		pharmacyNavigationFrame = null;
+	}
+	itemSelection.clearHighlightedItem();
+	focusSearchInput();
+};
+
+const handlePharmacyResultNavigation = (event: KeyboardEvent) => {
+	const direction = event.key === "ArrowDown" ? 1 : event.key === "ArrowUp" ? -1 : 0;
+	if (!alternateMode.value && direction !== 0 && itemSelection.isResultNavigationBoundary(direction)) {
+		handlePharmacyResultBoundary(event);
+		return;
+	}
+	itemsSelectorFocus.handleSearchKeydown(event);
+	if (pharmacyNavigationFrame !== null) return;
+	pharmacyNavigationFrame = window.requestAnimationFrame(async () => {
+		pharmacyNavigationFrame = null;
+		await nextTick();
+		await focusHighlightedPharmacyResult();
+	});
+};
 
 const { getLastInvoiceRate, scheduleLastInvoiceRateRefresh, clearLastInvoiceRateCache } = useLastInvoiceRate({
 	pos_profile: () => pos_profile.value,
@@ -807,7 +938,7 @@ const add_item = async (item, optionsOrQty: any = {}) => {
 				title: __("Item is locked for sale"),
 				color: "error",
 			});
-			return;
+			return null;
 		}
 		if (parseBooleanSetting(item.retailmind_controlled_item)) {
 			toastStore.show({
@@ -828,7 +959,7 @@ const add_item = async (item, optionsOrQty: any = {}) => {
 				active_price_list: itemsIntegration.active_price_list.value,
 				customer_price_list: customer_price_list.value,
 			});
-			return;
+			return null;
 		}
 
 		const context = {
@@ -872,7 +1003,7 @@ const add_item = async (item, optionsOrQty: any = {}) => {
 			}
 			qty.value = 1;
 			if (addedLine && props.presentation === "counter-grid-dialog") {
-				emit("item-added", addedLine);
+				emit("item-added", addedLine, options.alternateSelection || null);
 			} else if (addedLine && eventBus && typeof eventBus.emit === "function") {
 				const focusedLine: any = addedLine;
 				window.setTimeout(() => {
@@ -883,10 +1014,152 @@ const add_item = async (item, optionsOrQty: any = {}) => {
 					});
 				}, 0);
 			}
+			return addedLine || null;
 		}
+		return null;
 	} else {
 		emit("add-item", item);
+		return item;
 	}
+};
+
+const normalizeRequestedQty = (value: unknown) => {
+	const numeric = Math.abs(Number(value));
+	return Number.isFinite(numeric) && numeric > 0 ? numeric : 1;
+};
+
+const getHighlightedResultItem = () => {
+	const index = Number(itemSelection.highlightedIndex.value);
+	return index >= 0 && index < activeResultItems.value.length ? activeResultItems.value[index] : null;
+};
+
+const isUnavailableForSale = (item: any, requestedQty: unknown = 1) => {
+	if (!item || isReturnInvoice.value || Number(item.is_stock_item) === 0) return false;
+	return projectPackLooseStock(item).availableQty < normalizeRequestedQty(requestedQty);
+};
+
+const buildAlternateRequest = (source: any) => ({
+	item_code: String(source?.item_code || ""),
+	pos_profile: String(pos_profile.value?.name || ""),
+	warehouse: String(pos_profile.value?.warehouse || ""),
+	price_list: String(active_price_list.value || ""),
+	company: String(pos_profile.value?.company || ""),
+	customer: selectedCustomer.value || null,
+	qty: normalizeRequestedQty(source?.qty),
+	limit: 50,
+});
+
+const focusAlternateResults = async () => {
+	await nextTick();
+	if (activeResultItems.value.length) {
+		itemSelection.highlightFirstItem();
+		await focusHighlightedPharmacyResult();
+	}
+};
+
+const openAlternateMode = async (source: any, origin: "search" | "cart") => {
+	const request = buildAlternateRequest(source);
+	if (!request.item_code || !request.pos_profile) {
+		toastStore.show({
+			title: __("Unable to load alternate items"),
+			detail: __("The requested item or active POS Profile is unavailable."),
+			color: "error",
+		});
+		return false;
+	}
+
+	alternateSource.value = {
+		...source,
+		qty: request.qty,
+	};
+	alternateOrigin.value = origin;
+	alternateMode.value = true;
+	itemSelection.clearHighlightedItem();
+	const response = await alternates.load(request);
+	if (!alternateMode.value || alternateSource.value?.item_code !== request.item_code) {
+		return false;
+	}
+	await focusAlternateResults();
+	return Boolean(response);
+};
+
+const clearAlternateMode = () => {
+	alternateMode.value = false;
+	alternateOrigin.value = null;
+	alternateSource.value = null;
+	alternates.clear();
+	itemSelection.clearHighlightedItem();
+};
+
+const exitAlternateMode = async () => {
+	if (!alternateMode.value) return;
+	const origin = alternateOrigin.value;
+	clearAlternateMode();
+	if (origin === "cart") {
+		emit("alternates-cancelled");
+		return;
+	}
+	await nextTick();
+	if (activeResultItems.value.length) itemSelection.highlightFirstItem();
+	focusSearchInput();
+};
+
+const selectAlternateItem = async (item: any) => {
+	if (!item || alternates.loading.value) return null;
+	const requestedQty = normalizeRequestedQty(alternateSource.value?.qty);
+	if (item.can_fulfill_requested_qty === false || Number(item.available_qty || 0) < requestedQty) {
+		toastStore.show({
+			title: __("Not enough alternate stock"),
+			detail: __("Reduce the requested quantity before choosing this item."),
+			color: "warning",
+		});
+		return null;
+	}
+
+	const source = alternateSource.value;
+	const origin = alternateOrigin.value;
+	const addedLine = await add_item(item, {
+		qty: requestedQty,
+		new_line: false,
+		suppressNegativeWarning: false,
+		alternateSelection: {
+			origin,
+			rowId: source?.row_id || source?.posa_row_id || null,
+			itemCode: source?.item_code || null,
+			requestedQty,
+		},
+	});
+	if (addedLine) clearAlternateMode();
+	return addedLine;
+};
+
+const handleCounterResultEnter = async (event?: KeyboardEvent) => {
+	if (event?.isComposing || event?.repeat) return;
+	const highlighted = getHighlightedResultItem();
+	if (alternateMode.value) {
+		event?.preventDefault?.();
+		await selectAlternateItem(highlighted);
+		return;
+	}
+	if (highlighted && isUnavailableForSale(highlighted, qty.value)) {
+		event?.preventDefault?.();
+		await openAlternateMode(
+			{
+				...highlighted,
+				qty: normalizeRequestedQty(qty.value),
+			},
+			"search",
+		);
+		return;
+	}
+	itemsSelectorSearch.onEnter(event);
+};
+
+const handleSelectorKeydownCapture = (event: KeyboardEvent) => {
+	if (!alternateMode.value || event.key !== "Escape") return;
+	event.preventDefault();
+	event.stopPropagation();
+	void exitAlternateMode();
 };
 
 // Multi-select support
@@ -1114,7 +1387,7 @@ onMounted(async () => {
 			return flyConfig;
 		},
 		get displayedItems() {
-			return selectableDisplayedItems.value;
+			return activeResultItems.value;
 		},
 	});
 
@@ -1208,6 +1481,10 @@ onMounted(async () => {
 
 onBeforeUnmount(() => {
 	unbindItemCatalogRecoveryListeners();
+	if (pharmacyNavigationFrame !== null) {
+		window.cancelAnimationFrame(pharmacyNavigationFrame);
+		pharmacyNavigationFrame = null;
+	}
 	if (itemCatalogRecoveryTimer) {
 		clearTimeout(itemCatalogRecoveryTimer);
 		itemCatalogRecoveryTimer = null;
@@ -1251,6 +1528,7 @@ watch(
 	[() => props.initialSearch, isInitialized],
 	async ([rawQuery, initialized]) => {
 		if (props.presentation !== "counter-grid-dialog") return;
+		if (props.alternateRequest || alternateMode.value) return;
 
 		const query = String(rawQuery || "").trim();
 		search_input.value = query;
@@ -1295,6 +1573,37 @@ watch(
 		}
 	},
 	{ immediate: true, flush: "post" },
+);
+
+let activeCartAlternateRequestKey = "";
+watch(
+	[() => props.alternateRequest, isInitialized, () => pos_profile.value?.name],
+	async ([rawRequest, initialized, profileName]) => {
+		if (props.presentation !== "counter-grid-dialog") return;
+		const request = rawRequest as any;
+		if (!request?.item_code) {
+			activeCartAlternateRequestKey = "";
+			if (alternateOrigin.value === "cart") clearAlternateMode();
+			return;
+		}
+		if (!initialized || !profileName) return;
+
+		const requestKey = [
+			request.row_id || request.posa_row_id || "",
+			request.item_code,
+			normalizeRequestedQty(request.qty),
+		].join(":");
+		if (
+			requestKey === activeCartAlternateRequestKey &&
+			alternateMode.value &&
+			alternateOrigin.value === "cart"
+		) {
+			return;
+		}
+		activeCartAlternateRequestKey = requestKey;
+		await openAlternateMode(request, "cart");
+	},
+	{ immediate: true, deep: true, flush: "post" },
 );
 
 watch(selectedCustomer, () => {
@@ -1382,6 +1691,10 @@ const handleItemSearchFocusForPresentation = () => {
 	handleItemSearchFocus();
 };
 const focusSearchInput = () => {
+	if (alternateMode.value) {
+		void focusHighlightedPharmacyResult();
+		return;
+	}
 	if (props.presentation === "counter-grid-dialog") {
 		itemSearchFocusClearGuard.armPreserveNextFocusClear();
 	}
@@ -1406,8 +1719,20 @@ const {
 });
 
 // Proxy functions for template
-const esc_event = () => clearSearch();
-const onEnter = (e) => itemsSelectorSearch.onEnter(e);
+const esc_event = () => {
+	if (alternateMode.value) {
+		void exitAlternateMode();
+		return;
+	}
+	clearSearch();
+};
+const onEnter = (e) => {
+	if (props.presentation === "counter-grid-dialog") {
+		void handleCounterResultEnter(e);
+		return;
+	}
+	itemsSelectorSearch.onEnter(e);
+};
 const handleSearchKeydown = (e) => itemsSelectorFocus.handleSearchKeydown(e);
 const handleSearchPaste = (e) => itemsSelectorFocus.handleSearchPaste(e);
 const searchItems = (term) => itemsIntegration.searchItems(term);
@@ -1425,8 +1750,25 @@ const select_item = (e: any, item: any) => {
 	}
 };
 const click_item_row = (e: any, data: any) => {
+	const item = data?.item || data;
+	if (props.presentation === "counter-grid-dialog") {
+		if (alternateMode.value) {
+			void selectAlternateItem(item);
+			return;
+		}
+		if (isUnavailableForSale(item, qty.value)) {
+			void openAlternateMode(
+				{
+					...item,
+					qty: normalizeRequestedQty(qty.value),
+				},
+				"search",
+			);
+			return;
+		}
+	}
 	if (props.multiSelect) {
-		toggleItemSelection(data?.item || data);
+		toggleItemSelection(item);
 	} else {
 		itemSelection.handleRowClick(e, data);
 	}
@@ -1438,6 +1780,8 @@ defineExpose({
 	search_input,
 	debounce_qty,
 	focusSearchInput,
+	openAlternateMode,
+	exitAlternateMode,
 	qty,
 	items_view,
 	pos_profile,
@@ -1541,6 +1885,85 @@ defineExpose({
 .items-selector-shell {
 	min-height: 0;
 	min-width: 0;
+}
+
+.items-selector-shell--counter-dialog {
+	--counter-rugged-navy: #09253d;
+	--counter-rugged-navy-raised: #174a70;
+	--counter-rugged-blue: #0f70d7;
+	--counter-rugged-cyan: #38bdf8;
+	--counter-rugged-line: #9db2c4;
+	--counter-rugged-surface: #ffffff;
+	--counter-rugged-muted: #edf3f7;
+	height: 100%;
+}
+
+.items-selector-shell--counter-dialog .dynamic-padding {
+	height: 100%;
+	padding: 8px;
+	gap: 7px;
+	background: var(--counter-rugged-muted);
+}
+
+.items-selector-shell--counter-dialog .selection-card {
+	border-radius: 0;
+	background: var(--counter-rugged-muted) !important;
+	overflow: hidden !important;
+}
+
+.items-selector-shell--counter-dialog .selector-header-card {
+	flex: 0 0 auto;
+	min-height: 58px;
+	border: 2px solid var(--counter-rugged-blue);
+	border-radius: 4px;
+	background: var(--counter-rugged-surface) !important;
+	box-shadow: 0 2px 4px rgba(9, 37, 61, 0.2);
+	overflow: visible;
+}
+
+.items-selector-shell--counter-dialog :deep(.sticky-header) {
+	position: static;
+	min-height: 54px;
+	box-sizing: border-box;
+	padding: 7px 8px;
+	border: 0;
+	background: #ffffff;
+}
+
+.items-selector-shell--counter-dialog :deep(.sticky-header .v-field) {
+	min-height: 40px;
+	border: 0;
+	border-radius: 3px;
+	background: #ffffff;
+	box-shadow: inset 0 0 0 1px #9db2c4;
+}
+
+.items-selector-shell--counter-dialog :deep(.sticky-header .v-field__input) {
+	min-height: 40px;
+}
+
+.items-selector-shell--counter-dialog :deep(.sticky-header .v-field--focused) {
+	box-shadow:
+		inset 0 0 0 2px var(--counter-rugged-blue),
+		0 0 0 2px #b9dcfb;
+}
+
+.items-selector-shell--counter-dialog .selector-results-card {
+	flex: 1 1 auto;
+	min-height: 0;
+	padding: 0;
+	border: 1px solid var(--counter-rugged-line);
+	border-radius: 3px;
+	background: var(--counter-rugged-surface) !important;
+	box-shadow: 0 2px 5px rgba(9, 37, 61, 0.16);
+}
+
+.items-selector-shell--counter-dialog .selector-results-card > .items,
+.items-selector-shell--counter-dialog .selector-results-card > .items > .v-col {
+	height: 100%;
+	min-height: 0;
+	margin: 0;
+	padding: 0 !important;
 }
 
 .dynamic-padding {

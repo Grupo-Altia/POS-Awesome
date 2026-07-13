@@ -39,16 +39,27 @@ describe("Navbar supervisor access", () => {
 				sysdefaults: { company: "Test Co" },
 				website_settings: {},
 			},
-			call: vi.fn(async () => ({
-				message: [
-					{
-						user: "cashier@example.com",
-						full_name: "Main Cashier",
-						is_current: true,
-						is_supervisor: false,
+			call: vi.fn(async ({ method }: { method: string }) => {
+				if (method.endsWith("get_terminal_employees")) {
+					return {
+						message: [
+							{
+								user: "cashier@example.com",
+								full_name: "Main Cashier",
+								is_current: true,
+								is_supervisor: false,
+							},
+						],
+					};
+				}
+				return {
+					message: {
+						pos_profile: "Main POS",
+						active_cashier: "cashier@example.com",
+						locked: method.endsWith("lock_terminal"),
 					},
-				],
-			})),
+				};
+			}),
 		});
 	});
 
@@ -92,7 +103,11 @@ describe("Navbar supervisor access", () => {
 		});
 
 		await Promise.resolve();
-		expect((wrapper.vm as any).items.some((item: any) => item.to === "/dashboard")).toBe(false);
+		expect(
+			(wrapper.vm as any).items.some(
+				(item: any) => item.to === "/dashboard",
+			),
+		).toBe(false);
 
 		employeeStore.setCurrentCashier({
 			user: "cashier@example.com",
@@ -101,7 +116,11 @@ describe("Navbar supervisor access", () => {
 		});
 		await (wrapper.vm as any).$nextTick();
 
-		expect((wrapper.vm as any).items.some((item: any) => item.to === "/dashboard")).toBe(true);
+		expect(
+			(wrapper.vm as any).items.some(
+				(item: any) => item.to === "/dashboard",
+			),
+		).toBe(true);
 	});
 
 	it("shows the gift cards drawer item when gift cards are enabled on the POS profile", async () => {
@@ -144,7 +163,11 @@ describe("Navbar supervisor access", () => {
 		});
 
 		await Promise.resolve();
-		expect((wrapper.vm as any).items.some((item: any) => item.to === "/gift-cards")).toBe(true);
+		expect(
+			(wrapper.vm as any).items.some(
+				(item: any) => item.to === "/gift-cards",
+			),
+		).toBe(true);
 	});
 
 	it("passes a footer settings launcher to the drawer and opens the settings panel from it", async () => {
@@ -157,7 +180,10 @@ describe("Navbar supervisor access", () => {
 
 		const wrapper = shallowMount(Navbar, {
 			props: {
-				posProfile: { name: "Main POS", posa_enable_customer_display: 1 },
+				posProfile: {
+					name: "Main POS",
+					posa_enable_customer_display: 1,
+				},
 				manualOffline: false,
 				networkOnline: true,
 				serverOnline: true,
@@ -188,9 +214,13 @@ describe("Navbar supervisor access", () => {
 		(wrapper.vm as any).drawer = true;
 		await nextTick();
 
-		expect(wrapper.get('[data-test="drawer-footer-action"]').text()).toContain("Settings");
+		expect(
+			wrapper.get('[data-test="drawer-footer-action"]').text(),
+		).toContain("Settings");
 
-		await wrapper.get('[data-test="drawer-footer-action"]').trigger("click");
+		await wrapper
+			.get('[data-test="drawer-footer-action"]')
+			.trigger("click");
 		await nextTick();
 
 		expect((wrapper.vm as any).drawer).toBe(false);
@@ -205,9 +235,9 @@ describe("Navbar supervisor access", () => {
 			is_supervisor: true,
 		});
 
-		(clearAllCaches as unknown as ReturnType<typeof vi.fn>).mockRejectedValueOnce(
-			new Error("boom"),
-		);
+		(
+			clearAllCaches as unknown as ReturnType<typeof vi.fn>
+		).mockRejectedValueOnce(new Error("boom"));
 
 		const wrapper = shallowMount(Navbar, {
 			props: {
@@ -247,5 +277,150 @@ describe("Navbar supervisor access", () => {
 		);
 		expect(shownTitles).toContain("Failed to clear cache");
 		expect(shownTitles).not.toContain("Cache cleared successfully");
+	});
+
+	it("fails closed and marks the server lock pending when lock persistence fails", async () => {
+		const employeeStore = useEmployeeStore();
+		employeeStore.setTerminalEmployees([
+			{
+				user: "cashier@example.com",
+				full_name: "Main Cashier",
+			},
+		]);
+		employeeStore.applyTerminalState({
+			active_cashier: "cashier@example.com",
+			locked: false,
+		});
+
+		const wrapper = shallowMount(Navbar, {
+			props: { posProfile: { name: "Main POS" } },
+			global: {
+				mocks: { __: (value: string) => value },
+				stubs: {
+					NavbarAppBar: true,
+					NavbarDrawer: true,
+					NavbarMenu: true,
+					NotificationBell: true,
+					StatusIndicator: true,
+					CacheUsageMeter: true,
+					AboutDialog: true,
+					EmployeeSwitchDialog: true,
+					OfflineInvoicesDialog: true,
+					ServerUsageGadget: true,
+					DatabaseUsageGadget: true,
+					VDialog: true,
+					VCard: true,
+					VCardTitle: true,
+					VCardText: true,
+					VSnackbar: true,
+					VBtn: true,
+					VProgressCircular: true,
+				},
+			},
+		});
+		await (wrapper.vm as any).fetchTerminalEmployees();
+		(frappe.call as ReturnType<typeof vi.fn>).mockClear();
+		(frappe.call as ReturnType<typeof vi.fn>).mockRejectedValueOnce(
+			new Error("server unavailable"),
+		);
+
+		const result = await (wrapper.vm as any).lockPosScreen();
+
+		expect(result).toBeUndefined();
+		expect(employeeStore.isLocked).toBe(true);
+		expect(employeeStore.terminalLockPending).toBe(true);
+		expect(frappe.call).toHaveBeenLastCalledWith({
+			method: "posawesome.posawesome.api.employees.lock_terminal",
+			args: { pos_profile: "Main POS" },
+		});
+		expect((wrapper.vm as any).toastStore.history.at(-1)?.title).toContain(
+			"Server lock pending",
+		);
+		wrapper.unmount();
+	});
+
+	it("surfaces cashier loading failures and recovers without retaining stale users", async () => {
+		const employeeStore = useEmployeeStore();
+		(frappe.call as ReturnType<typeof vi.fn>).mockImplementation(
+			async ({ method }: { method: string }) => {
+				if (method.endsWith("get_terminal_employees")) {
+					throw new Error("temporary network failure");
+				}
+				return {
+					message: {
+						pos_profile: "Main POS",
+						active_cashier: null,
+						locked: true,
+					},
+				};
+			},
+		);
+
+		const wrapper = shallowMount(Navbar, {
+			props: { posProfile: { name: "Main POS" } },
+			global: {
+				mocks: { __: (value: string) => value },
+				stubs: {
+					NavbarAppBar: true,
+					NavbarDrawer: true,
+					NavbarMenu: true,
+					NotificationBell: true,
+					StatusIndicator: true,
+					CacheUsageMeter: true,
+					AboutDialog: true,
+					EmployeeSwitchDialog: true,
+					OfflineInvoicesDialog: true,
+					ServerUsageGadget: true,
+					DatabaseUsageGadget: true,
+					VDialog: true,
+					VCard: true,
+					VCardTitle: true,
+					VCardText: true,
+					VSnackbar: true,
+					VBtn: true,
+					VProgressCircular: true,
+				},
+			},
+		});
+
+		await vi.waitFor(() => {
+			expect(employeeStore.terminalEmployeesLoadStatus).toBe("error");
+		});
+		expect(employeeStore.terminalEmployees).toEqual([]);
+		expect(employeeStore.terminalEmployeesLoadError).toContain(
+			"Unable to load cashiers",
+		);
+		expect(employeeStore.isLocked).toBe(true);
+
+		(frappe.call as ReturnType<typeof vi.fn>).mockImplementation(
+			async ({ method }: { method: string }) => {
+				if (method.endsWith("get_terminal_employees")) {
+					return {
+						message: [
+							{
+								user: "cashier@example.com",
+								full_name: "Main Cashier",
+							},
+						],
+					};
+				}
+				return {
+					message: {
+						pos_profile: "Main POS",
+						active_cashier: null,
+						locked: true,
+					},
+				};
+			},
+		);
+
+		await (wrapper.vm as any).fetchTerminalEmployees();
+
+		expect(employeeStore.terminalEmployeesLoadStatus).toBe("ready");
+		expect(
+			employeeStore.terminalEmployees.map((cashier) => cashier.user),
+		).toEqual(["cashier@example.com"]);
+		expect(employeeStore.terminalEmployeesLoadError).toBe("");
+		wrapper.unmount();
 	});
 });

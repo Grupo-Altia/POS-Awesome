@@ -70,6 +70,7 @@ export default defineConfig({
 	testMatch: ["smoke/**/*.spec.ts", "e2e/**/*.spec.ts"],
 	timeout: 120000,
 	fullyParallel: false,
+	workers: process.env.POSA_E2E_PROVISION_CASHIER === "1" ? 1 : undefined,
 	forbidOnly: !!process.env.CI,
 	retries: process.env.CI ? 1 : 0,
 	reporter: process.env.CI

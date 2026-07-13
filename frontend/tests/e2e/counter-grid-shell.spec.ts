@@ -1,5 +1,10 @@
 import { expect, test, type Page } from "@playwright/test";
 
+import {
+	cleanupProvisionedTerminalCashier,
+	ensureAuthoritativeTerminalUnlock,
+} from "./helpers/terminalAuth";
+
 const ENABLED = process.env.POSA_COUNTER_GRID_E2E === "1";
 const POS_PATH = process.env.POSA_SMOKE_PATH || "/desk/posapp";
 const KNOWN_ITEM_CODES = ["02017", "02016", "02249", "A3106", "22203"];
@@ -9,6 +14,10 @@ test.skip(
 	"Set POSA_COUNTER_GRID_E2E=1 to run Counter Grid E2E tests.",
 );
 
+test.afterEach(async ({ page }) => {
+	await cleanupProvisionedTerminalCashier(page);
+});
+
 async function waitForPos(page: Page) {
 	await page.goto(POS_PATH, { waitUntil: "domcontentloaded" });
 	if (/\/login/.test(page.url())) {
@@ -16,6 +25,7 @@ async function waitForPos(page: Page) {
 			"Counter Grid E2E requires POSA_SMOKE_SID or login credentials.",
 		);
 	}
+	await ensureAuthoritativeTerminalUnlock(page);
 	await expect(page.locator(".main-section").first()).toBeVisible({
 		timeout: 90_000,
 	});
@@ -191,10 +201,21 @@ test.describe("Counter Grid shell", () => {
 		await page.keyboard.press("Shift+Tab");
 		await expect(cartRow).toHaveAttribute(
 			"data-active-cell-key",
-			"discount_amount",
+			"data-table-expand",
 		);
 		await expect(
-			cartRow.locator('[data-column-key="discount_amount"] input'),
+			cartRow.locator('[data-column-key="data-table-expand"] button'),
+		).toBeFocused();
+
+		await page.keyboard.press("Tab");
+		await expect(entry).toBeFocused();
+		await page.keyboard.press("ArrowUp");
+		await expect(cartRow).toHaveAttribute(
+			"data-active-cell-key",
+			"item_name",
+		);
+		await expect(
+			cartRow.locator('[data-column-key="item_name"]'),
 		).toBeFocused();
 	});
 
@@ -221,6 +242,106 @@ test.describe("Counter Grid shell", () => {
 				),
 			);
 		expect(codes.slice(0, 2)).toEqual([first.itemCode, second.itemCode]);
+	});
+
+	test("supports spreadsheet boundary keys and reverse Enter progression", async ({
+		page,
+	}) => {
+		await page.setViewportSize({ width: 1366, height: 768 });
+		await waitForPos(page);
+		const first = await addKnownItemFromCounterSearch(page);
+		await page.keyboard.press("F2");
+		const second = await addKnownItemFromCounterSearch(
+			page,
+			new Set([first.itemCode]),
+		);
+
+		const secondRow = page
+			.getByTestId(`cart-row-${second.itemCode}`)
+			.first();
+		const secondQty = secondRow
+			.locator('[data-column-key="qty"] input')
+			.first();
+		await expect(secondQty).toBeFocused({ timeout: 15_000 });
+		await page.keyboard.press("End");
+		await expect(secondRow).toHaveAttribute(
+			"data-active-cell-key",
+			"data-table-expand",
+		);
+		await page.keyboard.press("Home");
+		await expect(secondRow).toHaveAttribute(
+			"data-active-cell-key",
+			"item_name",
+		);
+
+		await page.keyboard.press("Control+Home");
+		const firstRow = page.getByTestId(`cart-row-${first.itemCode}`).first();
+		await expect(firstRow).toHaveAttribute(
+			"data-active-cell-key",
+			"item_name",
+		);
+		await expect(firstRow.locator("td").first()).toHaveCSS(
+			"background-color",
+			"rgb(23, 74, 112)",
+		);
+		await expect(secondRow.locator("td").first()).toHaveCSS(
+			"background-color",
+			"rgb(255, 255, 255)",
+		);
+		await expect(firstRow).toHaveCSS("transition-duration", "0s");
+		await expect(firstRow).toHaveCSS("animation-name", "none");
+		await expect(firstRow.locator("td").first()).toHaveCSS(
+			"transition-duration",
+			"0s",
+		);
+		await page.keyboard.press("Control+End");
+		await expect(secondRow).toHaveAttribute(
+			"data-active-cell-key",
+			"data-table-expand",
+		);
+
+		await page.keyboard.press("Shift+Tab");
+		await expect(secondRow).toHaveAttribute(
+			"data-active-cell-key",
+			"actions",
+		);
+		await expect(
+			secondRow.locator('[data-column-key="actions"] button'),
+		).toBeFocused();
+		await page.keyboard.press("Shift+Tab");
+		await expect(secondRow).toHaveAttribute(
+			"data-active-cell-key",
+			"amount",
+		);
+		await expect(
+			secondRow.locator('[data-column-key="amount"]'),
+		).toBeFocused();
+		await page.keyboard.press("Tab");
+		await expect(secondRow).toHaveAttribute(
+			"data-active-cell-key",
+			"actions",
+		);
+		await page.keyboard.press("Tab");
+		await expect(secondRow).toHaveAttribute(
+			"data-active-cell-key",
+			"data-table-expand",
+		);
+		await page.keyboard.press("Tab");
+		await expect(page.getByTestId("counter-grid-item-entry")).toBeFocused();
+		await page.keyboard.press("Shift+Tab");
+		await expect(secondRow).toHaveAttribute(
+			"data-active-cell-key",
+			"data-table-expand",
+		);
+
+		await page.keyboard.press("Home");
+		await page.keyboard.press("ArrowRight");
+		await expect(secondQty).toBeFocused({ timeout: 15_000 });
+		await page.keyboard.press("Shift+Enter");
+		const firstRowLastEditable = firstRow.locator(
+			'[data-column-key="discount_amount"] input',
+		);
+		await expect(firstRowLastEditable).toBeFocused({ timeout: 15_000 });
 	});
 
 	test("retains cashier, sync, profile, PIN, and operational navigation", async ({
@@ -293,6 +414,35 @@ test.describe("Counter Grid shell", () => {
 			.locator('[data-test="navbar-settings-panel-close"]')
 			.click();
 		await expect(settings).toBeHidden();
+	});
+
+	test("opens offers and coupons from the Counter Grid command menu by keyboard", async ({
+		page,
+	}) => {
+		await page.setViewportSize({ width: 1280, height: 720 });
+		await waitForPos(page);
+
+		const moreActions = page.getByTestId("invoice-action-more");
+		await moreActions.press("Enter");
+
+		const offersAction = page.getByTestId("invoice-action-offers");
+		await expect(offersAction).toBeVisible();
+		await offersAction.press("Enter");
+		await expect(page.getByTestId("counter-grid-offers")).toBeVisible();
+
+		await page.keyboard.press("Escape");
+		await expect(page.getByTestId("counter-grid-offers")).toBeHidden();
+		await expect(page.getByTestId("counter-grid-item-entry")).toBeFocused();
+
+		await moreActions.press("Enter");
+		const couponsAction = page.getByTestId("invoice-action-coupons");
+		await expect(couponsAction).toBeVisible();
+		await couponsAction.press("Enter");
+		await expect(page.getByTestId("counter-grid-coupons")).toBeVisible();
+
+		await page.keyboard.press("Escape");
+		await expect(page.getByTestId("counter-grid-coupons")).toBeHidden();
+		await expect(page.getByTestId("counter-grid-item-entry")).toBeFocused();
 	});
 
 	test("keeps the certified shell inside a 1024x768 viewport", async ({

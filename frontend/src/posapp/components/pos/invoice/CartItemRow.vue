@@ -93,16 +93,12 @@
 					}"
 					:data-length="qtyLength"
 					:title="formatFloat(item.qty, hideQtyDecimals ? 0 : undefined)"
-					tabindex="0"
 					data-pos-keyboard-target="cart-qty"
-					role="button"
-					:aria-label="__('Edit quantity')"
 					@click.stop="focusQtyInput"
-					@keydown.enter.prevent="focusQtyInput"
-					@keydown.space.prevent="focusQtyInput"
 				>
 					<v-text-field
 						:model-value="editingQtyValue"
+						:label="__('Quantity')"
 						density="compact"
 						variant="outlined"
 						class="posa-cart-table__qty-input posa-cart-table__qty-input--direct"
@@ -582,10 +578,7 @@ const disableInput = computed(
 
 const disableUomEdit = computed(() => !!props.item.posa_is_replace);
 const canEditUom = computed(
-	() =>
-		!disableUomEdit.value &&
-		Array.isArray(props.item.item_uoms) &&
-		props.item.item_uoms.length > 1,
+	() => !disableUomEdit.value && Array.isArray(props.item.item_uoms) && props.item.item_uoms.length > 1,
 );
 
 const disableRateEdit = computed(
@@ -956,7 +949,6 @@ td {
 }
 
 /* Keyboard focus styles */
-/* Keyboard focus styles */
 .posa-cart-table__qty-input-shell:focus-visible,
 .posa-cart-table__editor-display:focus-visible {
 	outline: 2px solid var(--pos-primary);
@@ -966,13 +958,16 @@ td {
 
 .posa-cart-item-row--keyboard-active {
 	position: relative;
-	background: rgba(var(--v-theme-primary), 0.12) !important;
-	background: color-mix(in srgb, var(--pos-primary) 12%, var(--pos-surface-raised)) !important;
+	background: #174a70 !important;
+	animation: none !important;
+	transition: none !important;
 }
 
 .posa-cart-item-row--keyboard-active > td {
-	background: rgba(var(--v-theme-primary), 0.1);
-	background: color-mix(in srgb, var(--pos-primary) 10%, transparent);
+	background: #174a70 !important;
+	color: #ffffff !important;
+	animation: none !important;
+	transition: none !important;
 }
 
 .posa-cart-item-row--keyboard-row {
@@ -986,14 +981,10 @@ td {
 }
 
 .posa-cart-item-cell--keyboard-active {
-	background: rgba(var(--v-theme-primary), 0.18) !important;
-	background: color-mix(in srgb, var(--pos-primary) 18%, var(--pos-surface-raised)) !important;
+	background: #174a70 !important;
 	box-shadow:
-		inset 0 0 0 3px var(--pos-primary),
-		inset 0 0 0 6px rgba(var(--v-theme-primary), 0.16);
-	box-shadow:
-		inset 0 0 0 3px var(--pos-primary),
-		inset 0 0 0 6px color-mix(in srgb, var(--pos-primary) 16%, transparent);
+		inset 0 0 0 3px #38bdf8,
+		inset 0 0 0 5px #ffffff;
 	z-index: 2;
 }
 
@@ -1014,6 +1005,7 @@ td {
 
 .posa-cart-item-row--loss-risk.posa-cart-item-row--keyboard-active > td,
 .posa-cart-item-row--loss-risk .posa-cart-item-cell--keyboard-active {
-	background: #fecaca !important;
+	background: #174a70 !important;
+	color: #ffffff !important;
 }
 </style>

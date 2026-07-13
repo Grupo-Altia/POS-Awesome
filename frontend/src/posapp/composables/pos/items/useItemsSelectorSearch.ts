@@ -414,7 +414,9 @@ export const useItemsSelectorSearch = ({
 			if (event && typeof event.preventDefault === "function") {
 				event.preventDefault();
 			}
-			(itemSelection || vm.itemSelection).selectHighlightedItem();
+			(itemSelection || vm.itemSelection).selectHighlightedItem({
+				postAddFocus: event?.shiftKey ? "qty" : "default",
+			});
 			return;
 		}
 

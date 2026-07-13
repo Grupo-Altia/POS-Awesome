@@ -1,10 +1,5 @@
 <template>
-	<tr
-		ref="entryRow"
-		class="counter-grid-entry-row"
-		data-testid="counter-grid-entry-row"
-		role="row"
-	>
+	<tr ref="entryRow" class="counter-grid-entry-row" data-testid="counter-grid-entry-row" role="row">
 		<td
 			v-for="column in columns"
 			:key="column.key"
@@ -16,10 +11,7 @@
 			<span v-if="column.key === 'data-table-expand'" class="counter-grid-entry-index">
 				{{ rowNumber }}
 			</span>
-			<label
-				v-else-if="column.key === 'item_name'"
-				class="counter-grid-entry-editor"
-			>
+			<label v-else-if="column.key === 'item_name'" class="counter-grid-entry-editor">
 				<v-icon icon="mdi-magnify" size="18" />
 				<input
 					:value="modelValue"
@@ -53,7 +45,7 @@ defineProps<{
 const emit = defineEmits<{
 	"update:modelValue": [value: string];
 	submit: [query: string];
-	navigateBack: [];
+	navigateBack: [method: "arrow-up" | "shift-tab"];
 }>();
 const entryRow = ref<HTMLTableRowElement | null>(null);
 const __ = window.__ || ((value: string) => value);
@@ -68,7 +60,7 @@ const handleKeydown = (event: KeyboardEvent) => {
 	if ((event.key === "Tab" && event.shiftKey) || event.key === "ArrowUp") {
 		event.preventDefault();
 		event.stopPropagation();
-		emit("navigateBack");
+		emit("navigateBack", event.key === "ArrowUp" ? "arrow-up" : "shift-tab");
 		return;
 	}
 	if (event.key === "Enter") {
@@ -86,16 +78,18 @@ defineExpose({ focus, select });
 
 <style scoped>
 .counter-grid-entry-row {
-	height: 48px;
-	background: rgba(var(--v-theme-primary), 0.035);
-	border-top: 2px solid rgba(var(--v-theme-primary), 0.32);
+	height: 52px;
+	background: #e2edf5;
+	border-top: 2px solid #174a70;
 }
 
 .counter-grid-entry-cell {
 	padding: 6px 10px;
 	text-align: center;
-	border-bottom: 1px solid var(--field-border);
-	color: var(--pos-text-muted);
+	border-right: 1px solid #c9d5df;
+	border-bottom: 1px solid #9db2c4;
+	background: #eaf2f7;
+	color: #52687a;
 }
 
 .counter-grid-entry-cell--item {
@@ -110,17 +104,18 @@ defineExpose({ focus, select });
 	width: 100%;
 	min-height: 38px;
 	padding: 6px 10px;
-	border: 1px solid rgba(var(--v-theme-primary), 0.58);
-	border-radius: 4px;
-	background: var(--pos-card-bg);
-	color: var(--pos-text-primary);
+	border: 2px solid #0f70d7;
+	border-radius: 3px;
+	background: #ffffff;
+	color: #10263b;
+	box-shadow: inset 0 1px 2px rgba(9, 37, 61, 0.12);
 	text-align: start;
 	cursor: text;
 }
 
 .counter-grid-entry-editor:focus-within {
-	border-color: rgb(var(--v-theme-primary));
-	outline: 3px solid rgba(var(--v-theme-primary), 0.24);
+	border-color: #0f70d7;
+	outline: 3px solid #b9dcfb;
 	outline-offset: 1px;
 }
 
@@ -130,13 +125,13 @@ defineExpose({ focus, select });
 	border: 0;
 	outline: 0;
 	background: transparent;
-	color: var(--pos-text-primary);
+	color: #10263b;
 	font: inherit;
 	letter-spacing: 0;
 }
 
 .counter-grid-entry-input::placeholder {
-	color: var(--pos-text-secondary);
+	color: #52687a;
 	opacity: 1;
 }
 
@@ -146,9 +141,10 @@ defineExpose({ focus, select });
 
 .counter-grid-entry-editor kbd {
 	padding: 1px 5px;
-	border: 1px solid var(--field-border);
+	border: 1px solid #9db2c4;
 	border-radius: 3px;
-	background: var(--pos-surface-muted);
+	background: #edf3f7;
+	color: #17364f;
 	font: inherit;
 	font-size: 0.72rem;
 }

@@ -5,10 +5,10 @@ from frappe import _
 def get_data():
     return [
         {
-            "label": _("POS Awesome"),
+            "label": _("RetailMind-POS"),
             "items": [
                 {
-                    "description": "POS Awesome",
+                    "description": "RetailMind-POS",
                     "name": "posapp",
                     "label": "POSAPP",
                     "type": "page",

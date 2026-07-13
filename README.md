@@ -59,6 +59,10 @@ then install `posawesome` on each site and run migrations. See
 [`docs/DOCKER_DEPLOYMENT.md`](docs/DOCKER_DEPLOYMENT.md) for the full build,
 install, and verification checklist.
 
+Production M-Pesa installations must also follow the
+[`M-Pesa callback security upgrade runbook`](docs/M-PESA_CALLBACK_SECURITY.md)
+before enabling callback processing after an upgrade.
+
 ---
 
 ### Update Instructions

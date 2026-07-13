@@ -19,9 +19,13 @@ export function cleanPharmacyText(value: unknown): string {
 }
 
 export function resolvePackLabel(item: Record<string, any>): string {
-	const explicit = cleanPharmacyText(item?.retailmind_old_pos_pack);
+	const explicit = cleanPharmacyText(
+		item?.retailmind_old_pos_pack ?? item?.pack,
+	);
 	if (explicit) return explicit;
-	const units = Number(item?.retailmind_units_per_pack);
+	const units = Number(
+		item?.retailmind_units_per_pack ?? item?.units_per_pack,
+	);
 	return Number.isFinite(units) && units > 1
 		? `${units} ${item?.stock_uom || "Nos"}`
 		: "";
@@ -51,9 +55,13 @@ export type PackLooseProjection = {
 export function projectPackLooseStock(
 	item: Record<string, any>,
 ): PackLooseProjection {
-	const availableQty = Number(item?.actual_qty ?? item?.stock_qty ?? 0);
+	const availableQty = Number(
+		item?.actual_qty ?? item?.available_qty ?? item?.stock_qty ?? 0,
+	);
 	const normalizedQty = Number.isFinite(availableQty) ? availableQty : 0;
-	const unitsPerPack = Number(item?.retailmind_units_per_pack);
+	const unitsPerPack = Number(
+		item?.retailmind_units_per_pack ?? item?.units_per_pack,
+	);
 	const uom = cleanPharmacyText(item?.stock_uom || item?.uom) || "Nos";
 	const canSplit =
 		uom.toLowerCase() === "nos" &&
@@ -91,14 +99,26 @@ export function pharmacySearchFieldValue(
 	const fieldValues: Record<string, unknown[]> = {
 		code: [item?.item_code],
 		product: [item?.item_name, item?.retailmind_short_name],
-		pack: [item?.retailmind_old_pos_pack, item?.retailmind_units_per_pack],
-		company: [item?.brand, item?.retailmind_old_pos_company_code],
+		pack: [
+			item?.retailmind_old_pos_pack,
+			item?.pack,
+			item?.retailmind_units_per_pack,
+			item?.units_per_pack,
+		],
+		company: [
+			item?.brand,
+			item?.company,
+			item?.retailmind_old_pos_company_code,
+			item?.company_code,
+		],
 		group: [item?.item_group],
 		generic: [
 			item?.retailmind_old_pos_generic_name,
 			item?.retailmind_old_pos_generic_code,
+			item?.generic_name,
+			item?.generic_code,
 		],
-		rack: [item?.retailmind_old_pos_rack],
+		rack: [item?.retailmind_old_pos_rack, item?.rack],
 	};
 	return (fieldValues[field] || Object.values(fieldValues).flat())
 		.map(cleanPharmacyText)
@@ -122,7 +142,9 @@ export function filterPharmacySearchItems(
 	const searchField = options.searchField || "all";
 
 	return (Array.isArray(items) ? items : []).filter((item) => {
-		const stock = Number(item?.actual_qty ?? item?.stock_qty ?? 0);
+		const stock = Number(
+			item?.actual_qty ?? item?.available_qty ?? item?.stock_qty ?? 0,
+		);
 		if (
 			!options.includeZeroStock &&
 			Number(item?.is_stock_item) !== 0 &&

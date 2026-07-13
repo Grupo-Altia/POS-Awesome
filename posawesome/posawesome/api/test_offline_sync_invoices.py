@@ -4,14 +4,25 @@ import pathlib
 import sys
 import types
 import unittest
+from contextlib import contextmanager
 
 REPO_ROOT = pathlib.Path(__file__).resolve().parents[3]
+_ORIGINAL_MODULES = dict(sys.modules)
 sys.path.insert(
     0,
     str(REPO_ROOT / "posawesome" / "posawesome" / "api" / "test_support"),
 )
 
 from offline_sync_harness import install_offline_sync_package_stubs
+
+
+def tearDownModule():
+    for name in list(sys.modules):
+        if name.startswith(("frappe", "posawesome")) and name not in _ORIGINAL_MODULES:
+            sys.modules.pop(name, None)
+    for name, module in _ORIGINAL_MODULES.items():
+        if name.startswith(("frappe", "posawesome")):
+            sys.modules[name] = module
 
 
 def _install_stubs():
@@ -51,6 +62,20 @@ def _install_stubs():
         "ledger_state": "POST_SUBMIT_DONE",
         "repaired": True,
     }
+
+    @contextmanager
+    def trusted_shift(invoice, data, source):
+        original = invoice.get("posa_pos_opening_shift")
+        invoice["posa_pos_opening_shift"] = "POS-OPEN-CURRENT"
+        data["posa_pos_opening_shift"] = "POS-OPEN-CURRENT"
+        data["_posa_shift_reassignment_audit"] = {
+            "source": source,
+            "original_opening_shift": original,
+            "assigned_opening_shift": "POS-OPEN-CURRENT",
+        }
+        yield data["_posa_shift_reassignment_audit"]
+
+    creation_module.trusted_invoice_shift_reassignment = trusted_shift
     sys.modules["posawesome.posawesome.api.invoice_processing.creation"] = creation_module
 
 
@@ -117,10 +142,50 @@ class TestOfflineSyncInvoices(unittest.TestCase):
             "outbox-authoritative-002",
         )
         self.assertEqual(
-            captured["data"],
+            captured["data"]["idempotency_key"],
+            "outbox-authoritative-002",
+        )
+        self.assertEqual(captured["data"]["client_request_id"], "outbox-authoritative-002")
+
+    def test_late_offline_sync_uses_server_controlled_current_shift(self):
+        captured = {}
+        original_submit_invoice = self.module.submit_invoice
+
+        def capture_submit(invoice, data, submit_in_background=0):
+            captured["invoice"] = json.loads(invoice)
+            captured["data"] = json.loads(data)
+            return {
+                "name": "ACC-SINV-OFFLINE-LATE-0001",
+                "doctype": "Sales Invoice",
+                "docstatus": 1,
+                "status": 1,
+            }
+
+        self.module.submit_invoice = capture_submit
+        try:
+            self.module.submit_invoice_outbox_entry(
+                client_request_id="offline-late-001",
+                invoice={
+                    "company": "Test Company",
+                    "pos_profile": "Main POS",
+                    "posa_pos_opening_shift": "POS-OPEN-CLOSED",
+                },
+                data={},
+            )
+        finally:
+            self.module.submit_invoice = original_submit_invoice
+
+        self.assertEqual(
+            captured["invoice"]["posa_pos_opening_shift"],
+            "POS-OPEN-CURRENT",
+        )
+        self.assertEqual(captured["data"]["posa_pos_opening_shift"], "POS-OPEN-CURRENT")
+        self.assertEqual(
+            captured["data"]["_posa_shift_reassignment_audit"],
             {
-                "idempotency_key": "outbox-authoritative-002",
-                "client_request_id": "outbox-authoritative-002",
+                "source": "offline_sync",
+                "original_opening_shift": "POS-OPEN-CLOSED",
+                "assigned_opening_shift": "POS-OPEN-CURRENT",
             },
         )
 

@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import json
 from datetime import timedelta
 from math import ceil
 from collections import defaultdict
@@ -10,7 +9,13 @@ import frappe
 from frappe import _
 from frappe.utils import add_months, cint, cstr, flt, getdate, now_datetime, nowdate
 
-from .utils import get_active_pos_profile, get_default_warehouse
+from .pos_access import (
+    get_authorized_pos_profile,
+    user_can_manage_pos,
+    user_is_pos_privileged_manager,
+)
+from .terminal_state import get_active_terminal_cashier
+from .utils import get_default_warehouse
 
 INVOICE_SOURCES: tuple[tuple[str, str], ...] = (
     ("Sales Invoice", "Sales Invoice Item"),
@@ -23,15 +28,6 @@ SCOPE_SPECIFIC = "specific"
 DEFAULT_DASHBOARD_SCOPE = SCOPE_ALL
 DEFAULT_LOW_STOCK_THRESHOLD = 10
 
-DASHBOARD_MANAGER_ROLES = {
-    "System Manager",
-    "Accounts Manager",
-    "Sales Manager",
-    "Stock Manager",
-    "POS Manager",
-}
-
-
 def _pick_first_column(doctype: str, candidates: list[str]) -> str | None:
     for fieldname in candidates:
         if frappe.db.has_column(doctype, fieldname):
@@ -39,43 +35,15 @@ def _pick_first_column(doctype: str, candidates: list[str]) -> str | None:
     return None
 
 
-def _resolve_profile(pos_profile: Any) -> dict[str, Any]:
-    profile_name = ""
-
-    if isinstance(pos_profile, dict):
-        profile_name = cstr(pos_profile.get("name")).strip()
-    elif isinstance(pos_profile, str):
-        raw_value = pos_profile.strip()
-        if raw_value:
-            parsed_value: Any = raw_value
-            if raw_value.startswith("{"):
-                try:
-                    parsed_value = json.loads(raw_value)
-                except Exception:
-                    parsed_value = raw_value
-
-            if isinstance(parsed_value, dict):
-                profile_name = cstr(parsed_value.get("name")).strip()
-            elif isinstance(parsed_value, str):
-                profile_name = parsed_value.strip()
-
-    if profile_name:
-        if not frappe.db.exists("POS Profile", profile_name):
-            frappe.throw(_("POS Profile {0} does not exist.").format(profile_name))
-        return frappe.get_cached_doc("POS Profile", profile_name).as_dict()
-
-    active_profile = get_active_pos_profile()
-    if not active_profile:
-        frappe.throw(_("No active POS Profile found for current user."))
-    return active_profile
-
-
-def _check_profile_permission(profile_name: str):
-    if not frappe.has_permission("POS Profile", "read", profile_name):
+def _get_authorized_dashboard_profile(pos_profile: Any) -> tuple[dict[str, Any], str]:
+    profile_doc = get_authorized_pos_profile(pos_profile)
+    cashier = get_active_terminal_cashier(profile_doc.get("name"))
+    if not user_can_manage_pos(cashier):
         frappe.throw(
-            _("You are not permitted to access POS Profile {0}.").format(profile_name),
+            _("A POS supervisor or manager is required for dashboard access."),
             frappe.PermissionError,
         )
+    return profile_doc.as_dict(), cashier
 
 
 def _build_in_filter(column_sql: str, values: list[str]) -> tuple[str, list[str]]:
@@ -147,10 +115,7 @@ def _is_dashboard_enabled(profile_doc: dict[str, Any]) -> bool:
 
 
 def _user_can_view_all_profiles(user: str) -> bool:
-    if user == "Administrator":
-        return True
-    user_roles = set(frappe.get_roles(user))
-    return bool(user_roles & DASHBOARD_MANAGER_ROLES)
+    return user_is_pos_privileged_manager(user)
 
 
 def _normalize_scope(scope: Any, default_scope: str, allow_all_profiles: bool) -> str:
@@ -1130,7 +1095,10 @@ def _collect_discount_void_return_report(
             ],
         )
         discount_expression = f"abs(coalesce(inv.{discount_field}, 0))" if discount_field else "0"
-        cashier_field = _pick_first_column(parent_doctype, ["owner", "cashier", "modified_by"])
+        cashier_field = _pick_first_column(
+            parent_doctype,
+            ["posa_cashier", "owner", "cashier", "modified_by"],
+        )
         cashier_expression = f"coalesce(inv.{cashier_field}, '')" if cashier_field else "''"
         is_return_expression = (
             "ifnull(inv.is_return, 0)" if frappe.db.has_column(parent_doctype, "is_return") else "0"
@@ -1727,7 +1695,10 @@ def _collect_staff_cashier_performance_report(
         parent_discount_expression = (
             f"abs(coalesce(inv.{parent_discount_field}, 0))" if parent_discount_field else "0"
         )
-        cashier_field = _pick_first_column(parent_doctype, ["owner", "cashier", "modified_by"])
+        cashier_field = _pick_first_column(
+            parent_doctype,
+            ["posa_cashier", "owner", "cashier", "modified_by"],
+        )
         cashier_expression = f"coalesce(inv.{cashier_field}, '')" if cashier_field else "''"
         is_return_expression = (
             "ifnull(inv.is_return, 0)" if frappe.db.has_column(parent_doctype, "is_return") else "0"
@@ -2310,7 +2281,10 @@ def _collect_branch_location_report(
         is_return_expression = (
             "ifnull(inv.is_return, 0)" if frappe.db.has_column(parent_doctype, "is_return") else "0"
         )
-        cashier_field = _pick_first_column(parent_doctype, ["owner", "cashier", "modified_by"])
+        cashier_field = _pick_first_column(
+            parent_doctype,
+            ["posa_cashier", "owner", "cashier", "modified_by"],
+        )
         cashier_expression = f"coalesce(inv.{cashier_field}, '')" if cashier_field else "''"
 
         sales_rows = frappe.db.sql(
@@ -4600,10 +4574,8 @@ def get_dashboard_data(
     - specific: selected profile_filter.
     """
 
-    user = frappe.session.user
-    current_profile_doc = _resolve_profile(pos_profile)
+    current_profile_doc, user = _get_authorized_dashboard_profile(pos_profile)
     current_profile_name = cstr(current_profile_doc.get("name")).strip()
-    _check_profile_permission(current_profile_name)
 
     profile_scope_enabled = True
     if frappe.db.has_column("POS Profile", "posa_allow_company_dashboard_scope"):

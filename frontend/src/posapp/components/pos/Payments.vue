@@ -18,6 +18,7 @@
 				absolute
 				location="top"
 				color="info"
+				:aria-label="__('Loading payment details')"
 			></v-progress-linear>
 			<div ref="paymentContainer" class="overflow-y-auto payment-scroll">
 				<div :class="['payment-sections', { 'payment-sections--dialog': dialogMode }]">
@@ -2308,6 +2309,12 @@ defineExpose({
 	border-radius: var(--pos-radius-sm);
 }
 
+:deep(.payment-section .v-label),
+:deep(.payment-section .v-field-label) {
+	color: #25384b !important;
+	opacity: 1;
+}
+
 .payment-footer {
 	flex: 0 0 auto;
 	position: sticky;
@@ -2367,6 +2374,13 @@ defineExpose({
 
 :deep(.payment-shell--dialog .payment-section .v-label) {
 	font-size: 0.78rem;
+	color: #25384b !important;
+	opacity: 1;
+}
+
+:deep(.payment-shell--dialog .payment-section .v-field-label) {
+	color: #25384b !important;
+	opacity: 1;
 }
 
 :deep(.payment-shell--dialog .payment-section .v-input) {
@@ -2380,6 +2394,8 @@ defineExpose({
 
 :deep(.payment-shell--dialog .v-switch .v-label) {
 	font-size: 0.82rem;
+	color: #25384b !important;
+	opacity: 1;
 }
 
 .submit-highlight {

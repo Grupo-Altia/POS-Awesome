@@ -34,14 +34,14 @@ def execute():
     fields = [
         {
             "fieldname": "posa_section_awesome_dashboard",
-            "label": "Awesome Dashboard",
+            "label": "RetailMind Dashboard",
             "fieldtype": "Section Break",
             "collapsible": 1,
             "insert_after": "posa_auto_open_customer_display",
         },
         {
             "fieldname": "posa_enable_awesome_dashboard",
-            "label": "Enable Awesome Dashboard",
+            "label": "Enable RetailMind Dashboard",
             "fieldtype": "Check",
             "default": "1",
             "description": "Show in-POS retail dashboard and reporting widgets.",

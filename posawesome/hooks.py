@@ -1,7 +1,7 @@
 app_name = "posawesome"
-app_title = "POS Awesome"
+app_title = "RetailMind-POS"
 app_publisher = "defendicon"
-app_description = "POS Awesome"
+app_description = "RetailMind-POS"
 app_icon = "octicon octicon-file-directory"
 app_color = "grey"
 app_email = "defendicon@github.com"
@@ -103,6 +103,11 @@ after_migrate = []
 # Hook on document methods and events
 
 doc_events = {
+    "Item": {
+        "after_insert": "posawesome.posawesome.api.item_processing.alternates.clear_alternate_item_caches",
+        "on_update": "posawesome.posawesome.api.item_processing.alternates.clear_alternate_item_caches",
+        "on_trash": "posawesome.posawesome.api.item_processing.alternates.clear_alternate_item_caches",
+    },
     "Sales Invoice": {
         "validate": "posawesome.posawesome.api.invoice.validate",
         "before_submit": "posawesome.posawesome.api.invoice.before_submit",
@@ -379,6 +384,8 @@ fixtures = [
                     "POS Settings-posa_dashboard_low_stock_alert_threshold",
                     "POS Invoice-posa_return_valid_upto",
                     "Sales Invoice-posa_return_valid_upto",
+                    "Sales Invoice-posa_cashier",
+                    "POS Invoice-posa_cashier",
                     "User-posa_pos_pin",
                 ),
             ]

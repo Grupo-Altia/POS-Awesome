@@ -18,7 +18,7 @@ The root `package.json` uses Electron Builder with:
 ```json
 "build": {
   "appId": "com.posawesome.desktop",
-  "productName": "POS Awesome Desktop",
+  "productName": "RetailMind-POS Desktop",
   "asar": true,
   "directories": {
     "output": "dist-electron"
@@ -36,7 +36,7 @@ The risky entry is `node_modules/**/*`.
 
 ## Runtime Files Required
 
-The desktop shell currently loads the POS web app from a configured ERPNext / POS Awesome server URL. It does not package the frontend Vite application as the primary runtime UI.
+The desktop shell currently loads the POS web app from a configured RetailMind ERPNext server URL. It does not package the frontend Vite application as the primary runtime UI.
 
 Required runtime files are:
 
@@ -129,9 +129,9 @@ yarn electron:smoke --require-artifact
 
 Manual verification:
 
-- Install the generated `POSAwesome-Setup-${version}.exe`.
+- Install the generated `RetailMind-POS-Setup-${version}.exe`.
 - Launch the app with no saved server URL and confirm `setup.html` opens.
-- Enter a valid ERPNext / POS Awesome server URL and confirm it normalizes to `/app/posapp`.
+- Enter a valid RetailMind ERPNext server URL and confirm it normalizes to `/app/posapp`.
 - Relaunch and confirm the saved server URL is remembered.
 - Disconnect or use an unreachable server and confirm `offline.html` opens.
 - Use `Change server`, `Retry connection`, and `Clear saved URL`.
