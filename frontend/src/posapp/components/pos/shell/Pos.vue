@@ -324,6 +324,7 @@ import { storeToRefs } from "pinia";
 import { useCustomerDisplayPublisher } from "../../../composables/pos/shared/useCustomerDisplayPublisher";
 import { isCounterGridTemplate } from "../../../utils/posUiTemplate";
 import { collectUnavailableCartItems } from "../../../utils/alternateCart";
+import { shouldRedirectPosTabToItemSearch } from "../../../utils/keyboardNavigation";
 
 export default {
 	setup() {
@@ -704,10 +705,11 @@ export default {
 			field?.$el?.querySelector?.("input")?.focus?.();
 		};
 		const handlePosTabFocus = (event) => {
-			if (counterGridActive.value) {
-				return;
-			}
-			if (event.key !== "Tab" || event.altKey || event.ctrlKey || event.metaKey) {
+			if (
+				!shouldRedirectPosTabToItemSearch(event, {
+					counterGridActive: counterGridActive.value,
+				})
+			) {
 				return;
 			}
 
