@@ -118,7 +118,7 @@
 								:search-term="alternateMode ? '' : search_input"
 								:search-field="pharmacySearchField"
 								:include-zero-stock="alternateMode || pharmacyIncludeZeroStock"
-								:highlighted-item-code="itemSelection.highlightedItemCode.value || ''"
+								:highlighted-item-code="itemSelection.highlightedItemCode?.value || ''"
 								:pos-profile="pos_profile"
 								:selected-currency="selected_currency"
 								:currency-symbol="currencySymbol"
@@ -206,7 +206,7 @@
 								:rate-precision="ratePrecision"
 								:get-item-rate-info="getItemRateInfo"
 								:is-negative="isNegative"
-								:highlighted-item-code="itemSelection.highlightedItemCode.value || ''"
+								:highlighted-item-code="itemSelection.highlightedItemCode?.value || ''"
 								:item-class="getItemRowClass"
 								:row-props="getItemRowProps"
 								:no-data-text="__('No items found')"
@@ -623,7 +623,7 @@ const alternateHeaderDetail = computed(() => {
 });
 const counterSearchActiveDescendant = computed(() => {
 	if (props.presentation !== "counter-grid-dialog") return "";
-	const activeCode = itemSelection.highlightedItemCode.value;
+	const activeCode = itemSelection.highlightedItemCode?.value;
 	if (!activeCode || !activeResultItems.value.some((item: any) => item?.item_code === activeCode)) {
 		return "";
 	}
@@ -651,7 +651,7 @@ watch(
 			itemSelection.clearHighlightedItem();
 			return;
 		}
-		const highlightedCode = itemSelection.highlightedItemCode.value;
+		const highlightedCode = itemSelection.highlightedItemCode?.value;
 		if (highlightedCode && nextItems.some((item: any) => item?.item_code === highlightedCode)) {
 			return;
 		}

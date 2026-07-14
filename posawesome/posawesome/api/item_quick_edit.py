@@ -400,7 +400,6 @@ def save_item_quick_edit(data):
         _upsert_item_price(item_doc.name, buying_price_list, payload.get("trade_price"), uom=uom, buying=True)
 
     frappe.clear_cache(doctype="Item")
-    frappe.db.commit()
 
     item = _get_item_quick_edit_item(item_doc.name, profile)
     return {"item": item, "pos_item": _build_pos_item_row(item)}

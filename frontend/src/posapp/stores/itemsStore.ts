@@ -1737,29 +1737,45 @@ export const useItemsStore = defineStore("items", () => {
 		if (!updatedItem?.item_code) {
 			return;
 		}
+		const itemPatch = updatedItem;
 
-		const mergeIntoCollection = (collection: Item[]) => {
+		const mergeIntoCollection = (collection: Item[]): Item => {
 			const index = collection.findIndex(
-				(item) => item?.item_code === updatedItem.item_code,
+				(item) => item?.item_code === itemPatch.item_code,
 			);
 			if (index >= 0) {
-				collection[index] = { ...collection[index], ...updatedItem };
-			} else {
-				collection.unshift(updatedItem);
+				const mergedItem = { ...collection[index], ...itemPatch };
+				collection[index] = mergedItem;
+				return mergedItem;
 			}
+			collection.unshift(itemPatch);
+			return itemPatch;
 		};
 
-		mergeIntoCollection(items.value);
-		mergeIntoCollection(filteredItems.value);
+		const catalogItem = mergeIntoCollection(items.value);
+		updateIndexes(items.value, posProfile.value);
+
+		const activeSearch = normalizeSearchScope(
+			filteredItemsSearchTerm.value || searchTerm.value,
+		);
+		const matchesActiveFilter = activeSearch
+			? performLocalSearch(activeSearch, [catalogItem], itemGroup.value).length > 0
+			: isMatchingActiveGroup(catalogItem);
+		if (matchesActiveFilter) {
+			mergeIntoCollection(filteredItems.value);
+		} else {
+			filteredItems.value = filteredItems.value.filter(
+				(item) => item?.item_code !== itemPatch.item_code,
+			);
+		}
 		if (fastCounterEnabled.value) {
 			setHotCatalogItems(
 				dedupeItems(
-					[[updatedItem], hotItems.value],
+					[[itemPatch], hotItems.value],
 					resolveHotCatalogLimit(),
 				),
 			);
 		}
-		updateIndexes(items.value, posProfile.value);
 		clearSearchCache();
 	};
 

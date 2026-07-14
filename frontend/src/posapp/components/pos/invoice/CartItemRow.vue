@@ -58,7 +58,7 @@
 						<span>{{ item.pricing_rule_badge.tooltip }}</span>
 					</v-tooltip>
 					<v-btn
-						v-if="posProfile.posa_allow_line_item_name_override && !item.posa_is_replace"
+						v-if="posProfile?.posa_allow_line_item_name_override && !item.posa_is_replace"
 						icon
 						size="x-small"
 						variant="text"
@@ -411,6 +411,7 @@
 <script setup>
 import { computed, nextTick, ref, watch } from "vue";
 import { getCartGridCellId, getCartGridRowId } from "../../../utils/cartFieldFocus";
+import { normalizeCartEditQuantity } from "../../../utils/cartQuantity";
 import { getItemLossRisk } from "../../../utils/lossPrevention";
 
 defineOptions({
@@ -428,7 +429,7 @@ const props = defineProps({
 	},
 	posProfile: {
 		type: Object,
-		required: true,
+		default: () => ({}),
 	},
 	isReturnInvoice: Boolean,
 	invoiceType: String,
@@ -582,12 +583,12 @@ const canEditUom = computed(
 );
 
 const disableRateEdit = computed(
-	() => !props.posProfile.posa_allow_user_to_edit_rate || !!props.item.posa_is_replace,
+	() => !props.posProfile?.posa_allow_user_to_edit_rate || !!props.item.posa_is_replace,
 );
 
 const disableDiscountEdit = computed(
 	() =>
-		!props.posProfile.posa_allow_user_to_edit_item_discount ||
+		!props.posProfile?.posa_allow_user_to_edit_item_discount ||
 		!!props.item.posa_is_replace ||
 		!!props.item.posa_offer_applied ||
 		!!props.item.retailmind_non_discountable,
@@ -707,9 +708,11 @@ function closeQtyEdit() {
 	if (isEditingQty.value) {
 		replaceQtyOnNextInput.value = false;
 		if (editingQtyValue.value !== "" && editingQtyValue.value != null) {
-			const newQty = parseFloat(editingQtyValue.value);
 			// Emit event to update parent state
-			const val = !newQty || newQty <= 0 ? 1 : newQty;
+			const val = normalizeCartEditQuantity(
+				editingQtyValue.value,
+				props.isReturnInvoice,
+			);
 			if (val !== props.item.qty) {
 				emit("update-qty", props.item, val);
 			}

@@ -273,6 +273,38 @@ describe("itemsStore loadItems", () => {
 		expect(store.filteredItems).toHaveLength(1);
 	});
 
+	it("does not insert a quick-edited item that no longer matches the active search", () => {
+		const store = useItemsStore();
+		const shampoo = {
+			item_code: "ITEM-1",
+			item_name: "Shampoo",
+			item_group: "All Item Groups",
+		} as any;
+		store.$patch({
+			items: [shampoo],
+			filteredItems: [shampoo],
+			searchTerm: "shampoo",
+			filteredItemsSearchTerm: "shampoo",
+		});
+		itemsSearchMocks.performLocalSearch.mockImplementation(
+			(term: string, items: any[]) =>
+				items.filter((item) =>
+					String(item?.item_name || "")
+						.toLowerCase()
+						.includes(term.toLowerCase()),
+				),
+		);
+
+		store.upsertCatalogItem({
+			item_code: "ITEM-1",
+			item_name: "Dish Wash",
+			item_group: "All Item Groups",
+		} as any);
+
+		expect(store.items[0].item_name).toBe("Dish Wash");
+		expect(store.filteredItems).toEqual([]);
+	});
+
 	it("loads and indexes the hot catalog when Fast Counter Mode is enabled", async () => {
 		const store = useItemsStore();
 		const profile = {

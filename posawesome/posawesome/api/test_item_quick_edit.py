@@ -222,6 +222,7 @@ class TestItemQuickEditAuthorization(unittest.TestCase):
         self.assertTrue(item.flags.ignore_permissions)
         self.assertEqual(upserts[0][0][1], "Canonical Selling")
         self.assertEqual(result["item"]["item_code"], item.name)
+        fake_frappe.db.commit.assert_not_called()
 
     def test_item_price_create_permission_is_checked_before_ignored_insert(self):
         price_doc = SimpleNamespace(

@@ -5,6 +5,7 @@ import { mount } from "@vue/test-utils";
 import { describe, expect, it, vi } from "vitest";
 
 import CartItemRow from "../src/posapp/components/pos/invoice/CartItemRow.vue";
+import { normalizeCartEditQuantity } from "../src/posapp/utils/cartQuantity";
 
 const VTextFieldStub = defineComponent({
 	name: "VTextField",
@@ -120,6 +121,29 @@ describe("CartItemRow keyboard editing", () => {
 		await input.trigger("focus");
 
 		expect(input.element.value).toBe("2");
+	});
+
+	it("preserves the quantity magnitude when editing a return row", () => {
+		expect(normalizeCartEditQuantity("-2", true)).toBe(-2);
+		expect(normalizeCartEditQuantity("2", true)).toBe(-2);
+		expect(normalizeCartEditQuantity("0", true)).toBe(-1);
+	});
+
+	it("renders safely while the POS Profile is not loaded", () => {
+		vi.stubGlobal("__", (value: string) => value);
+
+		expect(() =>
+			mountRow(
+				{},
+				{
+					posProfile: null,
+					visibleColumns: [
+						{ key: "rate" },
+						{ key: "discount_percentage" },
+					],
+				},
+			),
+		).not.toThrow();
 	});
 
 	it("skips UOM as an editable stop when only one UOM is available", () => {

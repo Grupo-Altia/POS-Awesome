@@ -194,6 +194,10 @@ def collect_below_buying_price_errors(items, is_return=False, pos_profile=None):
 
 
 def validate_invoice_item_sale_controls(invoice_doc):
+    flags = getattr(invoice_doc, "flags", None)
+    if flags is not None and getattr(flags, "posa_item_sale_controls_validated", False):
+        return
+
     errors = collect_item_sale_control_errors(
         invoice_doc.get("items") or [],
         is_return=bool(invoice_doc.get("is_return")),
@@ -207,3 +211,20 @@ def validate_invoice_item_sale_controls(invoice_doc):
     )
     if errors:
         frappe.throw(errors[0].get("message"))
+
+    if flags is not None:
+        flags.posa_item_sale_controls_validated = True
+
+
+def validate_pos_invoice_item_sale_controls(invoice_doc):
+    """Apply POS sale controls from document hooks without affecting non-POS invoices."""
+    doctype = getattr(invoice_doc, "doctype", None) or invoice_doc.get("doctype")
+    is_pos_document = (
+        doctype == "POS Invoice"
+        or bool(invoice_doc.get("is_pos"))
+        or bool(invoice_doc.get("pos_profile"))
+    )
+    if not is_pos_document:
+        return
+
+    validate_invoice_item_sale_controls(invoice_doc)

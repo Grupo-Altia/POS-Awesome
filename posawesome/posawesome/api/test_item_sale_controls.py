@@ -3,6 +3,7 @@ import pathlib
 import sys
 import types
 import unittest
+from unittest.mock import Mock, patch
 
 
 REPO_ROOT = pathlib.Path(__file__).resolve().parents[3]
@@ -142,6 +143,58 @@ class TestItemSaleControls(unittest.TestCase):
         )
 
         self.assertEqual(errors[0]["reason"], "below_buying_price")
+
+    def test_pos_invoice_hook_delegates_to_sale_control_validation(self):
+        validator = Mock()
+        invoice = {"doctype": "Sales Invoice", "is_pos": 1, "items": []}
+
+        with patch.object(
+            self.controls,
+            "validate_invoice_item_sale_controls",
+            validator,
+        ):
+            self.controls.validate_pos_invoice_item_sale_controls(invoice)
+
+        validator.assert_called_once_with(invoice)
+
+    def test_successful_validation_is_not_repeated_for_the_same_document(self):
+        item_validator = Mock(return_value=[])
+        price_validator = Mock(return_value=[])
+        invoice = types.SimpleNamespace(
+            flags=types.SimpleNamespace(),
+            get=lambda key: [] if key == "items" else None,
+        )
+
+        with (
+            patch.object(
+                self.controls,
+                "collect_item_sale_control_errors",
+                item_validator,
+            ),
+            patch.object(
+                self.controls,
+                "collect_below_buying_price_errors",
+                price_validator,
+            ),
+        ):
+            self.controls.validate_invoice_item_sale_controls(invoice)
+            self.controls.validate_invoice_item_sale_controls(invoice)
+
+        item_validator.assert_called_once()
+        price_validator.assert_called_once()
+
+    def test_non_pos_sales_invoice_skips_pos_sale_controls(self):
+        validator = Mock()
+        invoice = {"doctype": "Sales Invoice", "is_pos": 0, "items": []}
+
+        with patch.object(
+            self.controls,
+            "validate_invoice_item_sale_controls",
+            validator,
+        ):
+            self.controls.validate_pos_invoice_item_sale_controls(invoice)
+
+        validator.assert_not_called()
 
 
 if __name__ == "__main__":
