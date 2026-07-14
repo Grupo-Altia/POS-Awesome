@@ -343,6 +343,7 @@ import { useInvoiceStore } from "../../../stores/invoiceStore";
 import { useEmployeeStore } from "../../../stores/employeeStore";
 
 import { parseBooleanSetting, shouldBlockSaleForStock } from "../../../utils/stock";
+import { shouldFocusCartQtyAfterItemAdd } from "../../../utils/cartFocusSettings";
 import { createItemSearchFocusClearGuard } from "../../../utils/itemSearchFocusClearGuard";
 import {
 	getPharmacyItemResultId,
@@ -1005,7 +1006,12 @@ const add_item = async (item, optionsOrQty: any = {}) => {
 			qty.value = 1;
 			if (addedLine && props.presentation === "counter-grid-dialog") {
 				emit("item-added", addedLine, options.alternateSelection || null);
-			} else if (addedLine && eventBus && typeof eventBus.emit === "function") {
+			} else if (
+				addedLine &&
+				shouldFocusCartQtyAfterItemAdd(pos_profile.value) &&
+				eventBus &&
+				typeof eventBus.emit === "function"
+			) {
 				const focusedLine: any = addedLine;
 				window.setTimeout(() => {
 					eventBus.emit("focus_cart_item_qty", {

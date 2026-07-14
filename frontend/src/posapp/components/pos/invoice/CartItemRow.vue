@@ -98,9 +98,10 @@
 				>
 					<v-text-field
 						:model-value="editingQtyValue"
-						:label="__('Quantity')"
+						:aria-label="__('Quantity')"
 						density="compact"
 						variant="outlined"
+						hide-details
 						class="posa-cart-table__qty-input posa-cart-table__qty-input--direct"
 						@update:model-value="handleQtyInputUpdate"
 						@focus="handleQtyFocus"

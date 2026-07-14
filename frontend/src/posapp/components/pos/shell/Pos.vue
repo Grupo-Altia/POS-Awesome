@@ -325,6 +325,7 @@ import { useCustomerDisplayPublisher } from "../../../composables/pos/shared/use
 import { isCounterGridTemplate } from "../../../utils/posUiTemplate";
 import { collectUnavailableCartItems } from "../../../utils/alternateCart";
 import { shouldRedirectPosTabToItemSearch } from "../../../utils/keyboardNavigation";
+import { shouldFocusCartQtyAfterItemAdd } from "../../../utils/cartFocusSettings";
 
 export default {
 	setup() {
@@ -638,7 +639,7 @@ export default {
 			pendingCounterAddedLine.value = null;
 			counterItemSearchQuery.value = "";
 			resetCounterAlternateState();
-			if (line) {
+			if (line && shouldFocusCartQtyAfterItemAdd(posProfile.value)) {
 				eventBus?.emit("focus_cart_item_qty", {
 					item: line,
 					rowId: line?.posa_row_id,
