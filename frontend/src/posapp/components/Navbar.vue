@@ -571,7 +571,7 @@ export default {
 			}
 			if (this.currentCashier?.is_supervisor) {
 				items.splice(1, 0, {
-					text: this.__("RetailMind Dashboard"),
+					text: this.__("Awesome Dashboard"),
 					icon: "mdi-view-dashboard-outline",
 					to: "/dashboard",
 				});

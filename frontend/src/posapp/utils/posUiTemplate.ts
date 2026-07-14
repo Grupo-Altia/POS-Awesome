@@ -1,5 +1,6 @@
 export const POS_UI_TEMPLATE_CLASSIC = "Classic";
-export const POS_UI_TEMPLATE_COUNTER_GRID = "RetailMind Counter Grid";
+export const POS_UI_TEMPLATE_COUNTER_GRID = "POS Awesome Counter Grid";
+export const LEGACY_POS_UI_TEMPLATE_COUNTER_GRID = "RetailMind Counter Grid";
 export const COUNTER_GRID_MIN_WIDTH = 1024;
 
 export type PosUiTemplate =
@@ -13,7 +14,9 @@ export type PosUiTemplateResolution = {
 };
 
 export function normalizePosUiTemplate(value: unknown): PosUiTemplate {
-	return String(value || "").trim() === POS_UI_TEMPLATE_COUNTER_GRID
+	const normalizedValue = String(value || "").trim();
+	return normalizedValue === POS_UI_TEMPLATE_COUNTER_GRID ||
+		normalizedValue === LEGACY_POS_UI_TEMPLATE_COUNTER_GRID
 		? POS_UI_TEMPLATE_COUNTER_GRID
 		: POS_UI_TEMPLATE_CLASSIC;
 }

@@ -144,7 +144,7 @@ describe("DashboardHeader", () => {
 			},
 		});
 
-		expect(wrapper.text()).toContain("RetailMind Dashboard");
+		expect(wrapper.text()).toContain("Awesome Dashboard");
 		expect(wrapper.text()).toContain("Scope: All Profiles");
 		expect(wrapper.text()).toContain("Profiles: 2");
 		expect(wrapper.text()).toContain("Profit: Invoice Item Estimate");

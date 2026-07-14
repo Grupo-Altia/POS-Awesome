@@ -569,7 +569,7 @@ export default {
 					actions: [
 						{
 							id: "awesome-dashboard",
-							label: __("RetailMind Dashboard"),
+							label: __("Awesome Dashboard"),
 							subtitle: __("View restricted POS insights"),
 							icon: "mdi-view-dashboard-outline",
 							tone: "primary",

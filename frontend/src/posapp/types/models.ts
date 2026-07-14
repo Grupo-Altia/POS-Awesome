@@ -142,6 +142,10 @@ export interface POSProfile {
   selling_price_list: string;
   income_account: string;
   expense_account: string;
+  posa_enable_custom_branding?: boolean | number | string;
+  posa_brand_name?: string;
+  posa_brand_short_name?: string;
+  posa_brand_logo?: string;
   [key: string]: any;
 }
 

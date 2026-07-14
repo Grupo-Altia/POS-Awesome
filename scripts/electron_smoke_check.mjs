@@ -58,32 +58,32 @@ export async function verifyElectronPackage({
 			"package.json build.appId must remain com.posawesome.desktop",
 		);
 	}
-	if (buildConfig.productName !== "RetailMind-POS Desktop") {
+	if (buildConfig.productName !== "POS Awesome Desktop") {
 		throw new Error(
-			"package.json build.productName must be RetailMind-POS Desktop",
+			"package.json build.productName must be POS Awesome Desktop",
 		);
 	}
 	if (
 		buildConfig.win?.artifactName !==
-		"RetailMind-POS-Setup-${version}.${ext}"
+		"POSAwesome-Setup-${version}.${ext}"
 	) {
 		throw new Error(
-			"Windows artifact name must use the RetailMind-POS brand",
+			"Windows artifact name must use the POS Awesome brand",
 		);
 	}
 	if (
-		buildConfig.linux?.artifactName !== "RetailMind-POS-${version}.${ext}"
+		buildConfig.linux?.artifactName !== "POSAwesome-${version}.${ext}"
 	) {
 		throw new Error(
-			"Linux artifact name must use the RetailMind-POS brand",
+			"Linux artifact name must use the POS Awesome brand",
 		);
 	}
 	const posProtocol = buildConfig.protocols?.find((protocol) =>
 		protocol.schemes?.includes("posawesome"),
 	);
-	if (!posProtocol || posProtocol.name !== "RetailMind-POS Links") {
+	if (!posProtocol || posProtocol.name !== "POS Awesome Links") {
 		throw new Error(
-			"The stable posawesome protocol scheme must use the RetailMind-POS display name",
+			"The stable posawesome protocol scheme must use the POS Awesome display name",
 		);
 	}
 	if (!buildConfig.directories?.output) {

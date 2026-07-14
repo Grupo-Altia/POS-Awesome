@@ -22,8 +22,8 @@
 			/>
 
 			<v-img
-				:src="posLogo"
-				:alt="POS_BRAND_NAME"
+				:src="branding.logo || posLogo"
+				:alt="branding.name"
 				:max-width="isMobile ? 24 : 32"
 				:class="['pos-navbar-logo', isRtl ? 'rtl-logo' : 'ltr-logo']"
 				loading="lazy"
@@ -42,11 +42,10 @@
 				role="button"
 			>
 				<template v-if="isMobile">
-					<span class="pos-navbar-title-compact">{{ POS_BRAND_SHORT_NAME }}</span>
+					<span class="pos-navbar-title-compact">{{ branding.shortName }}</span>
 				</template>
 				<template v-else>
-					<span class="font-weight-light pos-navbar-title-light">RetailMind</span
-					><span class="pos-navbar-title-bold">-POS</span>
+					<span class="pos-navbar-title-light">{{ branding.name }}</span>
 				</template>
 			</v-toolbar-title>
 		</div>
@@ -232,7 +231,7 @@
 
 <script>
 import { useRtl } from "../../composables/core/useRtl";
-import { POS_BRAND_NAME, POS_BRAND_SHORT_NAME } from "../../config/branding";
+import { resolvePosBranding } from "../../config/branding";
 import { isCounterGridTemplate } from "../../utils/posUiTemplate";
 import posLogo from "../pos/pos.png";
 import NavbarInfoGadgets from "./NavbarInfoGadgets.vue";
@@ -249,8 +248,6 @@ export default {
 			rtlStyles,
 			rtlClasses,
 			posLogo,
-			POS_BRAND_NAME,
-			POS_BRAND_SHORT_NAME,
 		};
 	},
 	data() {
@@ -273,6 +270,17 @@ export default {
 			cancelAnimationFrame(this.resizeRafId);
 			this.resizeRafId = null;
 		}
+	},
+	watch: {
+		branding: {
+			handler(value) {
+				if (typeof document !== "undefined") {
+					document.title = value.name;
+				}
+			},
+			deep: true,
+			immediate: true,
+		},
 	},
 	props: {
 		posProfile: {
@@ -305,6 +313,9 @@ export default {
 		},
 	},
 	computed: {
+		branding() {
+			return resolvePosBranding(this.posProfile);
+		},
 		appBarColor() {
 			return this.$theme.isDark ? this.$vuetify.theme.themes.dark.colors.surface : "white";
 		},

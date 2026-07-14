@@ -11,6 +11,6 @@ def get_data():
             "color": "grey",
             "icon": "octicon octicon-file-directory",
             "type": "module",
-            "label": _("RetailMind-POS"),
+            "label": _("POS Awesome"),
         }
     ]

@@ -576,7 +576,7 @@ def process_pos_payment(payload):
 
     profile_doc, _authoritative_cashier = _authorize_payment_request(data)
     if not profile_doc.get("posa_use_pos_awesome_payments"):
-        frappe.throw(_("RetailMind-POS Payments is not enabled for this POS Profile"))
+        frappe.throw(_("POS Awesome Payments is not enabled for this POS Profile"))
 
     company = data.company
     currency = data.currency

@@ -47,7 +47,7 @@ SECTION_FIELDS = [
     },
     {
         "fieldname": "posa_section_awesome_dashboard",
-        "label": "RetailMind Dashboard",
+        "label": "Awesome Dashboard",
         "fieldtype": "Section Break",
         "collapsible": 1,
     },

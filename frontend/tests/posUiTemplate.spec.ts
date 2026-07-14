@@ -29,6 +29,12 @@ describe("POS UI template resolution", () => {
 		);
 	});
 
+	it("keeps legacy profile values working until migration refreshes cached profiles", () => {
+		expect(normalizePosUiTemplate("RetailMind Counter Grid")).toBe(
+			POS_UI_TEMPLATE_COUNTER_GRID,
+		);
+	});
+
 	it("reports the responsive fallback without changing the configured value", () => {
 		const resolution = resolvePosUiTemplate(
 			{ posa_ui_template: POS_UI_TEMPLATE_COUNTER_GRID },

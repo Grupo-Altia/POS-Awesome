@@ -6,10 +6,10 @@ FIELDS = {
     "Item": [
         {
             "fieldname": "retailmind_short_name",
-            "label": "RetailMind Short Name",
+            "label": "POS Short Name",
             "fieldtype": "Data",
             "insert_after": "item_name",
-            "description": "Short pharmacy display name used by RetailMind POS item maintenance.",
+            "description": "Short pharmacy display name used by POS Awesome item maintenance.",
         },
         {
             "fieldname": "retailmind_controlled_item",
