@@ -66,3 +66,52 @@ export function customerMatchesSearchTerm(
 ): boolean {
 	return customerMatchesSearchParts(customer, buildCustomerSearchParts(term));
 }
+
+export type CustomerDuplicateField =
+	| "customer_name"
+	| "mobile_no"
+	| "email_id"
+	| "tax_id";
+
+export function normalizeCustomerDuplicateValue(
+	field: CustomerDuplicateField,
+	value: unknown,
+): string {
+	const normalized = String(value ?? "")
+		.trim()
+		.toLowerCase();
+	if (field === "mobile_no") {
+		return normalized.replace(/\D/g, "");
+	}
+	if (field === "customer_name") {
+		return normalized.replace(/\s+/g, " ");
+	}
+	if (field === "tax_id") {
+		return normalized.replace(/\s+/g, "");
+	}
+	return normalized;
+}
+
+export function getCustomerDuplicateFields(
+	customer: CustomerSummary,
+	candidate: Partial<CustomerSummary>,
+	includeCustomerName = true,
+): CustomerDuplicateField[] {
+	const fields: CustomerDuplicateField[] = [
+		...(includeCustomerName ? (["customer_name"] as const) : []),
+		"mobile_no",
+		"email_id",
+		"tax_id",
+	];
+	return fields.filter((field) => {
+		const candidateValue = normalizeCustomerDuplicateValue(
+			field,
+			candidate[field],
+		);
+		return (
+			Boolean(candidateValue) &&
+			candidateValue ===
+				normalizeCustomerDuplicateValue(field, customer[field])
+		);
+	});
+}

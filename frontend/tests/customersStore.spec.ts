@@ -10,6 +10,7 @@ import type {
 
 const setCustomerStorageMock = vi.fn(async () => undefined);
 const saveStoredValueSnapshotMock = vi.fn();
+const customerTableToArrayMock = vi.fn(async () => []);
 
 vi.mock("../src/offline/index", () => ({
 	db: {
@@ -19,7 +20,7 @@ vi.mock("../src/offline/index", () => ({
 			filter: vi.fn().mockReturnThis(),
 			offset: vi.fn().mockReturnThis(),
 			limit: vi.fn().mockReturnThis(),
-			toArray: vi.fn(async () => []),
+			toArray: (...args: any[]) => customerTableToArrayMock(...args),
 		})),
 	},
 	checkDbHealth: vi.fn(async () => undefined),
@@ -40,6 +41,8 @@ describe("customersStore profile and customer dto handling", () => {
 		setActivePinia(createPinia());
 		setCustomerStorageMock.mockClear();
 		saveStoredValueSnapshotMock.mockClear();
+		customerTableToArrayMock.mockClear();
+		customerTableToArrayMock.mockResolvedValue([]);
 		(globalThis as any).frappe = {
 			call: vi.fn(),
 		};
@@ -99,6 +102,21 @@ describe("customersStore profile and customer dto handling", () => {
 		});
 	});
 
+	it("executes customer searches while the background sync is running", async () => {
+		const store = useCustomersStore();
+		store.isCustomerBackgroundLoading = true;
+		customerTableToArrayMock.mockResolvedValue([
+			{ name: "CUST-001", customer_name: "Jane Doe" },
+		]);
+
+		await store.queueSearch("Jane");
+
+		expect(customerTableToArrayMock).toHaveBeenCalledOnce();
+		expect(store.customers).toEqual([
+			{ name: "CUST-001", customer_name: "Jane Doe" },
+		]);
+	});
+
 	it("loads customers in five parallel 200-row pages with smooth progress", async () => {
 		const store = useCustomersStore();
 		store.setPosProfile({ name: "Main POS", company: "Test Co" });
@@ -139,14 +157,11 @@ describe("customersStore profile and customer dto handling", () => {
 			.filter((request: any) =>
 				request.method.endsWith("get_customer_names"),
 			);
-		expect(customerCalls.slice(0, 6).map((request: any) => request.args.offset)).toEqual([
-			null,
-			200,
-			400,
-			600,
-			800,
-			1000,
-		]);
+		expect(
+			customerCalls
+				.slice(0, 6)
+				.map((request: any) => request.args.offset),
+		).toEqual([null, 200, 400, 600, 800, 1000]);
 		expect(store.loadedCustomerCount).toBe(450);
 		expect(observedCounts).toContain(201);
 		expect(observedCounts).toContain(449);

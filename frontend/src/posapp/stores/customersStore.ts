@@ -12,6 +12,7 @@ import type {
 import {
 	buildCustomerSearchParts,
 	customerMatchesSearchParts,
+	getCustomerDuplicateFields,
 	normalizeCustomerSearchTerm,
 } from "./customers/customerSearch";
 import { resetCustomerLoadingCoordinator } from "../modules/customers/customerLoadingCoordinator";
@@ -172,9 +173,9 @@ export const useCustomersStore = defineStore("customers", () => {
 	const nextCustomerStart = ref<string | null>(null);
 	const nextCustomerOffset = ref(0);
 	const loadingCustomers = ref(false);
+	const searchingCustomers = ref(false);
 	const customersLoaded = ref(false);
 	const isCustomerBackgroundLoading = ref(false);
-	const pendingCustomerSearch = ref<string | null>(null);
 	const loadProgress = ref(0);
 	const totalCustomerCount = ref(0);
 	const loadedCustomerCount = ref(0);
@@ -184,6 +185,7 @@ export const useCustomersStore = defineStore("customers", () => {
 	const isUpdateCustomerDialogOpen = ref(false);
 	const customerToUpdate = ref<StoredCustomer | null>(null);
 	let customerFetchPromise: Promise<void> | null = null;
+	let customerSearchRequestId = 0;
 	const customerLoadLogState = {
 		local: false,
 		server: false,
@@ -359,52 +361,107 @@ export const useCustomersStore = defineStore("customers", () => {
 	}
 
 	async function performSearch({ append = false } = {}) {
-		await ensureDatabase();
-
-		let collection = db.table("customers");
-		const normalizedTerm = normalizeCustomerSearchTerm(searchTerm.value);
-		if (normalizedTerm) {
-			const searchParts = buildCustomerSearchParts(normalizedTerm);
-			collection = collection.filter((customer: CustomerSummary) =>
-				customerMatchesSearchParts(customer, searchParts),
-			);
+		const requestId = ++customerSearchRequestId;
+		const requestedTerm = normalizeCustomerSearchTerm(searchTerm.value);
+		const requestedPage = page.value;
+		if (!append) {
+			searchingCustomers.value = true;
 		}
 
-		const offset = page.value * PAGE_SIZE;
-		const results = await collection
-			.offset(offset)
-			.limit(PAGE_SIZE)
-			.toArray();
+		try {
+			await ensureDatabase();
+			let collection = db.table("customers");
+			if (requestedTerm) {
+				const searchParts = buildCustomerSearchParts(requestedTerm);
+				collection = collection.filter((customer: CustomerSummary) =>
+					customerMatchesSearchParts(customer, searchParts),
+				);
+			}
+			const offset = requestedPage * PAGE_SIZE;
+			const results = await collection
+				.offset(offset)
+				.limit(PAGE_SIZE)
+				.toArray();
 
-		if (append) {
-			customers.value = [...customers.value, ...results];
-		} else {
-			customers.value = results;
+			// IndexedDB searches can overlap while the cashier is typing or while a
+			// background sync publishes a new batch. Only the latest request may
+			// replace the selector results.
+			if (
+				requestId !== customerSearchRequestId ||
+				requestedTerm !== normalizeCustomerSearchTerm(searchTerm.value)
+			) {
+				return 0;
+			}
+
+			if (append) {
+				customers.value = [...customers.value, ...results];
+			} else {
+				customers.value = results;
+			}
+
+			hasMore.value = results.length === PAGE_SIZE;
+			if (hasMore.value) {
+				page.value = requestedPage + 1;
+			}
+
+			return results.length;
+		} finally {
+			if (!append && requestId === customerSearchRequestId) {
+				searchingCustomers.value = false;
+			}
 		}
-
-		hasMore.value = results.length === PAGE_SIZE;
-		if (hasMore.value) {
-			page.value += 1;
-		}
-
-		return results.length;
 	}
 
 	async function searchCustomers(term = "", append = false) {
 		if (!append) {
 			searchTerm.value = normalizeCustomerSearchTerm(term);
-			resetPagination();
+			page.value = 0;
+			hasMore.value = true;
 		}
 		return performSearch({ append });
 	}
 
 	async function queueSearch(term: string) {
 		const normalized = normalizeCustomerSearchTerm(term);
-		if (isCustomerBackgroundLoading.value) {
-			pendingCustomerSearch.value = normalized;
-			return null;
-		}
 		return searchCustomers(normalized, false);
+	}
+
+	async function findLocalDuplicateCustomers(
+		candidate: Partial<CustomerSummary>,
+		excludeCustomer: string | null = null,
+	) {
+		await ensureDatabase();
+		const allowDuplicateNames = Boolean(
+			(
+				posProfile.value as POSProfile & {
+					posa_allow_duplicate_customer_names?: boolean | number;
+				}
+			)?.posa_allow_duplicate_customer_names,
+		);
+		const results = await db
+			.table("customers")
+			.filter((customer: CustomerSummary) => {
+				if (excludeCustomer && customer.name === excludeCustomer) {
+					return false;
+				}
+				return Boolean(
+					getCustomerDuplicateFields(
+						customer,
+						candidate,
+						!allowDuplicateNames,
+					).length,
+				);
+			})
+			.limit(5)
+			.toArray();
+		return results.map((customer: CustomerSummary) => ({
+			...customer,
+			matching_fields: getCustomerDuplicateFields(
+				customer,
+				candidate,
+				!allowDuplicateNames,
+			),
+		}));
 	}
 
 	async function loadMoreCustomers() {
@@ -476,8 +533,7 @@ export const useCustomersStore = defineStore("customers", () => {
 				loadProgress.value = Math.min(
 					99,
 					Math.round(
-						(loadedCustomerCount.value /
-							totalCustomerCount.value) *
+						(loadedCustomerCount.value / totalCustomerCount.value) *
 							100,
 					),
 				);
@@ -527,6 +583,9 @@ export const useCustomersStore = defineStore("customers", () => {
 			const rows = pages.flat();
 			if (rows.length > 0) {
 				await setCustomerStorage(rows);
+				if (normalizeCustomerSearchTerm(searchTerm.value)) {
+					await searchCustomers(searchTerm.value);
+				}
 			}
 			return { rows, reachedEnd };
 		};
@@ -547,9 +606,7 @@ export const useCustomersStore = defineStore("customers", () => {
 						rows[rows.length - 1]?.name || null;
 					nextCustomerOffset.value = nextWaveOffset;
 					await publishProgress(previousCount, rows.length);
-					syncBootstrapCustomerReadiness(
-						loadedCustomerCount.value,
-					);
+					syncBootstrapCustomerReadiness(loadedCustomerCount.value);
 					if (customers.value.length === 0) {
 						await searchCustomers(searchTerm.value);
 					}
@@ -561,9 +618,7 @@ export const useCustomersStore = defineStore("customers", () => {
 					setCustomersLastSync(new Date().toISOString());
 					loadProgress.value = 100;
 					customersLoaded.value = true;
-					syncBootstrapCustomerReadiness(
-						loadedCustomerCount.value,
-					);
+					syncBootstrapCustomerReadiness(loadedCustomerCount.value);
 					logFinalLoadedCustomerCount();
 					break;
 				}
@@ -581,11 +636,6 @@ export const useCustomersStore = defineStore("customers", () => {
 				loadProgress.value >= 99
 			) {
 				loadProgress.value = 100;
-			}
-			if (pendingCustomerSearch.value !== null) {
-				const term = pendingCustomerSearch.value;
-				pendingCustomerSearch.value = null;
-				await searchCustomers(term);
 			}
 		}
 	}
@@ -848,9 +898,9 @@ export const useCustomersStore = defineStore("customers", () => {
 		nextCustomerStart,
 		nextCustomerOffset,
 		loadingCustomers,
+		searchingCustomers,
 		customersLoaded,
 		isCustomerBackgroundLoading,
-		pendingCustomerSearch,
 		loadProgress,
 		totalCustomerCount,
 		loadedCustomerCount,
@@ -862,6 +912,7 @@ export const useCustomersStore = defineStore("customers", () => {
 		setCustomerInfo,
 		searchCustomers,
 		queueSearch,
+		findLocalDuplicateCustomers,
 		loadMoreCustomers,
 		verifyServerCustomerCount,
 		get_customer_names,
