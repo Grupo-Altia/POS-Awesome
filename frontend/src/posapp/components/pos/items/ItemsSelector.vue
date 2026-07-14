@@ -1892,9 +1892,9 @@ defineExpose({
 	--counter-rugged-navy-raised: #174a70;
 	--counter-rugged-blue: #0f70d7;
 	--counter-rugged-cyan: #38bdf8;
-	--counter-rugged-line: #9db2c4;
-	--counter-rugged-surface: #ffffff;
-	--counter-rugged-muted: #edf3f7;
+	--counter-rugged-line: var(--pos-outline);
+	--counter-rugged-surface: var(--pos-card-bg);
+	--counter-rugged-muted: var(--pos-surface-muted);
 	height: 100%;
 }
 
@@ -1927,14 +1927,14 @@ defineExpose({
 	box-sizing: border-box;
 	padding: 7px 8px;
 	border: 0;
-	background: #ffffff;
+	background: var(--pos-input-bg);
 }
 
 .items-selector-shell--counter-dialog :deep(.sticky-header .v-field) {
 	min-height: 40px;
 	border: 0;
 	border-radius: 3px;
-	background: #ffffff;
+	background: var(--pos-input-bg);
 	box-shadow: inset 0 0 0 1px #9db2c4;
 }
 

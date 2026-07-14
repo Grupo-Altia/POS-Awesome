@@ -490,7 +490,8 @@ export default {
 		const total_outstanding_amount = computed(() => {
 			if (!outstanding_invoices.value.length) return 0;
 			return outstanding_invoices.value.reduce(
-				(acc, cur) => acc + flt(cur?.outstanding_amount_in_invoice_currency ?? cur?.outstanding_amount ?? 0),
+				(acc, cur) =>
+					acc + flt(cur?.outstanding_amount_in_invoice_currency ?? cur?.outstanding_amount ?? 0),
 				0,
 			);
 		});
@@ -536,7 +537,9 @@ export default {
 						invoice_currency: invoiceCurr,
 					};
 				}
-				summary[key].amount += flt(inv.outstanding_amount_in_invoice_currency ?? inv.outstanding_amount ?? 0);
+				summary[key].amount += flt(
+					inv.outstanding_amount_in_invoice_currency ?? inv.outstanding_amount ?? 0,
+				);
 			});
 			return summary;
 		});
@@ -680,12 +683,11 @@ export default {
 			autoAllocatePaymentAmount,
 			autoReconcile,
 		});
-		const { isSharing: isSharingPayment, shareLastPayment: share_last_payment } =
-			usePaymentSharing({
-				customerName: customer_name,
-				partyType,
-				eventBus: proxy?.eventBus,
-			});
+		const { isSharing: isSharingPayment, shareLastPayment: share_last_payment } = usePaymentSharing({
+			customerName: customer_name,
+			partyType,
+			eventBus: proxy?.eventBus,
+		});
 
 		const fetchCompanyCurrency = async () => {
 			if (!company.value) return;
@@ -814,9 +816,7 @@ export default {
 				method.bank_account = bankAccount;
 				// Update currency map when account changes
 				if (bankAccount && available_bank_accounts.value[mode]) {
-					const acct = available_bank_accounts.value[mode].find(
-						(a) => a.account === bankAccount,
-					);
+					const acct = available_bank_accounts.value[mode].find((a) => a.account === bankAccount);
 					if (acct) {
 						payment_method_currencies.value = {
 							...payment_method_currencies.value,
@@ -1295,7 +1295,7 @@ export default {
 
 <style>
 .selected-row {
-	background-color: #e3f2fd !important;
+	background-color: var(--pos-selected-bg) !important;
 }
 
 .credit-note-row {

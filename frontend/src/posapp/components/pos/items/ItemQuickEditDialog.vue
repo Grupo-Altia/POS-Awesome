@@ -900,8 +900,8 @@ watch(
 	--counter-rugged-navy-raised: #174a70;
 	--counter-rugged-blue: #0f70d7;
 	--counter-rugged-cyan: #38bdf8;
-	--counter-rugged-line: #9db2c4;
-	--counter-rugged-soft-line: #c9d5df;
+	--counter-rugged-line: var(--pos-outline);
+	--counter-rugged-soft-line: var(--pos-border);
 	display: grid;
 	grid-template-rows: auto minmax(0, 1fr) auto;
 	width: 100%;
@@ -909,7 +909,7 @@ watch(
 	overflow: hidden;
 	border: 3px solid var(--counter-rugged-navy);
 	border-radius: 5px !important;
-	background: #edf3f7 !important;
+	background: var(--pos-dialog-bg) !important;
 	box-shadow: 0 5px 14px rgba(4, 22, 37, 0.34);
 }
 
@@ -951,7 +951,7 @@ watch(
 	overflow-y: auto;
 	overscroll-behavior: contain;
 	padding: 14px 16px;
-	background: #edf3f7;
+	background: var(--pos-surface-muted);
 }
 
 .item-quick-edit__lookup {
@@ -963,14 +963,14 @@ watch(
 
 .item-quick-edit__lookup :deep(.v-field) {
 	border-radius: 3px;
-	background: #ffffff;
+	background: var(--pos-input-bg);
 }
 
 .item-quick-edit__lookup :deep(.v-label),
 .item-quick-edit__lookup :deep(.v-field-label),
 .item-quick-edit__section :deep(.v-label),
 .item-quick-edit__section :deep(.v-field-label) {
-	color: #25384b !important;
+	color: var(--pos-text-secondary) !important;
 	opacity: 1;
 }
 
@@ -992,7 +992,7 @@ watch(
 	border: 1px solid var(--counter-rugged-line);
 	border-radius: 3px;
 	padding: 0 12px 12px;
-	background: #ffffff;
+	background: var(--pos-card-bg);
 	box-shadow: 0 1px 3px rgba(9, 37, 61, 0.14);
 }
 
@@ -1019,7 +1019,7 @@ watch(
 
 .item-quick-edit__section :deep(.v-field) {
 	border-radius: 3px;
-	background: #ffffff;
+	background: var(--pos-input-bg);
 }
 
 .item-quick-edit__section :deep(.v-field__outline) {
@@ -1029,7 +1029,7 @@ watch(
 
 .item-quick-edit__actions {
 	border-top: 2px solid var(--counter-rugged-navy-raised);
-	background: #ffffff;
+	background: var(--pos-card-bg);
 }
 
 .item-quick-edit__actions :deep(.v-btn) {

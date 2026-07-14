@@ -1446,10 +1446,10 @@ export default {
 	--counter-rugged-navy-raised: #174a70;
 	--counter-rugged-blue: #0f70d7;
 	--counter-rugged-cyan: #38bdf8;
-	--counter-rugged-line: #9db2c4;
-	--counter-rugged-soft-line: #c9d5df;
-	--counter-rugged-surface: #ffffff;
-	--counter-rugged-muted: #edf3f7;
+	--counter-rugged-line: var(--pos-outline);
+	--counter-rugged-soft-line: var(--pos-border);
+	--counter-rugged-surface: var(--pos-card-bg);
+	--counter-rugged-muted: var(--pos-surface-muted);
 	height: 100%;
 	width: min(100%, 1560px);
 	margin-inline: auto;
@@ -1465,7 +1465,7 @@ export default {
 	margin-top: 0 !important;
 	border: 0;
 	border-radius: 0;
-	background: #e7edf2 !important;
+	background: var(--pos-surface-muted) !important;
 	box-shadow: none;
 	overflow: hidden !important;
 }
@@ -1550,7 +1550,7 @@ export default {
 .invoice-shell--counter-grid :deep(.item-search-field .v-field) {
 	border: 1px solid #b8c7d2;
 	border-radius: 3px;
-	background: #ffffff !important;
+	background: var(--pos-invoice-bg) !important;
 	box-shadow: inset 0 1px 2px rgba(9, 37, 61, 0.12);
 }
 

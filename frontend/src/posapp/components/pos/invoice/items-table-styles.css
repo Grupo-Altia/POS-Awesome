@@ -52,12 +52,12 @@
 	--counter-rugged-navy-raised: #174a70;
 	--counter-rugged-blue: #0f70d7;
 	--counter-rugged-cyan: #38bdf8;
-	--counter-rugged-line: #9db2c4;
-	--counter-rugged-soft-line: #c9d5df;
+	--counter-rugged-line: var(--pos-outline);
+	--counter-rugged-soft-line: var(--pos-border);
 	border: 0;
 	border-radius: 0;
 	box-shadow: none;
-	background: #ffffff;
+	background: var(--pos-card-bg);
 }
 
 .posa-items-table-container--counter-grid .posa-cart-table th {
@@ -78,8 +78,8 @@
 	padding: 6px 10px;
 	border-right: 1px solid var(--counter-rugged-soft-line);
 	border-bottom: 1px solid var(--counter-rugged-line);
-	background: #ffffff;
-	color: #10263b;
+	background: var(--pos-card-bg);
+	color: var(--pos-text-primary);
 	font-weight: 550;
 }
 
@@ -88,11 +88,11 @@
 }
 
 .posa-items-table-container--counter-grid .posa-cart-table tbody tr:hover {
-	background: #dcecf7;
+	background: var(--pos-hover-bg);
 }
 
 .posa-items-table-container--counter-grid .posa-cart-table tbody tr:hover > td {
-	background: #dcecf7;
+	background: var(--pos-hover-bg);
 }
 
 .posa-items-table-container--counter-grid .posa-cart-item-row > td:first-child {
@@ -152,11 +152,11 @@
 	--counter-rugged-navy-raised: #174a70;
 	--counter-rugged-blue: #0f70d7;
 	--counter-rugged-cyan: #38bdf8;
-	--counter-rugged-line: #9db2c4;
-	--counter-rugged-soft-line: #c9d5df;
+	--counter-rugged-line: var(--pos-outline);
+	--counter-rugged-soft-line: var(--pos-border);
 	border: 0 !important;
 	border-radius: 0 !important;
-	background: #ffffff !important;
+	background: var(--pos-card-bg) !important;
 	box-shadow: none !important;
 }
 
@@ -178,12 +178,12 @@
 	padding: 6px 10px !important;
 	border-right: 1px solid var(--counter-rugged-soft-line) !important;
 	border-bottom: 1px solid var(--counter-rugged-line) !important;
-	background: #ffffff;
-	color: #10263b;
+	background: var(--pos-card-bg);
+	color: var(--pos-text-primary);
 }
 
 .posa-cart-table--counter-grid tbody tr:hover > td {
-	background: #dcecf7;
+	background: var(--pos-hover-bg);
 }
 
 .posa-cart-table--counter-grid .posa-cart-item-row--keyboard-active > td {

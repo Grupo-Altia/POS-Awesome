@@ -1119,7 +1119,7 @@ defineExpose({
 
 .posa-items-table-container--counter-grid
 	:deep(.posa-cart-table tbody tr:not(.posa-cart-item-row--keyboard-active):hover td) {
-	background: #dcecf7 !important;
+	background: var(--pos-hover-bg) !important;
 }
 
 .posa-items-table-container--counter-grid :deep(.posa-cart-item-row),

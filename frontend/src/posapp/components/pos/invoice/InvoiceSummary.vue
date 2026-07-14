@@ -693,7 +693,7 @@ defineExpose({
 	border-top: 2px solid #174a70;
 	border-radius: 0 !important;
 	box-shadow: none;
-	background: #ffffff !important;
+	background: var(--pos-card-bg) !important;
 }
 
 .counter-grid-summary {
@@ -717,16 +717,16 @@ defineExpose({
 	padding: 5px 9px;
 	flex-direction: column;
 	justify-content: center;
-	border: 1px solid #9db2c4;
+	border: 1px solid var(--pos-outline);
 	border-left: 4px solid #174a70;
 	border-radius: 3px;
-	background: #edf3f7;
+	background: var(--pos-surface-muted);
 }
 
 .counter-grid-summary__metric span {
 	font-size: 0.68rem;
 	font-weight: 600;
-	color: #52687a;
+	color: var(--pos-text-secondary);
 }
 
 .counter-grid-summary__metric strong {
@@ -735,18 +735,18 @@ defineExpose({
 	font-variant-numeric: tabular-nums;
 	text-overflow: ellipsis;
 	white-space: nowrap;
-	color: #10263b;
+	color: var(--pos-text-primary);
 }
 
 .counter-grid-summary__metric--total {
 	border-color: #079b55;
 	border-left-color: #079b55;
-	background: #e6f7ee;
+	background: var(--pos-success-container);
 }
 
 .counter-grid-summary__metric--total strong {
 	font-size: 1.05rem;
-	color: #087a46;
+	color: var(--pos-text-primary);
 }
 
 .counter-grid-summary__discount {
@@ -756,7 +756,7 @@ defineExpose({
 .counter-grid-summary__discount :deep(.v-field) {
 	height: 48px;
 	border-radius: 3px;
-	background: #ffffff;
+	background: var(--pos-input-bg);
 }
 
 .counter-grid-summary__discount :deep(.v-field__input) {

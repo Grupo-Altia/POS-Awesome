@@ -5,7 +5,7 @@
 		:fullscreen="useFullscreenDialog"
 		scrollable
 		content-class="posa-item-history-dialog"
-		:theme="isDarkTheme ? 'dark' : 'light'"
+		:theme="resolvedTheme"
 		@update:model-value="emit('update:modelValue', $event)"
 		@after-leave="emit('after-leave')"
 	>
@@ -309,12 +309,7 @@
 		</v-card>
 	</v-dialog>
 
-	<v-dialog
-		v-model="invoiceDetailDialog"
-		max-width="1040px"
-		scrollable
-		:theme="isDarkTheme ? 'dark' : 'light'"
-	>
+	<v-dialog v-model="invoiceDetailDialog" max-width="1040px" scrollable :theme="resolvedTheme">
 		<v-card
 			class="invoice-detail-card pos-themed-card"
 			data-testid="item-history-invoice-detail-dialog"
@@ -408,6 +403,7 @@
 import { computed, nextTick, ref, watch } from "vue";
 import { isOffline } from "../../../../offline/index";
 import { useResponsive } from "../../../composables/core/useResponsive";
+import { useTheme } from "../../../composables/core/useTheme";
 import { canShowItemQuickEdit } from "../../../utils/itemQuickEditPermission";
 import ItemsTableExpandedRow from "./ItemsTableExpandedRow.vue";
 
@@ -449,12 +445,13 @@ const props = withDefaults(defineProps<Props>(), {
 	hideQtyDecimals: false,
 	expandedContentClasses: "",
 	displayCurrency: "",
-	isDarkTheme: false,
 });
 
 const emit = defineEmits(["update:modelValue", "qty-change", "edit-item", "after-leave"]);
 
 const responsive = useResponsive();
+const theme = useTheme();
+const resolvedTheme = computed(() => ((props.isDarkTheme ?? theme.isDark.value) ? "dark" : "light"));
 const useFullscreenDialog = computed(
 	() => responsive.windowWidth.value <= 1100 || responsive.windowHeight.value <= 760,
 );
@@ -899,8 +896,8 @@ watch(historyRows, () => {
 	--counter-rugged-navy-raised: #174a70;
 	--counter-rugged-blue: #0f70d7;
 	--counter-rugged-cyan: #38bdf8;
-	--counter-rugged-line: #9db2c4;
-	--counter-rugged-soft-line: #c9d5df;
+	--counter-rugged-line: var(--pos-outline);
+	--counter-rugged-soft-line: var(--pos-border);
 	display: grid;
 	grid-template-rows: auto auto auto minmax(0, 1fr) auto;
 	height: min(780px, calc(100vh - 24px));
@@ -910,8 +907,8 @@ watch(historyRows, () => {
 	overflow: hidden;
 	border: 3px solid var(--counter-rugged-navy);
 	border-radius: 5px !important;
-	background: #edf3f7 !important;
-	color: #10263b !important;
+	background: var(--pos-dialog-bg) !important;
+	color: var(--pos-text-primary) !important;
 	box-shadow: 0 5px 14px rgba(4, 22, 37, 0.34);
 }
 
@@ -984,8 +981,8 @@ watch(historyRows, () => {
 .posa-item-history-tabs {
 	padding-inline: 12px;
 	border-bottom: 1px solid var(--counter-rugged-line);
-	background: #dfeaf2;
-	color: #17364f;
+	background: var(--pos-table-header-bg);
+	color: var(--pos-text-primary);
 }
 
 .posa-item-history-tabs :deep(.v-tab) {
@@ -994,7 +991,7 @@ watch(historyRows, () => {
 }
 
 .posa-item-history-tabs :deep(.v-tab--selected) {
-	background: #ffffff;
+	background: var(--pos-input-bg);
 	color: var(--counter-rugged-blue) !important;
 }
 
@@ -1002,7 +999,7 @@ watch(historyRows, () => {
 	min-height: 0;
 	overflow: auto;
 	overscroll-behavior: contain;
-	background: #edf3f7;
+	background: var(--pos-surface-muted);
 }
 
 .posa-item-history-filters {
@@ -1014,7 +1011,7 @@ watch(historyRows, () => {
 
 .posa-item-history-filters :deep(.v-label),
 .posa-item-history-filters :deep(.v-field-label) {
-	color: #25384b !important;
+	color: var(--pos-text-secondary) !important;
 	opacity: 1;
 }
 
@@ -1031,12 +1028,12 @@ watch(historyRows, () => {
 	border: 1px solid var(--counter-rugged-line);
 	border-left: 5px solid var(--counter-rugged-blue);
 	border-radius: 3px;
-	background: #ffffff;
+	background: var(--pos-card-bg);
 	box-shadow: 0 1px 3px rgba(9, 37, 61, 0.12);
 }
 
 .summary-tile__label {
-	color: #52687a;
+	color: var(--pos-text-secondary);
 	font-size: 0.7rem;
 	font-weight: 700;
 	text-transform: uppercase;
@@ -1045,7 +1042,7 @@ watch(historyRows, () => {
 .summary-tile__value {
 	margin-top: 3px;
 	overflow: hidden;
-	color: #10263b;
+	color: var(--pos-text-primary);
 	font-size: 0.96rem;
 	font-weight: 800;
 	font-variant-numeric: tabular-nums;
@@ -1067,7 +1064,7 @@ watch(historyRows, () => {
 	border: 2px solid var(--counter-rugged-navy-raised);
 	border-radius: 3px;
 	overflow: auto;
-	background: #ffffff;
+	background: var(--pos-card-bg);
 }
 
 .posa-item-history-table :deep(table) {
@@ -1092,17 +1089,17 @@ watch(historyRows, () => {
 .posa-item-history-table :deep(td) {
 	border-right: 1px solid var(--counter-rugged-soft-line);
 	border-bottom: 1px solid var(--counter-rugged-line);
-	background: #ffffff;
-	color: #10263b;
+	background: var(--pos-card-bg);
+	color: var(--pos-text-primary);
 	font-variant-numeric: tabular-nums;
 }
 
 .posa-item-history-table :deep(tbody tr:nth-child(even) td) {
-	background: #edf4f8;
+	background: var(--pos-surface-muted);
 }
 
 .posa-item-history-row--active td {
-	background: #d7eafd !important;
+	background: var(--pos-selected-bg) !important;
 	box-shadow: inset 4px 0 0 var(--counter-rugged-blue);
 }
 
@@ -1119,7 +1116,7 @@ watch(historyRows, () => {
 }
 
 .posa-item-history-table tr.posa-modal-keyboard-box td {
-	background: #d7eafd !important;
+	background: var(--pos-selected-bg) !important;
 }
 
 .posa-item-history-footer,
@@ -1136,7 +1133,7 @@ watch(historyRows, () => {
 
 .posa-item-history-actions {
 	border-top: 2px solid var(--counter-rugged-navy-raised);
-	background: #ffffff;
+	background: var(--pos-card-bg);
 }
 
 .posa-item-history-actions :deep(.v-btn) {
@@ -1156,11 +1153,11 @@ watch(historyRows, () => {
 	--counter-rugged-navy: #09253d;
 	--counter-rugged-navy-raised: #174a70;
 	--counter-rugged-cyan: #38bdf8;
-	--counter-rugged-line: #9db2c4;
-	--counter-rugged-soft-line: #c9d5df;
+	--counter-rugged-line: var(--pos-outline);
+	--counter-rugged-soft-line: var(--pos-border);
 	border: 3px solid var(--counter-rugged-navy);
 	border-radius: 5px !important;
-	background: #edf3f7 !important;
+	background: var(--pos-dialog-bg) !important;
 }
 
 .invoice-detail-header {

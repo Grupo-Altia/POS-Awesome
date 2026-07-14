@@ -79,17 +79,17 @@ defineExpose({ focus, select });
 <style scoped>
 .counter-grid-entry-row {
 	height: 52px;
-	background: #e2edf5;
+	background: var(--pos-surface-muted);
 	border-top: 2px solid #174a70;
 }
 
 .counter-grid-entry-cell {
 	padding: 6px 10px;
 	text-align: center;
-	border-right: 1px solid #c9d5df;
-	border-bottom: 1px solid #9db2c4;
-	background: #eaf2f7;
-	color: #52687a;
+	border-right: 1px solid var(--pos-border);
+	border-bottom: 1px solid var(--pos-outline);
+	background: var(--pos-surface-muted);
+	color: var(--pos-text-secondary);
 }
 
 .counter-grid-entry-cell--item {
@@ -106,8 +106,8 @@ defineExpose({ focus, select });
 	padding: 6px 10px;
 	border: 2px solid #0f70d7;
 	border-radius: 3px;
-	background: #ffffff;
-	color: #10263b;
+	background: var(--pos-input-bg);
+	color: var(--pos-text-primary);
 	box-shadow: inset 0 1px 2px rgba(9, 37, 61, 0.12);
 	text-align: start;
 	cursor: text;
@@ -125,13 +125,13 @@ defineExpose({ focus, select });
 	border: 0;
 	outline: 0;
 	background: transparent;
-	color: #10263b;
+	color: var(--pos-text-primary);
 	font: inherit;
 	letter-spacing: 0;
 }
 
 .counter-grid-entry-input::placeholder {
-	color: #52687a;
+	color: var(--pos-text-secondary);
 	opacity: 1;
 }
 
@@ -141,10 +141,10 @@ defineExpose({ focus, select });
 
 .counter-grid-entry-editor kbd {
 	padding: 1px 5px;
-	border: 1px solid #9db2c4;
+	border: 1px solid var(--pos-outline);
 	border-radius: 3px;
-	background: #edf3f7;
-	color: #17364f;
+	background: var(--pos-surface-muted);
+	color: var(--pos-text-primary);
 	font: inherit;
 	font-size: 0.72rem;
 }

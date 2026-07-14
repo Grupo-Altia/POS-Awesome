@@ -525,8 +525,8 @@ defineExpose({ tableRef, syncRenderedHighlight, focusActiveResult });
 	--counter-rugged-navy-raised: #174a70;
 	--counter-rugged-blue: #0f70d7;
 	--counter-rugged-cyan: #38bdf8;
-	--counter-rugged-line: #9db2c4;
-	--counter-rugged-soft-line: #c9d5df;
+	--counter-rugged-line: var(--pos-outline);
+	--counter-rugged-soft-line: var(--pos-border);
 	position: relative;
 	display: flex;
 	flex: 1 1 auto;
@@ -554,12 +554,12 @@ defineExpose({ tableRef, syncRenderedHighlight, focusActiveResult });
 	min-height: 52px;
 	padding: 6px 10px;
 	border-bottom: 2px solid var(--counter-rugged-navy-raised);
-	background: #ffffff;
+	background: var(--pos-card-bg);
 }
 
 .pharmacy-search-controls :deep(.v-field) {
 	border-radius: 3px;
-	background: #ffffff;
+	background: var(--pos-input-bg);
 }
 
 .pharmacy-search-controls :deep(.v-field__outline) {
@@ -569,7 +569,7 @@ defineExpose({ tableRef, syncRenderedHighlight, focusActiveResult });
 
 .pharmacy-search-controls :deep(.v-label),
 .pharmacy-search-controls :deep(.v-field-label) {
-	color: #25384b !important;
+	color: var(--pos-text-secondary) !important;
 	opacity: 1;
 }
 
@@ -586,7 +586,7 @@ defineExpose({ tableRef, syncRenderedHighlight, focusActiveResult });
 	align-items: center;
 	gap: 14px;
 	margin-inline-start: auto;
-	color: #42566a;
+	color: var(--pos-text-secondary);
 	font-size: 0.76rem;
 	font-weight: 600;
 }
@@ -611,7 +611,7 @@ defineExpose({ tableRef, syncRenderedHighlight, focusActiveResult });
 
 .pharmacy-alternate-context span {
 	overflow: hidden;
-	color: #42566a;
+	color: var(--pos-text-secondary);
 	font-size: 0.72rem;
 	text-overflow: ellipsis;
 	white-space: nowrap;
@@ -622,7 +622,7 @@ defineExpose({ tableRef, syncRenderedHighlight, focusActiveResult });
 	min-height: 0;
 	border: 0;
 	border-radius: 0;
-	background: #ffffff;
+	background: var(--pos-card-bg);
 }
 
 .pharmacy-results-keyboard-boundary {
@@ -640,8 +640,8 @@ defineExpose({ tableRef, syncRenderedHighlight, focusActiveResult });
 	flex-direction: column;
 	gap: 8px;
 	padding: 24px;
-	background: #edf3f7;
-	color: #42566a;
+	background: var(--pos-surface-muted);
+	color: var(--pos-text-secondary);
 	text-align: center;
 }
 
@@ -661,8 +661,8 @@ defineExpose({ tableRef, syncRenderedHighlight, focusActiveResult });
 	padding: 0 8px !important;
 	border-right: 1px solid #b5c9d8 !important;
 	border-bottom: 2px solid var(--counter-rugged-navy-raised) !important;
-	background: #dfeaf2 !important;
-	color: #10263b !important;
+	background: var(--pos-table-header-bg) !important;
+	color: var(--pos-text-primary) !important;
 	font-size: 0.72rem;
 	font-weight: 800 !important;
 	text-transform: uppercase;
@@ -673,8 +673,8 @@ defineExpose({ tableRef, syncRenderedHighlight, focusActiveResult });
 	padding: 2px 8px !important;
 	border-right: 1px solid var(--counter-rugged-soft-line) !important;
 	border-bottom: 1px solid var(--counter-rugged-line) !important;
-	background: #ffffff;
-	color: #10263b;
+	background: var(--pos-card-bg);
+	color: var(--pos-text-primary);
 	font-size: 0.78rem;
 	font-weight: 520;
 	font-variant-numeric: tabular-nums;
@@ -693,11 +693,11 @@ defineExpose({ tableRef, syncRenderedHighlight, focusActiveResult });
 }
 
 .pharmacy-results-table :deep(tbody tr:nth-child(even):not(.item-row-highlighted) > td) {
-	background: #edf4f8;
+	background: var(--pos-surface-muted);
 }
 
 .pharmacy-results-table :deep(tbody tr:not(.item-row-highlighted):hover > td) {
-	background: #dcecf7 !important;
+	background: var(--pos-hover-bg) !important;
 }
 
 .pharmacy-results-table :deep(tbody tr.item-row-highlighted > td),
@@ -736,17 +736,17 @@ defineExpose({ tableRef, syncRenderedHighlight, focusActiveResult });
 
 .pharmacy-product-cell strong {
 	font-size: 0.79rem;
-	color: #10263b;
+	color: var(--pos-text-primary);
 }
 
 .pharmacy-product-cell span {
-	color: #536a7c;
+	color: var(--pos-text-secondary);
 	font-size: 0.68rem;
 }
 
 .pharmacy-rate-cell {
 	font-weight: 700;
-	color: #10263b;
+	color: var(--pos-text-primary);
 }
 
 @media (max-width: 1100px) {

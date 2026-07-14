@@ -709,10 +709,7 @@ function closeQtyEdit() {
 		replaceQtyOnNextInput.value = false;
 		if (editingQtyValue.value !== "" && editingQtyValue.value != null) {
 			// Emit event to update parent state
-			const val = normalizeCartEditQuantity(
-				editingQtyValue.value,
-				props.isReturnInvoice,
-			);
+			const val = normalizeCartEditQuantity(editingQtyValue.value, props.isReturnInvoice);
 			if (val !== props.item.qty) {
 				emit("update-qty", props.item, val);
 			}
@@ -997,8 +994,8 @@ td {
 }
 
 .posa-cart-item-row--loss-risk > td {
-	background: #fee2e2 !important;
-	color: #7f1d1d;
+	background: var(--pos-error-container) !important;
+	color: var(--pos-text-primary);
 }
 
 .posa-cart-item-row--loss-risk {

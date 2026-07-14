@@ -42,7 +42,7 @@ export function auditChrome109CounterGridCss(css, label = "Counter Grid CSS") {
 			},
 		]),
 	);
-	let whiteInactiveCells = false;
+	let themeAwareInactiveCells = false;
 	const failures = [];
 	const rulePattern = /([^{}]+)\{([^{}]*)\}/g;
 	let match;
@@ -69,16 +69,14 @@ export function auditChrome109CounterGridCss(css, label = "Counter Grid CSS") {
 					state.navy = true;
 				if (value.includes("#38bdf8")) state.cyan = true;
 				if (declaration.property === "animation") {
-					if (isDisabledMotion(value))
-						state.noAnimation = true;
+					if (isDisabledMotion(value)) state.noAnimation = true;
 					else
 						failures.push(
 							`.${className} selection animation must be none`,
 						);
 				}
 				if (declaration.property === "transition") {
-					if (isDisabledMotion(value))
-						state.noTransition = true;
+					if (isDisabledMotion(value)) state.noTransition = true;
 					else
 						failures.push(
 							`.${className} selection transition must be none`,
@@ -101,10 +99,15 @@ export function auditChrome109CounterGridCss(css, label = "Counter Grid CSS") {
 			declarations.some(
 				(declaration) =>
 					declaration.property === "background" &&
-					/^#(?:fff|ffffff)(?:\s|!|$)/i.test(declaration.value),
+					(/^(?:#(?:fff|ffffff))(?:\s|!|$)/i.test(
+						declaration.value,
+					) ||
+						/var\(--(?:pos-card-bg|counter-rugged-surface)\)/i.test(
+							declaration.value,
+						)),
 			)
 		) {
-			whiteInactiveCells = true;
+			themeAwareInactiveCells = true;
 		}
 
 		const matchingClasses = COUNTER_GRID_COLOR_MIX_CLASSES.filter(
@@ -152,8 +155,10 @@ export function auditChrome109CounterGridCss(css, label = "Counter Grid CSS") {
 		failures.push(
 			"active Counter Grid cells need the fixed cyan focus ring",
 		);
-	if (!whiteInactiveCells)
-		failures.push("white inactive Counter Grid cell styling was not found");
+	if (!themeAwareInactiveCells)
+		failures.push(
+			"theme-aware inactive Counter Grid cell styling was not found",
+		);
 	if (failures.length) {
 		throw new Error(
 			`${label} compatibility audit failed:\n${failures.join("\n")}`,

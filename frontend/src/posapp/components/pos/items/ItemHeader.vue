@@ -358,7 +358,7 @@ defineExpose({
 .search-sync-progress__value {
 	font-size: 0.7rem;
 	line-height: 1.2;
-	color: #075985;
+	color: var(--pos-primary-variant);
 }
 
 .search-sync-progress__label {
@@ -426,7 +426,7 @@ defineExpose({
 
 .search-field-shell :deep(.v-label),
 .search-field-shell :deep(.v-field-label) {
-	color: #075985 !important;
+	color: var(--pos-primary-variant) !important;
 	opacity: 1;
 }
 

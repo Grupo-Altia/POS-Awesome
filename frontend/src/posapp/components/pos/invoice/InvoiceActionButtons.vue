@@ -340,10 +340,10 @@ const showMoreActions = computed(
 	height: 38px !important;
 	min-width: 0 !important;
 	padding-inline: 10px !important;
-	border: 1px solid #9db2c4 !important;
+	border: 1px solid var(--pos-outline) !important;
 	border-radius: 3px !important;
-	background: #e8eef3 !important;
-	color: #10263b !important;
+	background: var(--pos-button-bg) !important;
+	color: var(--pos-text-primary) !important;
 	font-size: 0.76rem !important;
 	font-weight: 650 !important;
 	text-transform: none !important;

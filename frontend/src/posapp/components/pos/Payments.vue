@@ -713,9 +713,7 @@ const visiblePaymentMethods = computed(() =>
 	),
 );
 
-const creditSaleAllowed = computed(() =>
-	parseBooleanSetting(pos_profile.value?.posa_allow_credit_sale),
-);
+const creditSaleAllowed = computed(() => parseBooleanSetting(pos_profile.value?.posa_allow_credit_sale));
 
 const giftCardAppliedAmount = computed(() =>
 	(Array.isArray(giftCardRedemptions.value) ? giftCardRedemptions.value : []).reduce(
@@ -1749,11 +1747,7 @@ const handleSubmitPaymentShortcut = ({ print = false, amount = null } = {}) => {
 
 	if (amount !== null) {
 		const shortcutAmount = Number(amount);
-		if (
-			!invoice_doc.value?.is_return &&
-			Number.isFinite(shortcutAmount) &&
-			shortcutAmount === 0
-		) {
+		if (!invoice_doc.value?.is_return && Number.isFinite(shortcutAmount) && shortcutAmount === 0) {
 			if (!enableShortcutCreditSale()) {
 				return;
 			}
@@ -2311,7 +2305,7 @@ defineExpose({
 
 :deep(.payment-section .v-label),
 :deep(.payment-section .v-field-label) {
-	color: #25384b !important;
+	color: var(--pos-text-secondary) !important;
 	opacity: 1;
 }
 
@@ -2374,12 +2368,12 @@ defineExpose({
 
 :deep(.payment-shell--dialog .payment-section .v-label) {
 	font-size: 0.78rem;
-	color: #25384b !important;
+	color: var(--pos-text-secondary) !important;
 	opacity: 1;
 }
 
 :deep(.payment-shell--dialog .payment-section .v-field-label) {
-	color: #25384b !important;
+	color: var(--pos-text-secondary) !important;
 	opacity: 1;
 }
 
@@ -2394,7 +2388,7 @@ defineExpose({
 
 :deep(.payment-shell--dialog .v-switch .v-label) {
 	font-size: 0.82rem;
-	color: #25384b !important;
+	color: var(--pos-text-secondary) !important;
 	opacity: 1;
 }
 

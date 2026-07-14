@@ -975,10 +975,10 @@ export default {
 	--counter-rugged-cyan: #38bdf8;
 	--counter-rugged-green: #079b55;
 	--counter-rugged-red: #dc343d;
-	--counter-rugged-line: #9db2c4;
-	--counter-rugged-soft-line: #c9d5df;
-	--counter-rugged-surface: #ffffff;
-	--counter-rugged-muted: #edf3f7;
+	--counter-rugged-line: var(--pos-outline);
+	--counter-rugged-soft-line: var(--pos-border);
+	--counter-rugged-surface: var(--pos-card-bg);
+	--counter-rugged-muted: var(--pos-surface-muted);
 	padding: 0;
 	height: calc(100vh - 64px);
 	height: calc(100dvh - 64px);
@@ -991,7 +991,7 @@ export default {
 	grid-template-rows: minmax(0, 1fr) 32px;
 	height: 100%;
 	min-height: 0;
-	background: #e7edf2;
+	background: var(--pos-surface-muted);
 }
 
 .counter-grid-status {
@@ -1002,7 +1002,7 @@ export default {
 	padding: 0 14px;
 	border-top: 2px solid var(--counter-rugged-navy-raised);
 	background: var(--counter-rugged-surface);
-	color: #42566a;
+	color: var(--pos-text-secondary);
 	font-size: 0.78rem;
 }
 
@@ -1028,9 +1028,9 @@ export default {
 	--counter-rugged-navy-raised: #174a70;
 	--counter-rugged-blue: #0f70d7;
 	--counter-rugged-cyan: #38bdf8;
-	--counter-rugged-line: #9db2c4;
-	--counter-rugged-surface: #ffffff;
-	--counter-rugged-muted: #edf3f7;
+	--counter-rugged-line: var(--pos-outline);
+	--counter-rugged-surface: var(--pos-card-bg);
+	--counter-rugged-muted: var(--pos-surface-muted);
 	display: flex;
 	flex-direction: column;
 	width: 100%;
@@ -1091,8 +1091,8 @@ export default {
 
 .counter-item-search-header__source :deep(.v-field) {
 	border-radius: 3px;
-	background: #ffffff;
-	color: #09253d;
+	background: var(--pos-input-bg);
+	color: var(--pos-text-primary);
 }
 
 .counter-item-search-surface :deep(.items-selector-shell) {
