@@ -107,4 +107,63 @@ describe("alternate cart eligibility", () => {
 		expect(source.available_qty).toBe(0);
 		expect(source.label).not.toContain("NaN");
 	});
+
+	it("does not offer cart alternates when negative stock is allowed", () => {
+		const item = {
+			posa_row_id: "negative-stock-row",
+			item_code: "NEGATIVE-STOCK",
+			qty: 2,
+			actual_qty: -3,
+			is_stock_item: 1,
+		};
+
+		expect(
+			collectUnavailableCartItems([item], {
+				stockSettings: { allow_negative_stock: 1 },
+			}),
+		).toEqual([]);
+		expect(
+			collectUnavailableCartItems([item], {
+				stockSettings: { allow_negative_stock: 0 },
+			}),
+		).toHaveLength(1);
+	});
+
+	it("keeps POS Profile blocking authoritative over negative-stock permission", () => {
+		const sources = collectUnavailableCartItems(
+			[
+				{
+					posa_row_id: "blocked-row",
+					item_code: "BLOCKED",
+					qty: 1,
+					actual_qty: 0,
+					is_stock_item: 1,
+					allow_negative_stock: 1,
+				},
+			],
+			{
+				posProfile: { posa_block_sale_beyond_available_qty: 1 },
+				stockSettings: { allow_negative_stock: 1 },
+			},
+		);
+
+		expect(sources).toHaveLength(1);
+	});
+
+	it("does not offer alternates when Order or Quotation defers stock validation", () => {
+		const sources = collectUnavailableCartItems(
+			[
+				{
+					posa_row_id: "deferred-row",
+					item_code: "DEFERRED",
+					qty: 4,
+					actual_qty: 0,
+					is_stock_item: 1,
+				},
+			],
+			{ deferStockValidationToPayment: true },
+		);
+
+		expect(sources).toEqual([]);
+	});
 });

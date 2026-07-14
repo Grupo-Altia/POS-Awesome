@@ -342,7 +342,7 @@ import { useUIStore } from "../../../stores/uiStore";
 import { useInvoiceStore } from "../../../stores/invoiceStore";
 import { useEmployeeStore } from "../../../stores/employeeStore";
 
-import { parseBooleanSetting } from "../../../utils/stock";
+import { parseBooleanSetting, shouldBlockSaleForStock } from "../../../utils/stock";
 import { createItemSearchFocusClearGuard } from "../../../utils/itemSearchFocusClearGuard";
 import {
 	getPharmacyItemResultId,
@@ -977,6 +977,7 @@ const add_item = async (item, optionsOrQty: any = {}) => {
 			itemDetailFetcher,
 			items: invoiceStore.items,
 			isReturnInvoice: isReturnInvoice.value,
+			invoiceType: invoiceStore.invoiceType,
 			...options,
 			new_line: typeof options?.new_line === "boolean" ? options.new_line : !!new_line.value,
 			appendNewItems: props.presentation === "counter-grid-dialog",
@@ -1034,8 +1035,16 @@ const getHighlightedResultItem = () => {
 };
 
 const isUnavailableForSale = (item: any, requestedQty: unknown = 1) => {
-	if (!item || isReturnInvoice.value || Number(item.is_stock_item) === 0) return false;
-	return projectPackLooseStock(item).availableQty < normalizeRequestedQty(requestedQty);
+	return shouldBlockSaleForStock({
+		item,
+		requestedQty: normalizeRequestedQty(requestedQty),
+		availableQty: projectPackLooseStock(item).availableQty,
+		posProfile: pos_profile.value,
+		stockSettings: stock_settings.value,
+		blockSaleBeyondAvailableQty: blockSaleBeyondAvailableQty.value,
+		isReturnInvoice: isReturnInvoice.value,
+		deferStockValidationToPayment: deferStockValidationToPayment.value,
+	});
 };
 
 const buildAlternateRequest = (source: any) => ({

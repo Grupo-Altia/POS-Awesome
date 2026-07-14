@@ -331,7 +331,7 @@ export default {
 		const itemsStore = useItemsStore();
 		const toastStore = useToastStore();
 		const __ = window.__;
-		const { activeView, posProfile, paymentDialogOpen } = storeToRefs(uiStore);
+		const { activeView, posProfile, paymentDialogOpen, stockSettings } = storeToRefs(uiStore);
 		const { totalItemCount, itemsLoaded } = storeToRefs(itemsStore);
 		const {
 			invoiceDoc,
@@ -342,6 +342,7 @@ export default {
 			discountTotal,
 			additionalDiscount,
 			additionalDiscountPercentage,
+			invoiceType,
 		} = storeToRefs(invoiceStore);
 		const usePaymentDialog = computed(() => responsive.windowWidth.value >= 992);
 		const counterGridActive = computed(() =>
@@ -579,6 +580,11 @@ export default {
 			const sources = collectUnavailableCartItems(invoiceItems.value, {
 				isReturn: Boolean(invoiceDoc.value?.is_return),
 				translate: __,
+				posProfile: posProfile.value,
+				stockSettings: stockSettings.value,
+				blockSaleBeyondAvailableQty: posProfile.value?.posa_block_sale_beyond_available_qty,
+				deferStockValidationToPayment:
+					invoiceType.value === "Order" || invoiceType.value === "Quotation",
 			});
 			if (!sources.length) {
 				toastStore.show({

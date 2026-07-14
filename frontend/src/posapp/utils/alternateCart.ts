@@ -1,3 +1,5 @@
+import { shouldBlockSaleForStock } from "./stock";
+
 export interface AlternateCartSource {
 	row_id: string;
 	item_code: string;
@@ -24,7 +26,14 @@ export function getCartAvailableQty(item: Record<string, any>): number {
 
 export function collectUnavailableCartItems(
 	items: Record<string, any>[],
-	options: { isReturn?: boolean; translate?: Translate } = {},
+	options: {
+		isReturn?: boolean;
+		translate?: Translate;
+		posProfile?: Record<string, any> | null;
+		stockSettings?: Record<string, any> | null;
+		blockSaleBeyondAvailableQty?: unknown;
+		deferStockValidationToPayment?: boolean;
+	} = {},
 ): AlternateCartSource[] {
 	if (options.isReturn) return [];
 	const translate = options.translate || ((value) => value);
@@ -38,8 +47,18 @@ export function collectUnavailableCartItems(
 			!rowId ||
 			!itemCode ||
 			requestedQty <= 0 ||
-			Number(item?.is_stock_item) === 0 ||
-			availableQty >= requestedQty
+			!shouldBlockSaleForStock({
+				item,
+				requestedQty,
+				availableQty,
+				posProfile: options.posProfile,
+				stockSettings: options.stockSettings,
+				blockSaleBeyondAvailableQty:
+					options.blockSaleBeyondAvailableQty,
+				isReturnInvoice: options.isReturn,
+				deferStockValidationToPayment:
+					options.deferStockValidationToPayment,
+			})
 		) {
 			return [];
 		}
