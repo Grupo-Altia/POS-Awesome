@@ -273,6 +273,127 @@ describe("itemsStore loadItems", () => {
 		expect(store.filteredItems).toHaveLength(1);
 	});
 
+	it("does not replace the master catalog with scoped server search results", async () => {
+		vi.useFakeTimers();
+		try {
+			const store = useItemsStore();
+			await store.initialize({
+				name: "POS-1",
+				warehouse: "Main WH",
+				selling_price_list: "Retail",
+				currency: "PKR",
+				item_groups: [],
+				posa_use_limit_search: 1,
+			} as any);
+
+			itemServiceMocks.getItemsData.mockClear();
+			itemsSearchMocks.performLocalSearch.mockReturnValue([]);
+			itemServiceMocks.getItemsData.mockResolvedValueOnce([
+				{
+					item_code: "SEARCH-1",
+					item_name: "Scoped Search Result",
+					item_group: "All Item Groups",
+				},
+			]);
+
+			const searchPromise = store.searchItems("scoped", {
+				serverFallbackDelayMs: 0,
+			});
+			await vi.advanceTimersByTimeAsync(0);
+			await searchPromise;
+
+			expect(store.items.map((item) => item.item_code)).toEqual([
+				"ITEM-1",
+			]);
+			expect(store.filteredItems.map((item) => item.item_code)).toEqual([
+				"SEARCH-1",
+			]);
+		} finally {
+			vi.useRealTimers();
+		}
+	});
+
+	it("preserves the catalog and visible results when an active-search reload returns empty", async () => {
+		const store = useItemsStore();
+		await store.initialize({
+			name: "POS-1",
+			warehouse: "Main WH",
+			selling_price_list: "Retail",
+			currency: "PKR",
+			item_groups: [],
+		} as any);
+
+		store.$patch({
+			searchTerm: "item",
+			filteredItems: [...store.items],
+			filteredItemsSearchTerm: "item",
+		});
+		itemServiceMocks.getItemsData.mockResolvedValueOnce([]);
+
+		await store.recoverItemCatalog({
+			reason: "reload_button",
+			preserveSearch: true,
+		});
+
+		expect(store.items.map((item) => item.item_code)).toEqual(["ITEM-1"]);
+		expect(store.filteredItems.map((item) => item.item_code)).toEqual([
+			"ITEM-1",
+		]);
+		expect(store.filteredItemsSearchTerm).toBe("item");
+	});
+
+	it("preserves an existing catalog when an unscoped manual reload returns empty", async () => {
+		const store = useItemsStore();
+		await store.initialize({
+			name: "POS-1",
+			warehouse: "Main WH",
+			selling_price_list: "Retail",
+			currency: "PKR",
+			item_groups: [],
+		} as any);
+
+		itemServiceMocks.getItemsData.mockResolvedValueOnce([]);
+
+		await store.recoverItemCatalog({
+			reason: "reload_button",
+			preserveSearch: false,
+		});
+
+		expect(store.items.map((item) => item.item_code)).toEqual(["ITEM-1"]);
+		expect(store.filteredItems.map((item) => item.item_code)).toEqual([
+			"ITEM-1",
+		]);
+	});
+
+	it("does not replace the master catalog when reloading one item group", async () => {
+		const store = useItemsStore();
+		await store.initialize({
+			name: "POS-1",
+			warehouse: "Main WH",
+			selling_price_list: "Retail",
+			currency: "PKR",
+			item_groups: [],
+		} as any);
+		await store.filterByGroup("Medicines");
+		itemServiceMocks.getItemsData.mockResolvedValueOnce([
+			{
+				item_code: "MED-1",
+				item_name: "Medicine One",
+				item_group: "Medicines",
+			},
+		]);
+
+		await store.recoverItemCatalog({
+			reason: "reload_button",
+			preserveSearch: true,
+		});
+
+		expect(store.items.map((item) => item.item_code)).toEqual(["ITEM-1"]);
+		expect(store.filteredItems.map((item) => item.item_code)).toEqual([
+			"MED-1",
+		]);
+	});
+
 	it("does not insert a quick-edited item that no longer matches the active search", () => {
 		const store = useItemsStore();
 		const shampoo = {

@@ -449,6 +449,7 @@ export const useItemsStore = defineStore("items", () => {
 							searchValue: term,
 							groupFilter: normalizedGroup,
 							forceServer: true,
+							commitToCatalog: false,
 							limit: Math.max(
 								1,
 								Math.min(
@@ -921,6 +922,7 @@ export const useItemsStore = defineStore("items", () => {
 		const startTime = performance.now();
 		const currentRequestToken = ++requestToken.value;
 		let cacheKey: string | null = null;
+		const commitToCatalog = options.commitToCatalog !== false;
 
 		try {
 			isLoading.value = true;
@@ -1041,13 +1043,37 @@ export const useItemsStore = defineStore("items", () => {
 				return;
 			}
 
-			cachedPagination.value.enabled = false;
-			cachedPagination.value.offset = fetchedItems.length;
-			cachedPagination.value.total = fetchedItems.length;
-			cachedPagination.value.loading = false;
-			setItems(fetchedItems);
-			itemsLoaded.value = true;
-			if (!searchValue && fetchedItems.length > 0) {
+			const preserveExistingCatalog =
+				commitToCatalog &&
+				options.preserveCatalogOnEmpty === true &&
+				fetchedItems.length === 0 &&
+				items.value.length > 0;
+			const acceptedCatalogResponse =
+				commitToCatalog && !preserveExistingCatalog;
+
+			if (acceptedCatalogResponse) {
+				cachedPagination.value.enabled = false;
+				cachedPagination.value.offset = fetchedItems.length;
+				cachedPagination.value.total = fetchedItems.length;
+				cachedPagination.value.loading = false;
+				setItems(fetchedItems);
+				itemsLoaded.value = true;
+			} else if (preserveExistingCatalog) {
+				console.warn(
+					"[POSA][Items] preserving the existing catalog after an empty reload response",
+					{
+						profile: posProfile.value?.name,
+						warehouse: posProfile.value?.warehouse,
+						group: normalizedGroup,
+					},
+				);
+			}
+
+			if (
+				acceptedCatalogResponse &&
+				!searchValue &&
+				fetchedItems.length > 0
+			) {
 				lastItemCatalogSyncTime.value = new Date().toISOString();
 			}
 
@@ -1061,6 +1087,7 @@ export const useItemsStore = defineStore("items", () => {
 			}
 
 			if (
+				acceptedCatalogResponse &&
 				!searchValue &&
 				shouldPersistItems() &&
 				normalizedGroup === "ALL"
@@ -1606,6 +1633,9 @@ export const useItemsStore = defineStore("items", () => {
 
 		const activeSearch = options.preserveSearch ? searchTerm.value : "";
 		const activeGroup = itemGroup.value || "ALL";
+		const isScopedRecovery = Boolean(activeSearch) || activeGroup !== "ALL";
+		const previousFilteredItems = [...filteredItems.value];
+		const previousFilteredSearchTerm = filteredItemsSearchTerm.value;
 		console.info("[POSA][Items] recovering item catalog", {
 			reason: options.reason || "manual",
 			search: activeSearch,
@@ -1623,11 +1653,43 @@ export const useItemsStore = defineStore("items", () => {
 				forceServer: true,
 				searchValue: activeSearch,
 				groupFilter: activeGroup,
+				commitToCatalog: !isScopedRecovery,
+				preserveCatalogOnEmpty: true,
 			});
+			if (isScopedRecovery && Array.isArray(fetchedItems)) {
+				const scopedResults = filterItemsByGroup(
+					fetchedItems,
+					activeGroup,
+				);
+				const canPreservePreviousResults =
+					scopedResults.length === 0 &&
+					previousFilteredItems.length > 0 &&
+					normalizeSearchScope(previousFilteredSearchTerm) ===
+						normalizeSearchScope(activeSearch);
+				if (!canPreservePreviousResults) {
+					setFilteredItems(scopedResults, activeSearch);
+				} else {
+					console.warn(
+						"[POSA][Items] preserving visible search results after an empty reload response",
+						{
+							search: activeSearch,
+							group: activeGroup,
+						},
+					);
+				}
+			}
 			if (fastCounterEnabled.value) {
 				await loadHotCatalog({ force: true });
 			} else {
 				clearHotCatalog();
+			}
+			if (
+				!activeSearch &&
+				Array.isArray(fetchedItems) &&
+				fetchedItems.length === 0 &&
+				items.value.length > 0
+			) {
+				return items.value;
 			}
 			return Array.isArray(fetchedItems) ? fetchedItems : items.value;
 		} catch (error) {
@@ -1759,7 +1821,8 @@ export const useItemsStore = defineStore("items", () => {
 			filteredItemsSearchTerm.value || searchTerm.value,
 		);
 		const matchesActiveFilter = activeSearch
-			? performLocalSearch(activeSearch, [catalogItem], itemGroup.value).length > 0
+			? performLocalSearch(activeSearch, [catalogItem], itemGroup.value)
+					.length > 0
 			: isMatchingActiveGroup(catalogItem);
 		if (matchesActiveFilter) {
 			mergeIntoCollection(filteredItems.value);
