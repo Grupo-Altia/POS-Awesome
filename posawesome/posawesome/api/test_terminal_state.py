@@ -8,8 +8,25 @@ from posawesome.posawesome.api import terminal_state
 class FakeCache:
     def __init__(self):
         self.values = {}
+        self.get_calls = []
 
-    def get_value(self, key, **kwargs):
+    def get_value(
+        self,
+        key,
+        generator=None,
+        user=None,
+        expires=False,
+        shared=False,
+    ):
+        self.get_calls.append(
+            {
+                "key": key,
+                "generator": generator,
+                "user": user,
+                "expires": expires,
+                "shared": shared,
+            }
+        )
         return self.values.get(key)
 
     def set_value(self, key, value, **kwargs):
@@ -71,6 +88,7 @@ class TestTerminalState(unittest.TestCase):
 
         self.assertTrue(result["locked"])
         self.assertIsNone(result["active_cashier"])
+        self.assertTrue(self.cache.get_calls[-1]["expires"])
 
     def test_verified_pin_activation_is_server_backed_and_survives_reload(self):
         with patch.object(terminal_state, "frappe", self.fake_frappe):

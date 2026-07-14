@@ -55,7 +55,6 @@ def _read_state(profile_name: str) -> dict[str, Any]:
     state = frappe.cache.get_value(
         _state_cache_key(profile_name),
         expires=True,
-        use_local_cache=False,
     )
     if not isinstance(state, dict) or state.get("pos_profile") != profile_name:
         return _default_state(profile_name)
