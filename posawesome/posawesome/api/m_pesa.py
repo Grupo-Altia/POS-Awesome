@@ -325,7 +325,12 @@ def get_mpesa_mode_of_payment(company, pos_profile=None):
     get_active_terminal_cashier(profile_doc.get("name"))
     company = str(profile_doc.get("company") or "").strip()
     allowed_methods = _profile_payment_methods(profile_doc)
-    _assert_mpesa_callback_ready(profile_doc)
+    readiness = _mpesa_callback_readiness(
+        company=company,
+        allowed_methods=allowed_methods,
+    )
+    if not readiness["ready"]:
+        return []
     modes = frappe.get_list(
         "Mpesa C2B Register URL",
         filters={"company": company, "register_status": "Success"},

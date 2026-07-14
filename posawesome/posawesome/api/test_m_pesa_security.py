@@ -492,11 +492,13 @@ class TestMpesaAuthorization(unittest.TestCase):
         )
         original_authorize = self.mpesa.get_authorized_pos_profile
         original_terminal = self.mpesa.get_active_terminal_cashier
+        original_readiness = self.mpesa._mpesa_callback_readiness
         original_get_list = self.mpesa.frappe.get_list
         self.mpesa.get_authorized_pos_profile = Mock(return_value=profile)
         self.mpesa.get_active_terminal_cashier = Mock(
             return_value="cashier@example.com"
         )
+        self.mpesa._mpesa_callback_readiness = Mock(return_value={"ready": True})
         self.mpesa.frappe.get_list = Mock(
             return_value=[
                 AttrDict(mode_of_payment="M-Pesa"),
@@ -515,16 +517,76 @@ class TestMpesaAuthorization(unittest.TestCase):
             "get_active_terminal_cashier",
             original_terminal,
         )
+        self.addCleanup(
+            setattr,
+            self.mpesa,
+            "_mpesa_callback_readiness",
+            original_readiness,
+        )
         self.addCleanup(setattr, self.mpesa.frappe, "get_list", original_get_list)
 
         result = self.mpesa.get_mpesa_mode_of_payment("Test Company")
 
         self.assertEqual(result, ["M-Pesa"])
+        self.mpesa._mpesa_callback_readiness.assert_called_once_with(
+            company="Test Company",
+            allowed_methods={"M-Pesa"},
+        )
         self.mpesa.frappe.get_list.assert_called_once_with(
             "Mpesa C2B Register URL",
             filters={"company": "Test Company", "register_status": "Success"},
             fields=["mode_of_payment"],
         )
+
+    def test_mode_discovery_is_silent_when_mpesa_is_not_ready(self):
+        profile = AttrDict(
+            name="Main POS",
+            company="Test Company",
+            payments=[AttrDict(mode_of_payment="Cash")],
+        )
+        original_authorize = self.mpesa.get_authorized_pos_profile
+        original_terminal = self.mpesa.get_active_terminal_cashier
+        original_readiness = self.mpesa._mpesa_callback_readiness
+        original_get_list = self.mpesa.frappe.get_list
+        self.mpesa.get_authorized_pos_profile = Mock(return_value=profile)
+        self.mpesa.get_active_terminal_cashier = Mock(
+            return_value="cashier@example.com"
+        )
+        self.mpesa._mpesa_callback_readiness = Mock(return_value={"ready": False})
+        self.mpesa.frappe.get_list = Mock(
+            side_effect=AssertionError("unready M-Pesa modes must not be queried")
+        )
+        self.addCleanup(
+            setattr,
+            self.mpesa,
+            "get_authorized_pos_profile",
+            original_authorize,
+        )
+        self.addCleanup(
+            setattr,
+            self.mpesa,
+            "get_active_terminal_cashier",
+            original_terminal,
+        )
+        self.addCleanup(
+            setattr,
+            self.mpesa,
+            "_mpesa_callback_readiness",
+            original_readiness,
+        )
+        self.addCleanup(setattr, self.mpesa.frappe, "get_list", original_get_list)
+
+        result = self.mpesa.get_mpesa_mode_of_payment(
+            "Test Company",
+            pos_profile="Main POS",
+        )
+
+        self.assertEqual(result, [])
+        self.mpesa._mpesa_callback_readiness.assert_called_once_with(
+            company="Test Company",
+            allowed_methods={"Cash"},
+        )
+        self.mpesa.frappe.get_list.assert_not_called()
 
     def test_draft_register_requires_profile_mode_and_matching_customer(self):
         register = FakeDoc(
