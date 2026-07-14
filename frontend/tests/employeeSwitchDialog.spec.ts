@@ -76,6 +76,13 @@ const VTextFieldStub = defineComponent({
 				h("input", {
 					value: props.modelValue,
 					type: props.type,
+					name: attrs.name,
+					autocomplete: attrs.autocomplete,
+					inputmode: attrs.inputmode,
+					pattern: attrs.pattern,
+					"data-1p-ignore": attrs["data-1p-ignore"],
+					"data-lpignore": attrs["data-lpignore"],
+					"data-bwignore": attrs["data-bwignore"],
 					"data-test": attrs["data-test"],
 					onInput: (event: Event) =>
 						emit(
@@ -120,6 +127,47 @@ describe("EmployeeSwitchDialog", () => {
 				},
 			})),
 		};
+	});
+
+	it("marks cashier PIN input as a numeric one-time credential", async () => {
+		const store = useEmployeeStore();
+		const uiStore = useUIStore();
+		uiStore.setPosProfile({ name: "Main POS" } as any);
+		store.setTerminalEmployees([
+			{ user: "cashier@example.com", full_name: "Main Cashier" },
+		]);
+		store.applyTerminalState({
+			active_cashier: "cashier@example.com",
+			locked: false,
+		});
+		store.openEmployeeSwitch();
+
+		const wrapper = mount(EmployeeSwitchDialog, {
+			global: {
+				components: {
+					VDialog: VDialogStub,
+					VCard: BoxStub,
+					VCardTitle: BoxStub,
+					VCardText: BoxStub,
+					VCardActions: BoxStub,
+					VBtn: VBtnStub,
+					VIcon: BoxStub,
+					VAlert: BoxStub,
+					VTextField: VTextFieldStub,
+				},
+			},
+		});
+
+		const input = wrapper.get('input[data-test="cashier-pin-input"]');
+		expect(input.attributes()).toMatchObject({
+			name: "pos-cashier-switch-pin",
+			autocomplete: "one-time-code",
+			inputmode: "numeric",
+			pattern: "[0-9]*",
+			"data-1p-ignore": "true",
+			"data-lpignore": "true",
+			"data-bwignore": "true",
+		});
 	});
 
 	it("requires a cashier pin before switching terminal operator", async () => {

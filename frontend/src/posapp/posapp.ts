@@ -112,10 +112,15 @@ function suppressBrowserInputHelpers(root: HTMLElement | null | undefined) {
 		) {
 			return;
 		}
-		element.setAttribute("autocomplete", "off");
+		if (!element.hasAttribute("autocomplete")) {
+			element.setAttribute("autocomplete", "off");
+		}
 		element.setAttribute("autocorrect", "off");
 		element.setAttribute("autocapitalize", "off");
 		element.setAttribute("spellcheck", "false");
+		element.setAttribute("data-1p-ignore", "true");
+		element.setAttribute("data-lpignore", "true");
+		element.setAttribute("data-bwignore", "true");
 	};
 
 	const normalizeTree = (node: ParentNode | Element | null) => {
