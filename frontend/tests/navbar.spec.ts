@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { nextTick } from "vue";
 import { createPinia, setActivePinia } from "pinia";
 import { shallowMount } from "@vue/test-utils";
@@ -27,6 +27,10 @@ import { useEmployeeStore } from "../src/posapp/stores/employeeStore";
 import { clearAllCaches } from "../src/utils/clearAllCaches";
 
 describe("Navbar supervisor access", () => {
+	afterEach(() => {
+		vi.useRealTimers();
+	});
+
 	beforeEach(() => {
 		setActivePinia(createPinia());
 		vi.stubGlobal("__", (value: string) => value);
@@ -422,5 +426,52 @@ describe("Navbar supervisor access", () => {
 		).toEqual(["cashier@example.com"]);
 		expect(employeeStore.terminalEmployeesLoadError).toBe("");
 		wrapper.unmount();
+	});
+
+	it("turns never-settling cashier requests into a recoverable load error", async () => {
+		vi.useFakeTimers();
+		const employeeStore = useEmployeeStore();
+		(frappe.call as ReturnType<typeof vi.fn>).mockImplementation(
+			() => new Promise(() => undefined),
+		);
+
+		const wrapper = shallowMount(Navbar, {
+			props: { posProfile: { name: "Main POS" } },
+			global: {
+				mocks: { __: (value: string) => value },
+				stubs: {
+					NavbarAppBar: true,
+					NavbarDrawer: true,
+					NavbarMenu: true,
+					NotificationBell: true,
+					StatusIndicator: true,
+					CacheUsageMeter: true,
+					AboutDialog: true,
+					EmployeeSwitchDialog: true,
+					OfflineInvoicesDialog: true,
+					ServerUsageGadget: true,
+					DatabaseUsageGadget: true,
+					VDialog: true,
+					VCard: true,
+					VCardTitle: true,
+					VCardText: true,
+					VSnackbar: true,
+					VBtn: true,
+					VProgressCircular: true,
+				},
+			},
+		});
+
+		expect(employeeStore.terminalEmployeesLoadStatus).toBe("loading");
+		await vi.advanceTimersByTimeAsync(20_000);
+		await nextTick();
+
+		expect(employeeStore.terminalEmployeesLoadStatus).toBe("error");
+		expect(employeeStore.terminalEmployeesLoadError).toContain(
+			"server took too long",
+		);
+		expect(employeeStore.isLocked).toBe(true);
+		wrapper.unmount();
+		vi.useRealTimers();
 	});
 });

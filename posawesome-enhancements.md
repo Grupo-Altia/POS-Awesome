@@ -269,3 +269,25 @@ Verification:
 - Playwright compiled and listed all `12` Counter Grid shell scenarios.
 - Production Vite build and Chrome 109 CSS audit passed.
 - Credentialed live E2E was not run in this Windows shell.
+
+## 2026-07-15 Slow Startup Recovery
+
+Issue:
+
+- On a busy server, the terminal unlock dialog could remain on `Loading authorized cashiers...` while the product-catalog progress stayed at `0%` for an extended period.
+- The requests eventually completed, confirming server latency rather than a permanent frontend deadlock, but both UI surfaces had unbounded waiting behavior.
+
+Fix:
+
+- Authorized-cashier and authoritative terminal-state requests now have a 20-second client deadline.
+- A timed-out cashier request fails closed and exposes the existing Retry action; terminal security is never bypassed.
+- Slow product-catalog hydration stops holding the startup progress surface after a 20-second grace period.
+- The authoritative catalog load continues in the background, and the operator receives an informational status message.
+- Normal fast loads cancel their deadlines and retain the existing behavior.
+
+Verification:
+
+- `48` linked loading, cashier store/dialog, navbar, and item-store tests passed.
+- `vue-tsc --noEmit`
+- Targeted ESLint passed.
+- Production Vite build and Chrome 109 CSS audit passed.

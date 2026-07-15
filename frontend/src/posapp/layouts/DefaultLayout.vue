@@ -89,7 +89,14 @@ import AppLoadingOverlay from "../components/ui/LoadingOverlay.vue";
 import UpdatePrompt from "../components/ui/UpdatePrompt.vue";
 import { useLoading } from "../composables/core/useLoading.js";
 import { usePosShift } from "../composables/pos/shared/usePosShift";
-import { loadingState, initLoadingSources, setSourceProgress, markSourceLoaded } from "../utils/loading.js";
+import {
+	clearSourceRelease,
+	initLoadingSources,
+	loadingState,
+	markSourceLoaded,
+	scheduleSourceRelease,
+	setSourceProgress,
+} from "../utils/loading.js";
 import { useCustomersStore } from "../stores/customersStore.js";
 import { useSyncStore } from "../stores/syncStore.js";
 import { useToastStore } from "../stores/toastStore.js";
@@ -190,6 +197,7 @@ const OFFLINE_SYNC_SCHEMA_VERSION = "2026-07-08";
 const OFFLINE_SYNC_TIMER_INTERVAL_MS = 60_000;
 const PRODUCT_SYNC_SETTLE_TIMEOUT_MS = 120_000;
 const PRODUCT_SYNC_SETTLE_POLL_MS = 250;
+const PRODUCT_CATALOG_BOOTSTRAP_GRACE_MS = 20_000;
 
 // Utils
 const createFallbackLoadingScope = () =>
@@ -300,6 +308,15 @@ const eventBus = instance?.proxy?.eventBus;
 
 // Initialize loading sources immediately in setup so watchers can mark them 100%
 initLoadingSources(["init", "items", "customers"]);
+scheduleSourceRelease("items", PRODUCT_CATALOG_BOOTSTRAP_GRACE_MS, () => {
+	if (itemsLoaded.value) return;
+	console.warn("Product catalog is still loading; releasing the startup progress surface.");
+	toastStore.show({
+		title: __("Product catalog is still loading"),
+		detail: __("You can continue using the POS while catalog data finishes loading in the background."),
+		color: "info",
+	});
+});
 
 const bootSync = useBootSync({
 	offlineSyncRuntime,
@@ -927,6 +944,7 @@ onMounted(() => {
 });
 
 onBeforeUnmount(() => {
+	clearSourceRelease("items");
 	updateChecks.stop();
 	if (removeBootstrapSnapshotListener) {
 		removeBootstrapSnapshotListener();

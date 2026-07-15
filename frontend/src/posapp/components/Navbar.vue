@@ -171,6 +171,9 @@ import { forceClearAllCache } from "../../offline/index";
 import { clearAllCaches } from "../../utils/clearAllCaches";
 import { isOffline } from "../../offline/index";
 import { useRtl } from "../composables/core/useRtl";
+import { withRequestTimeout } from "../utils/requestTimeout";
+
+const TERMINAL_SECURITY_REQUEST_TIMEOUT_MS = 20_000;
 
 const ServerUsageGadget = defineAsyncComponent(() => import("./navbar/ServerUsageGadget.vue"));
 const DatabaseUsageGadget = defineAsyncComponent(() => import("./navbar/DatabaseUsageGadget.vue"));
@@ -596,21 +599,29 @@ export default {
 
 			this.employeeStore.beginTerminalEmployeesLoad(profileName);
 			const [employeesResult, stateResult] = await Promise.allSettled([
-				Promise.resolve().then(() =>
-					frappe.call({
-						method: "posawesome.posawesome.api.employees.get_terminal_employees",
-						args: {
-							pos_profile: profileName,
-						},
-					}),
+				withRequestTimeout(
+					Promise.resolve().then(() =>
+						frappe.call({
+							method: "posawesome.posawesome.api.employees.get_terminal_employees",
+							args: {
+								pos_profile: profileName,
+							},
+						}),
+					),
+					TERMINAL_SECURITY_REQUEST_TIMEOUT_MS,
+					"Timed out loading authorized cashiers.",
 				),
-				Promise.resolve().then(() =>
-					frappe.call({
-						method: "posawesome.posawesome.api.employees.get_terminal_state",
-						args: {
-							pos_profile: profileName,
-						},
-					}),
+				withRequestTimeout(
+					Promise.resolve().then(() =>
+						frappe.call({
+							method: "posawesome.posawesome.api.employees.get_terminal_state",
+							args: {
+								pos_profile: profileName,
+							},
+						}),
+					),
+					TERMINAL_SECURITY_REQUEST_TIMEOUT_MS,
+					"Timed out loading terminal state.",
 				),
 			]);
 
@@ -628,7 +639,9 @@ export default {
 				console.error("Failed to load terminal employees", error);
 				this.employeeStore.failTerminalEmployeesLoad(
 					profileName,
-					this.__("Unable to load cashiers for this POS profile. Check the connection and retry."),
+					this.__(
+						"Unable to load cashiers for this POS profile. The server took too long to respond; retry when ready.",
+					),
 				);
 			}
 
