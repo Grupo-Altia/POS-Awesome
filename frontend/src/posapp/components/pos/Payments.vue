@@ -66,6 +66,7 @@
 							:isCashLikePayment="isCashLikePayment"
 							:isMpesaC2bPayment="is_mpesa_c2b_payment"
 							:isGiftCardPayment="isGiftCardPayment"
+							:show-keyboard-shortcuts="counterGridMode"
 							@update-amount="handlePaymentAmountChange"
 							@set-full-amount="set_full_amount"
 							@set-denomination="setPaymentToDenomination"
@@ -245,6 +246,7 @@
 				:validatePayment="validatePayment"
 				:highlightSubmit="highlightSubmit"
 				:compact="dialogMode"
+				:show-keyboard-shortcuts="counterGridMode"
 				@submit="submit"
 				@submit-and-print="submit(undefined, false, true)"
 				@cancel="back_to_invoice"
@@ -325,6 +327,7 @@ import { resolvePaymentPrintFormat } from "../../utils/paymentPrintFormat";
 import { parseBooleanSetting } from "../../utils/stock";
 import { toCompanyCurrency } from "../../utils/erpnextCurrency";
 import { focusFirstKeyboardTarget } from "../../utils/keyboardNavigation";
+import { resolveCounterGridPaymentShortcut } from "../../utils/counterGridPaymentShortcuts";
 
 // Components
 import PaymentSummary from "./payments/PaymentSummary.vue";
@@ -340,8 +343,12 @@ import PaymentOptions from "./payments/PaymentOptions.vue";
 import PaymentSelectionFields from "./payments/PaymentSelectionFields.vue";
 import PaymentDialogs from "./payments/PaymentDialogs.vue";
 
-defineProps({
+const props = defineProps({
 	dialogMode: {
+		type: Boolean,
+		default: false,
+	},
+	counterGridMode: {
 		type: Boolean,
 		default: false,
 	},
@@ -1719,6 +1726,34 @@ const handlePaymentShortcut = (event) => {
 	if (event.defaultPrevented || submissionInFlight.value || loading.value) return;
 	if (event.repeat) return;
 	if (!paymentVisible.value) return;
+
+	if (props.counterGridMode) {
+		const counterShortcut = resolveCounterGridPaymentShortcut(event, visiblePaymentMethods.value.length);
+		if (counterShortcut) {
+			event.preventDefault();
+			event.stopPropagation();
+			if (counterShortcut.type === "submit") {
+				submit(null, false, counterShortcut.print);
+				return;
+			}
+
+			const payment = visiblePaymentMethods.value[counterShortcut.index];
+			if (!payment) return;
+			if (is_mpesa_c2b_payment(payment)) {
+				mpesa_c2b_dialog(payment);
+				return;
+			}
+			set_full_amount(payment, Boolean(invoice_doc.value?.is_return));
+			nextTick(() => {
+				const card = paymentRoot.value?.querySelector?.(
+					`[data-payment-shortcut-index="${counterShortcut.index + 1}"]`,
+				);
+				const target = card?.querySelector?.("input, button");
+				target?.focus?.();
+			});
+			return;
+		}
+	}
 
 	const isAltOnly = event.altKey && !event.ctrlKey && !event.metaKey;
 	const key = event.key.toLowerCase();

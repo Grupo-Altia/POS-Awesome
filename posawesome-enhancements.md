@@ -248,3 +248,24 @@ Verification:
 - Playwright compiled and listed all `11` Counter Grid shell scenarios, including the health-panel interaction.
 - Production Vite build and Chrome 109 CSS audit passed.
 - `git diff --check` passed.
+
+## 2026-07-15 Counter Grid Fast Tender Shortcuts
+
+Implemented:
+
+- Counter Grid payment dialogs now expose payment-method accelerators in the same order configured by the active POS Profile.
+- `Ctrl/Command+1` through `Ctrl/Command+9` selects the corresponding visible tender and applies the existing exact/full-amount behavior.
+- `Ctrl/Command+Enter` uses the existing invoice submission flow; adding `Shift` uses the existing submit-and-print flow.
+- Tender and submit buttons display their accelerator hints and expose matching `aria-keyshortcuts` metadata.
+- M-Pesa modes keep their established payment-dialog behavior, while returns continue to use the shared negative-refund handling.
+- Classic and compact payment screens retain their existing behavior because the new accelerators are enabled only for Counter Grid.
+
+Verification:
+
+- `78` linked payment initialization, methods, invoice shortcut, submission, printing, and option tests passed.
+- `10` focused Counter Grid payment, health, and payment-method tests passed after the final UI changes.
+- `vue-tsc --noEmit`
+- Targeted ESLint passed.
+- Playwright compiled and listed all `12` Counter Grid shell scenarios.
+- Production Vite build and Chrome 109 CSS audit passed.
+- Credentialed live E2E was not run in this Windows shell.

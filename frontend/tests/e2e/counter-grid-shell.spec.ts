@@ -471,6 +471,30 @@ test.describe("Counter Grid shell", () => {
 		).toBeVisible();
 	});
 
+	test("shows and activates POS Profile tender shortcuts in the payment dialog", async ({
+		page,
+	}) => {
+		await page.setViewportSize({ width: 1280, height: 720 });
+		await waitForPos(page);
+		await addKnownItemFromCounterSearch(page);
+
+		await page.keyboard.press("F9");
+		const paymentRoot = page.getByTestId("payment-root");
+		await expect(paymentRoot).toBeVisible({ timeout: 30_000 });
+		const firstTender = paymentRoot.locator(
+			'[data-payment-shortcut-index="1"]',
+		);
+		await expect(firstTender).toBeVisible();
+		await expect(firstTender).toContainText("Ctrl/⌘+1");
+		await expect(page.getByTestId("payment-submit")).toHaveAttribute(
+			"aria-keyshortcuts",
+			"Control+Enter Meta+Enter",
+		);
+
+		await page.keyboard.press("Control+1");
+		await expect(firstTender.locator("input")).toBeFocused();
+	});
+
 	test("opens offers and coupons from the Counter Grid command menu by keyboard", async ({
 		page,
 	}) => {

@@ -1,6 +1,13 @@
 <template>
 	<div v-if="payments && payments.length" class="payment-methods">
-		<div v-for="payment in payments" :key="payment.name" class="payment-method-card">
+		<div
+			v-for="(payment, paymentIndex) in payments"
+			:key="payment.name"
+			class="payment-method-card"
+			:data-payment-shortcut-index="
+				showKeyboardShortcuts && paymentIndex < 9 ? paymentIndex + 1 : undefined
+			"
+		>
 			<div class="payment-method-card__header">
 				<div>
 					<p class="payment-method-card__label">{{ frappe._("Method") }}</p>
@@ -16,6 +23,12 @@
 					<span v-if="payment.default === 1" class="payment-method-card__badge">
 						{{ __("Default") }}
 					</span>
+					<kbd
+						v-if="showKeyboardShortcuts && paymentIndex < 9"
+						class="payment-method-card__shortcut"
+					>
+						Ctrl/⌘+{{ paymentIndex + 1 }}
+					</kbd>
 				</div>
 			</div>
 
@@ -49,6 +62,11 @@
 							class="payment-method-action-btn"
 							data-pos-keyboard-target="payment-action"
 							:data-test="`payment-method-action-${payment.mode_of_payment}`"
+							:aria-keyshortcuts="
+								showKeyboardShortcuts && paymentIndex < 9
+									? `Control+${paymentIndex + 1} Meta+${paymentIndex + 1}`
+									: undefined
+							"
 							@click="handlePrimaryAction(payment)"
 						>
 							{{ isGiftCardPayment(payment) ? __("Redeem / Scan") : payment.mode_of_payment }}
@@ -88,6 +106,11 @@
 						variant="flat"
 						class="payment-method-action-btn payment-method-action-btn--success"
 						data-pos-keyboard-target="payment-action"
+						:aria-keyshortcuts="
+							showKeyboardShortcuts && paymentIndex < 9
+								? `Control+${paymentIndex + 1} Meta+${paymentIndex + 1}`
+								: undefined
+						"
 						@click="$emit('mpesa-dialog', payment)"
 					>
 						{{ __("Get Payments") }}
@@ -135,6 +158,7 @@ const props = defineProps({
 		type: Function,
 		default: () => false,
 	},
+	showKeyboardShortcuts: Boolean,
 });
 
 const emit = defineEmits([
@@ -222,6 +246,20 @@ const blurTarget = (event) => {
 .payment-method-card__badge--refund {
 	background: #9f1239;
 	color: #ffffff;
+}
+
+.payment-method-card__shortcut {
+	padding: 4px 7px;
+	border: 1px solid var(--pos-border);
+	border-bottom-width: 2px;
+	border-radius: 3px;
+	background: var(--pos-surface);
+	color: var(--pos-text-secondary);
+	font: inherit;
+	font-size: 0.68rem;
+	font-weight: 800;
+	line-height: 1;
+	white-space: nowrap;
 }
 
 :deep(.pos-themed-input--refund input) {

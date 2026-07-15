@@ -11,12 +11,16 @@
 					class="payment-submit-btn payment-footer-btn"
 					data-pos-keyboard-target="payment-submit"
 					data-testid="payment-submit"
+					:aria-keyshortcuts="showKeyboardShortcuts ? 'Control+Enter Meta+Enter' : undefined"
 					@click="$emit('submit')"
 					:loading="loading"
 					:disabled="loading || validatePayment"
 					:class="{ 'submit-highlight': highlightSubmit }"
 				>
-					{{ __("Submit") }}
+					<span>{{ __("Submit") }}</span>
+					<kbd v-if="showKeyboardShortcuts" class="payment-footer-btn__shortcut">
+						Ctrl/⌘+Enter
+					</kbd>
 				</v-btn>
 			</v-col>
 			<v-col cols="12" sm="6" class="payment-action-col">
@@ -28,11 +32,17 @@
 					class="payment-submit-print-btn payment-footer-btn"
 					data-pos-keyboard-target="payment-submit-print"
 					data-testid="payment-submit-print"
+					:aria-keyshortcuts="
+						showKeyboardShortcuts ? 'Control+Shift+Enter Meta+Shift+Enter' : undefined
+					"
 					@click="$emit('submit-and-print')"
 					:loading="loading"
 					:disabled="loading || validatePayment"
 				>
-					{{ __("Submit & Print") }}
+					<span>{{ __("Submit & Print") }}</span>
+					<kbd v-if="showKeyboardShortcuts" class="payment-footer-btn__shortcut">
+						Ctrl/⌘+Shift+Enter
+					</kbd>
 				</v-btn>
 			</v-col>
 			<v-col cols="12">
@@ -59,6 +69,7 @@ defineProps({
 	validatePayment: Boolean,
 	highlightSubmit: Boolean,
 	compact: Boolean,
+	showKeyboardShortcuts: Boolean,
 });
 
 defineEmits(["submit", "submit-and-print", "cancel"]);
@@ -84,6 +95,20 @@ const __ = window.__;
 		transform 0.18s ease !important;
 	color: #ffffff !important;
 	min-height: 48px !important;
+}
+
+.payment-footer-btn__shortcut {
+	margin-inline-start: 8px;
+	padding: 3px 6px;
+	border: 1px solid currentColor;
+	border-bottom-width: 2px;
+	border-radius: 3px;
+	background: rgba(255, 255, 255, 0.12);
+	color: inherit;
+	font: inherit;
+	font-size: 0.68rem;
+	font-weight: 800;
+	line-height: 1;
 }
 
 .payment-submit-btn {

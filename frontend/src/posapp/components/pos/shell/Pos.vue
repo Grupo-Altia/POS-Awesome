@@ -28,7 +28,7 @@
 			@update:model-value="handlePaymentDialogUpdate"
 			@after-leave="handlePaymentDialogAfterLeave"
 		>
-			<Payments dialog-mode />
+			<Payments dialog-mode :counter-grid-mode="counterGridActive" />
 		</v-dialog>
 		<v-dialog
 			v-if="counterGridActive"
