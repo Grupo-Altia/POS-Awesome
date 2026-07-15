@@ -448,6 +448,29 @@ test.describe("Counter Grid shell", () => {
 		await expect(settings).toBeHidden();
 	});
 
+	test("shows live Counter Grid health and opens the shared offline status panel", async ({
+		page,
+	}) => {
+		await page.setViewportSize({ width: 1280, height: 720 });
+		await waitForPos(page);
+
+		for (const healthId of [
+			"connectivity",
+			"pending",
+			"pricing",
+			"stock",
+			"catalog",
+		]) {
+			await expect(
+				page.getByTestId(`counter-grid-health-${healthId}`),
+			).toBeVisible();
+		}
+		await page.getByTestId("counter-grid-health-connectivity").click();
+		await expect(
+			page.locator('[data-test="offline-status-panel"]'),
+		).toBeVisible();
+	});
+
 	test("opens offers and coupons from the Counter Grid command menu by keyboard", async ({
 		page,
 	}) => {

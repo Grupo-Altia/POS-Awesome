@@ -161,24 +161,10 @@
 		</v-row>
 		<section v-else v-show="!dialog" class="counter-grid-pos" data-testid="counter-grid-pos">
 			<Invoice ref="invoicePanel" presentation="counter-grid" />
-			<footer class="counter-grid-status" aria-label="Counter status">
-				<span>
-					<v-icon icon="mdi-warehouse" size="16" />
-					{{ posProfile?.warehouse || __("Warehouse not selected") }}
-				</span>
-				<span>
-					<v-icon icon="mdi-tag-outline" size="16" />
-					{{ posProfile?.selling_price_list || __("Price list not selected") }}
-				</span>
-				<span>
-					<v-icon
-						:icon="itemsLoaded ? 'mdi-database-check-outline' : 'mdi-database-clock-outline'"
-						size="16"
-					/>
-					{{ catalogStatusLabel }}
-				</span>
-				<span class="counter-grid-status__template">{{ __("Counter Grid") }}</span>
-			</footer>
+			<CounterGridHealthStrip
+				:warehouse="posProfile?.warehouse"
+				:price-list="posProfile?.selling_price_list"
+			/>
 		</section>
 		<div v-if="showBottomDock" ref="mobileDock" class="mobile-pos-stack">
 			<div class="mobile-sale-dock">
@@ -299,6 +285,7 @@
 <script>
 import ItemsSelector from "../items/ItemsSelector.vue";
 import Invoice from "../Invoice.vue";
+import CounterGridHealthStrip from "./CounterGridHealthStrip.vue";
 import OpeningDialog from "../shift/OpeningDialog.vue";
 import Payments from "../Payments.vue";
 import PosOffers from "../offers/PosOffers.vue";
@@ -319,7 +306,6 @@ import { useResponsive } from "../../../composables/core/useResponsive";
 import { useRtl } from "../../../composables/core/useRtl";
 import { useUIStore } from "../../../stores/uiStore.js";
 import { useInvoiceStore } from "../../../stores/invoiceStore.js";
-import { useItemsStore } from "../../../stores/itemsStore.js";
 import { useToastStore } from "../../../stores/toastStore";
 import { storeToRefs } from "pinia";
 import { useCustomerDisplayPublisher } from "../../../composables/pos/shared/useCustomerDisplayPublisher";
@@ -343,11 +329,9 @@ export default {
 		const offers = useOffers();
 		const uiStore = useUIStore();
 		const invoiceStore = useInvoiceStore();
-		const itemsStore = useItemsStore();
 		const toastStore = useToastStore();
 		const __ = window.__;
 		const { activeView, posProfile, paymentDialogOpen, stockSettings } = storeToRefs(uiStore);
-		const { totalItemCount, itemsLoaded } = storeToRefs(itemsStore);
 		const {
 			invoiceDoc,
 			items: invoiceItems,
@@ -394,11 +378,6 @@ export default {
 		});
 		const counterAuxiliaryOpen = computed(
 			() => counterGridActive.value && ["offers", "coupons"].includes(activeView.value),
-		);
-		const catalogStatusLabel = computed(() =>
-			itemsLoaded.value
-				? `${Number(totalItemCount.value || 0).toLocaleString()} ${__("catalog items")}`
-				: __("Catalog loading"),
 		);
 		const bottomDockHeight = ref(0);
 		let mobileDockObserver = null;
@@ -859,12 +838,9 @@ export default {
 			...offers,
 			uiStore,
 			invoiceStore,
-			itemsStore,
 			__,
 			invoiceDoc,
 			itemsCount,
-			totalItemCount,
-			itemsLoaded,
 			totalQty,
 			formattedCartTotal,
 			formattedDiscountTotal,
@@ -886,7 +862,6 @@ export default {
 			counterItemSearchTitle,
 			counterItemSearchSubtitle,
 			counterAuxiliaryOpen,
-			catalogStatusLabel,
 			useCompactPosSwitcher,
 			showBottomDock,
 			layoutStyleOverrides,
@@ -929,6 +904,7 @@ export default {
 	components: {
 		ItemsSelector,
 		Invoice,
+		CounterGridHealthStrip,
 		OpeningDialog,
 		Payments,
 		Drafts,
@@ -1031,38 +1007,10 @@ export default {
 
 .counter-grid-pos {
 	display: grid;
-	grid-template-rows: minmax(0, 1fr) 32px;
+	grid-template-rows: minmax(0, 1fr) 34px;
 	height: 100%;
 	min-height: 0;
 	background: var(--pos-surface-muted);
-}
-
-.counter-grid-status {
-	display: flex;
-	align-items: center;
-	gap: 22px;
-	min-width: 0;
-	padding: 0 14px;
-	border-top: 2px solid var(--counter-rugged-navy-raised);
-	background: var(--counter-rugged-surface);
-	color: var(--pos-text-secondary);
-	font-size: 0.78rem;
-}
-
-.counter-grid-status span {
-	display: inline-flex;
-	align-items: center;
-	gap: 6px;
-	min-width: 0;
-	overflow: hidden;
-	text-overflow: ellipsis;
-	white-space: nowrap;
-}
-
-.counter-grid-status__template {
-	margin-inline-start: auto;
-	font-weight: 700;
-	color: var(--counter-rugged-blue);
 }
 
 .counter-item-search-surface,

@@ -228,3 +228,23 @@ Verification:
 - Production Vite build and Chrome 109 CSS audit passed.
 - Targeted ESLint and `git diff --check` passed.
 - Playwright listed all `32` configured scenarios successfully; credentialed live E2E was not run in this Windows shell.
+
+## 2026-07-15 Counter Grid Operational Health Strip
+
+Implemented:
+
+- Replaced the static Counter Grid footer with a compact operational health strip for connectivity, queued sales, pricing readiness, stock confidence, and catalog lifecycle.
+- The strip reads the existing offline-sync and item stores, so it does not create a parallel source of truth for network, cache, or sync state.
+- Pricing and stock use the policy-backed capability summaries first, with sync-resource lifecycle states as a safe fallback.
+- Warehouse and selling price list continue to come from the active POS Profile.
+- Every health chip opens the existing Offline Status panel for detailed errors, timestamps, and recovery actions.
+- Responsive behavior preserves all five health indicators at certified Counter Grid widths while hiding secondary context when space is constrained.
+
+Verification:
+
+- `11` targeted unit and visual-contract tests passed.
+- `vue-tsc --noEmit`
+- Targeted ESLint passed.
+- Playwright compiled and listed all `11` Counter Grid shell scenarios, including the health-panel interaction.
+- Production Vite build and Chrome 109 CSS audit passed.
+- `git diff --check` passed.
