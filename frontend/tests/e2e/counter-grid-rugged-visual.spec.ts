@@ -149,12 +149,12 @@ test.describe("Counter Grid rugged visual system", () => {
 		await page.setViewportSize({ width: 1366, height: 768 });
 
 		const entry = page.getByTestId("counter-grid-item-entry");
-		await entry.fill("02017");
+		await entry.fill("arinac");
 		await entry.press("Enter");
 		const selector = page.locator(".items-selector-shell--counter-dialog");
 		await expect(selector).toHaveAttribute(
 			"data-search-ready-query",
-			"02017",
+			"arinac",
 			{
 				timeout: 30_000,
 			},

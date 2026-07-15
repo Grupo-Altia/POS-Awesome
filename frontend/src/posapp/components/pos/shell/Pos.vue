@@ -33,6 +33,7 @@
 		<v-dialog
 			v-if="counterGridActive"
 			v-model="counterItemSearchOpen"
+			eager
 			:retain-focus="true"
 			width="calc(100vw - 32px)"
 			max-width="1500"
@@ -369,6 +370,7 @@ export default {
 			() => !counterGridActive.value && !dialog.value && responsive.windowWidth.value < 1100,
 		);
 		const counterItemSearchOpen = ref(false);
+		const counterDirectEntryPending = ref(false);
 		const counterItemSearchQuery = ref("");
 		const counterItemsSelector = ref(null);
 		const pendingCounterAddedLine = ref(null);
@@ -579,11 +581,31 @@ export default {
 		const closeCounterItemSearch = () => {
 			counterItemSearchOpen.value = false;
 		};
-		const openCounterItemSearch = (payload = {}) => {
+		const openCounterItemSearch = async (payload = {}) => {
 			if (!counterGridActive.value) return;
 			const query = typeof payload === "string" ? payload : payload?.query;
 			const normalizedQuery = String(query || "").trim();
-			if (!normalizedQuery) return;
+			if (!normalizedQuery || counterDirectEntryPending.value) return;
+
+			counterDirectEntryPending.value = true;
+			try {
+				const directResult =
+					await counterItemsSelector.value?.tryDirectCounterGridEntry?.(normalizedQuery);
+				if (directResult?.handled) {
+					if (directResult.addedLine) {
+						invoicePanel.value?.clearCounterGridEntry?.();
+						if (!shouldFocusCartQtyAfterItemAdd(posProfile.value)) {
+							nextTick(() => invoicePanel.value?.focusCounterGridEntry?.());
+						}
+					} else {
+						nextTick(() => invoicePanel.value?.focusCounterGridEntry?.());
+					}
+					return;
+				}
+			} finally {
+				counterDirectEntryPending.value = false;
+			}
+
 			pendingCounterAddedLine.value = null;
 			resetCounterAlternateState();
 			counterItemSearchQuery.value = normalizedQuery;

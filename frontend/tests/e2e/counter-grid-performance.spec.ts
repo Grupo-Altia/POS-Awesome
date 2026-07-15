@@ -76,6 +76,17 @@ async function addSingleItem(page: Page) {
 	await entry.fill(ITEM_CODE);
 	await entry.press("Enter");
 	const search = page.getByTestId("pos-item-search").locator("input");
+	const cartRow = page.getByTestId(`cart-row-${ITEM_CODE}`).first();
+	const outcome = await Promise.race([
+		cartRow
+			.waitFor({ state: "visible", timeout: 30_000 })
+			.then(() => "direct"),
+		search
+			.waitFor({ state: "visible", timeout: 30_000 })
+			.then(() => "dialog"),
+	]);
+	if (outcome === "direct") return;
+
 	await expect(search).toBeFocused({ timeout: 15_000 });
 	await expect(
 		page.locator(".items-selector-shell--counter-dialog"),
@@ -86,11 +97,7 @@ async function addSingleItem(page: Page) {
 	await expect(result).toBeVisible({ timeout: 30_000 });
 	await expect(result).toHaveAttribute("aria-selected", "true");
 	await search.press("Enter");
-	await expect(page.getByTestId(`cart-row-${ITEM_CODE}`).first()).toBeVisible(
-		{
-			timeout: 30_000,
-		},
-	);
+	await expect(cartRow).toBeVisible({ timeout: 30_000 });
 }
 
 async function establishWarmOnlineState(page: Page) {
@@ -397,7 +404,8 @@ test("warm one-item cash submission stays below the p95 target", async ({
 				eventCount,
 			);
 			const dispatch = await page.evaluate(
-				(index) => (window as any).__posaSubmissionDispatchEvents[index],
+				(index) =>
+					(window as any).__posaSubmissionDispatchEvents[index],
 				dispatchCount,
 			);
 			expect(response.requestId).toBeTruthy();
@@ -451,7 +459,9 @@ test("warm one-item cash submission stays below the p95 target", async ({
 				responseLatencyMs: Number(
 					(response.timestamp - dispatch.timestamp).toFixed(2),
 				),
-				uiFinalizeMs: Number((finishedAt - response.timestamp).toFixed(2)),
+				uiFinalizeMs: Number(
+					(finishedAt - response.timestamp).toFixed(2),
+				),
 				wasSubmitted: response.wasSubmitted,
 				queued: response.queued,
 				docstatus: response.docstatus,

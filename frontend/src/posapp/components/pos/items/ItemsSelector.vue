@@ -344,6 +344,7 @@ import { useEmployeeStore } from "../../../stores/employeeStore";
 
 import { parseBooleanSetting, shouldBlockSaleForStock } from "../../../utils/stock";
 import { shouldFocusCartQtyAfterItemAdd } from "../../../utils/cartFocusSettings";
+import { resolveCounterGridDirectEntry } from "../../../utils/counterGridDirectEntry";
 import { createItemSearchFocusClearGuard } from "../../../utils/itemSearchFocusClearGuard";
 import {
 	getPharmacyItemResultId,
@@ -1004,7 +1005,11 @@ const add_item = async (item, optionsOrQty: any = {}) => {
 				eventBus.emit("apply_pricing_rules");
 			}
 			qty.value = 1;
-			if (addedLine && props.presentation === "counter-grid-dialog") {
+			if (
+				addedLine &&
+				props.presentation === "counter-grid-dialog" &&
+				!options.counterGridDirectEntry
+			) {
 				emit("item-added", addedLine, options.alternateSelection || null);
 			} else if (
 				addedLine &&
@@ -1051,6 +1056,34 @@ const isUnavailableForSale = (item: any, requestedQty: unknown = 1) => {
 		isReturnInvoice: isReturnInvoice.value,
 		deferStockValidationToPayment: deferStockValidationToPayment.value,
 	});
+};
+
+const tryDirectCounterGridEntry = async (rawQuery: unknown) => {
+	if (props.presentation !== "counter-grid-dialog" || !isInitialized.value) {
+		return { handled: false, reason: "not-ready" };
+	}
+
+	const resolution = resolveCounterGridDirectEntry(rawQuery, {
+		getItemByCode: itemsIntegration.getItemByCode,
+		getItemByBarcode: itemsIntegration.getItemByBarcode,
+	});
+	if (resolution.kind !== "direct") {
+		return { handled: false, reason: resolution.reason };
+	}
+	if (isUnavailableForSale(resolution.item, 1)) {
+		return { handled: false, reason: "stock-review" };
+	}
+
+	const addedLine = await add_item(resolution.item, {
+		qty: 1,
+		counterGridDirectEntry: true,
+		suppressNegativeWarning: false,
+	});
+	return {
+		handled: true,
+		addedLine: addedLine || null,
+		matchType: resolution.matchType,
+	};
 };
 
 const buildAlternateRequest = (source: any) => ({
@@ -1795,6 +1828,7 @@ defineExpose({
 	search_input,
 	debounce_qty,
 	focusSearchInput,
+	tryDirectCounterGridEntry,
 	openAlternateMode,
 	exitAlternateMode,
 	qty,

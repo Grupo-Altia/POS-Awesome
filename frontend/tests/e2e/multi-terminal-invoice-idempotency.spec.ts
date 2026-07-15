@@ -109,6 +109,17 @@ async function addSingleItem(page: Page) {
 	await entry.fill(ITEM_CODE);
 	await entry.press("Enter");
 	const search = page.getByTestId("pos-item-search").locator("input");
+	const cartRow = page.getByTestId(`cart-row-${ITEM_CODE}`).first();
+	const outcome = await Promise.race([
+		cartRow
+			.waitFor({ state: "visible", timeout: 30_000 })
+			.then(() => "direct"),
+		search
+			.waitFor({ state: "visible", timeout: 30_000 })
+			.then(() => "dialog"),
+	]);
+	if (outcome === "direct") return;
+
 	await expect(search).toBeFocused({ timeout: 15_000 });
 	await expect(
 		page.locator(".items-selector-shell--counter-dialog"),
@@ -118,11 +129,7 @@ async function addSingleItem(page: Page) {
 	const result = page.getByTestId(`pos-item-row-${ITEM_CODE}`);
 	await expect(result).toBeVisible({ timeout: 30_000 });
 	await search.press("Enter");
-	await expect(page.getByTestId(`cart-row-${ITEM_CODE}`).first()).toBeVisible(
-		{
-			timeout: 30_000,
-		},
-	);
+	await expect(cartRow).toBeVisible({ timeout: 30_000 });
 }
 
 async function captureSubmissionPayload(page: Page) {

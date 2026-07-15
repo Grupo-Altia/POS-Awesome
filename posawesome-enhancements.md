@@ -209,3 +209,22 @@ Verification:
 - `yarn vitest run tests/cartFieldFocus.spec.ts tests/invoiceShortcuts.spec.ts tests/keyboardNavigation.spec.ts`
 - `yarn lint`
 - `yarn build`
+
+## 2026-07-15 Counter Grid Exact Entry Fast Path
+
+Implemented:
+
+- Counter Grid now attempts an exact in-memory item-code or barcode lookup before opening the item-search dialog.
+- Unique ordinary items use the existing `ItemsSelector.add_item()` pipeline, preserving cart validation, item-detail preparation, customer/POS Profile pricing, stock policy, pricing rules, and quantity-focus behavior.
+- Ambiguous matches, variants/templates, batch items, serial items, alternate-barcode UOMs, unavailable stock, unknown queries, and not-yet-ready catalogs retain the established search-dialog flow.
+- Repeated Enter events are guarded while a direct addition is pending.
+- Counter Grid E2E helpers now accept both the direct path and the safety fallback; a dedicated shell scenario asserts that an exact safe item does not open the dialog.
+
+Verification:
+
+- `48` targeted unit tests passed across direct-entry resolution, template selection, entry row, shared item addition, and item-store loading.
+- `34` targeted unit tests passed across rugged visual contracts, direct-entry resolution, selector search, entry row, and shared item addition.
+- `vue-tsc --noEmit`
+- Production Vite build and Chrome 109 CSS audit passed.
+- Targeted ESLint and `git diff --check` passed.
+- Playwright listed all `32` configured scenarios successfully; credentialed live E2E was not run in this Windows shell.

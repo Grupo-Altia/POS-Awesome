@@ -65,13 +65,27 @@ async function addKnownItemFromCounterSearch(
 ) {
 	for (const itemCode of KNOWN_ITEM_CODES) {
 		if (excludedCodes.has(itemCode)) continue;
-		const { search } = await openCounterSearch(page, itemCode);
+		const entry = page.getByTestId("counter-grid-item-entry");
+		await entry.fill(itemCode);
+		await entry.press("Enter");
+		const search = page.getByTestId("pos-item-search").locator("input");
 		const result = page.getByTestId(`pos-item-row-${itemCode}`);
+		const cartRow = page.getByTestId(`cart-row-${itemCode}`).first();
+		const outcome = await Promise.race([
+			cartRow
+				.waitFor({ state: "visible", timeout: 30_000 })
+				.then(() => "direct"),
+			search
+				.waitFor({ state: "visible", timeout: 30_000 })
+				.then(() => "dialog"),
+		]);
+		if (outcome === "direct") return { itemCode, cartRow };
+
+		await expect(search).toHaveValue(itemCode);
 		if (await result.isVisible({ timeout: 5_000 }).catch(() => false)) {
 			await expect(result).toHaveAttribute("aria-selected", "true");
 			await expect(search).toBeFocused();
 			await search.press("Enter");
-			const cartRow = page.getByTestId(`cart-row-${itemCode}`).first();
 			await expect(cartRow).toBeVisible({ timeout: 30_000 });
 			return { itemCode, cartRow };
 		}
@@ -114,7 +128,8 @@ test.describe("Counter Grid shell", () => {
 		await expect(page.locator(".loading-overlay")).toHaveCount(0, {
 			timeout: 90_000,
 		});
-		const { search } = await openCounterSearch(page, KNOWN_ITEM_CODES[0]);
+		const query = "panadol";
+		const { search } = await openCounterSearch(page, query);
 		await expect(search).toBeFocused({ timeout: 10_000 });
 		const pharmacyResults = page.getByTestId(
 			"pharmacy-item-search-results",
@@ -143,7 +158,24 @@ test.describe("Counter Grid shell", () => {
 
 		await page.getByRole("button", { name: "Close item search" }).click();
 		await expect(entry).toBeFocused({ timeout: 15_000 });
-		await expect(entry).toHaveValue(KNOWN_ITEM_CODES[0]);
+		await expect(entry).toHaveValue(query);
+	});
+
+	test("adds an exact safe item code without opening the search dialog", async ({
+		page,
+	}) => {
+		await page.setViewportSize({ width: 1280, height: 720 });
+		await waitForPos(page);
+
+		const { itemCode, cartRow } = await addKnownItemFromCounterSearch(page);
+		await expect(cartRow).toBeVisible();
+		await expect(
+			page.getByTestId("pos-item-search").locator("input"),
+		).toBeHidden();
+		await expect(page.getByTestId("counter-grid-item-entry")).toHaveValue(
+			"",
+		);
+		expect(itemCode).toBeTruthy();
 	});
 
 	test("highlights only the active pharmacy search result", async ({
