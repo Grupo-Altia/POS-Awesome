@@ -1,10 +1,13 @@
 <template>
 	<footer class="counter-grid-health" aria-label="Counter operational status">
-		<div class="counter-grid-health__context" :title="warehouse">
+		<div class="counter-grid-health__context" :title="warehouse || undefined">
 			<v-icon icon="mdi-warehouse" size="15" />
 			<span>{{ warehouse || __("Warehouse not selected") }}</span>
 		</div>
-		<div class="counter-grid-health__context counter-grid-health__context--price" :title="priceList">
+		<div
+			class="counter-grid-health__context counter-grid-health__context--price"
+			:title="priceList || undefined"
+		>
 			<v-icon icon="mdi-tag-outline" size="15" />
 			<span>{{ priceList || __("Price list not selected") }}</span>
 		</div>

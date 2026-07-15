@@ -102,7 +102,7 @@ const resourceHealth = (
 	if (!state) return null;
 	const status = String(state.status || "idle");
 	return {
-		label: labels[status] || labels.idle,
+		label: labels[status] || labels.idle || status,
 		tone: toneFromStatus(status),
 		detail: String(state.lastError || state.lastSyncedAt || ""),
 	};
