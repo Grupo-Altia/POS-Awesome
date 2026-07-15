@@ -1,5 +1,7 @@
 import { expect, test } from "@playwright/test";
 
+import { gotoAuthenticatedPos } from "./helpers/sessionAuth";
+
 const ENABLED = process.env.POSA_TERMINAL_SECURITY_E2E === "1";
 const POS_PATH = process.env.POSA_SMOKE_PATH || "/desk/posapp";
 
@@ -11,12 +13,7 @@ test.skip(
 test("reload and localStorage cannot bypass a server-locked terminal", async ({
 	page,
 }) => {
-	await page.goto(POS_PATH, { waitUntil: "domcontentloaded" });
-	if (/\/login/.test(page.url())) {
-		throw new Error(
-			"Terminal security E2E requires POSA_SMOKE_SID or login credentials.",
-		);
-	}
+	await gotoAuthenticatedPos(page, POS_PATH);
 
 	const lockDialog = page.locator('[data-test="terminal-lock-dialog"]');
 	await expect(lockDialog).toBeVisible({

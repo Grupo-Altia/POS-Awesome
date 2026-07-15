@@ -4,6 +4,7 @@ import {
 	cleanupProvisionedTerminalCashier,
 	ensureAuthoritativeTerminalUnlock,
 } from "./helpers/terminalAuth";
+import { gotoAuthenticatedPos } from "./helpers/sessionAuth";
 
 const ENABLED = process.env.POSA_COUNTER_GRID_E2E === "1";
 const POS_PATH = process.env.POSA_SMOKE_PATH || "/desk/posapp";
@@ -19,12 +20,7 @@ test.afterEach(async ({ page }) => {
 });
 
 async function waitForPos(page: Page) {
-	await page.goto(POS_PATH, { waitUntil: "domcontentloaded" });
-	if (/\/login/.test(page.url())) {
-		throw new Error(
-			"Counter Grid E2E requires POSA_SMOKE_SID or login credentials.",
-		);
-	}
+	await gotoAuthenticatedPos(page, POS_PATH);
 	await ensureAuthoritativeTerminalUnlock(page);
 	await expect(page.locator(".main-section").first()).toBeVisible({
 		timeout: 90_000,

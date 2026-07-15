@@ -291,3 +291,23 @@ Verification:
 - `vue-tsc --noEmit`
 - Targeted ESLint passed.
 - Production Vite build and Chrome 109 CSS audit passed.
+
+## 2026-07-15 Slow Startup Live E2E and TypeDoc CI
+
+Implemented:
+
+- Added an ambient Vue module shim that works with TypeDoc's plain TypeScript program on Linux CI.
+- Kept Vue component-property globals in `env.d.ts` and documented TypeDoc's intentionally internal referenced types.
+- Added shared Frappe login support for live E2E through either an ignored local session ID or local username/password variables.
+- Added opt-in live startup recovery scenarios that delay the real cashier and catalog endpoints in the browser.
+- The cashier scenario verifies the 20-second error state, authoritative fail-closed terminal state, Retry, and successful unlock recovery.
+- The catalog scenario verifies the startup overlay releases while the authoritative catalog request is still active.
+- Live credentials remain in ignored `frontend/.env.local`; only placeholder variable names are documented.
+
+Verification:
+
+- `typedoc --options typedoc.json --emit none`
+- `vue-tsc --noEmit`
+- Targeted ESLint passed with no errors.
+- Playwright compiled and listed both startup recovery scenarios.
+- Credentialed live execution is pending deployment of the current frontend build to the target server.
