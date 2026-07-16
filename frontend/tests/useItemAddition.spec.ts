@@ -216,6 +216,30 @@ describe("useItemAddition new line behavior", () => {
 		expect(invoiceStore.recalculateTotals).toHaveBeenCalled();
 	});
 
+	it("merges an unresolved batch click into the existing batched row", async () => {
+		const api = useItemAddition();
+		const context = createContext(false) as any;
+		context.items.push({
+			...createItem(),
+			posa_row_id: "batch-row",
+			has_batch_no: 1,
+			batch_no: "B-FEFO",
+			qty: 1,
+		});
+
+		const incoming = {
+			...createItem(),
+			has_batch_no: 1,
+			batch_no: null,
+			batch_no_data: [],
+		};
+		await api.prepareItemForCart(incoming, 1, context);
+		await api.addItem(incoming, context);
+
+		expect(context.items).toHaveLength(1);
+		expect(context.items[0].qty).toBe(2);
+	});
+
 	it("keeps grouped merge quantities numeric when incoming qty is a string", () => {
 		const { groupAndAddItem } = useItemMerging() as any;
 		const items = [{ item_code: "ITEM-001", uom: "Nos", rate: 10, qty: "1", amount: 10 }];

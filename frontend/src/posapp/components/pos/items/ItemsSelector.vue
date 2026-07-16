@@ -309,6 +309,7 @@ import { useItemAvailability } from "../../../composables/pos/items/useItemAvail
 import { useItemDetailFetcher } from "../../../composables/pos/items/useItemDetailFetcher";
 import { useItemAddition } from "../../../composables/pos/items/useItemAddition";
 import { useAlternateItems } from "../../../composables/pos/items/useAlternateItems";
+import { useBatchSerial } from "../../../composables/pos/shared/useBatchSerial";
 import { useItemSelection } from "../../../composables/pos/items/useItemSelection";
 import { useItemSelectorLayout } from "../../../composables/pos/items/useItemSelectorLayout";
 import { useLastInvoiceRate } from "../../../composables/pos/items/useLastInvoiceRate";
@@ -436,6 +437,7 @@ const {
 const scannerInput = useScannerInput();
 const itemAvailability = useItemAvailability();
 const itemDetailFetcher = useItemDetailFetcher();
+const batchSerial = useBatchSerial();
 const itemSelection = useItemSelection();
 const alternates = useAlternateItems();
 const itemSync = useItemSync();
@@ -580,6 +582,18 @@ const displayedItems = computed(() => {
 		limit: enable_custom_items_per_page.value ? items_per_page.value : itemsPerPage.value,
 	});
 });
+
+// Item reloads (notably after a customer/price-list change) replace the
+// catalog objects with fresh raw warehouse quantities. Re-prime the stock
+// coordinator so the current cart reservation is immediately subtracted from
+// those new objects even though the reserved quantity itself did not change.
+watch(
+	filteredItems,
+	() => {
+		itemAvailability.primeStockState("items-refresh");
+	},
+	{ flush: "post" },
+);
 
 const pharmacySearchField = ref("all");
 // Counter Grid must expose unavailable requested medicines so Enter can offer
@@ -964,7 +978,7 @@ const add_item = async (item, optionsOrQty: any = {}) => {
 			return null;
 		}
 
-		const context = {
+		const context: any = {
 			pos_profile: pos_profile.value,
 			stock_settings: stock_settings.value,
 			customer: selectedCustomer.value,
@@ -983,6 +997,8 @@ const add_item = async (item, optionsOrQty: any = {}) => {
 			...options,
 			new_line: typeof options?.new_line === "boolean" ? options.new_line : !!new_line.value,
 			appendNewItems: props.presentation === "counter-grid-dialog",
+			setBatchQty: (line: any, value: any, update = false) =>
+				batchSerial.setBatchQty(line, value, update, context),
 		};
 
 		const isValid = await cartValidation.validateCartItem(

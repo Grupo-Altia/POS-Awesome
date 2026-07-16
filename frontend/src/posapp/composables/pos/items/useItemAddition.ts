@@ -457,10 +457,19 @@ export function useItemAddition() {
 			}
 			let index = -1;
 			let mergeTarget: any = null;
-			const requireBatchMatch = Boolean(item.has_batch_no);
+			// Keep the initial lookup strict so batch items reach the allocation
+			// block. After allocation, only require a strict match when the probe
+			// actually has a batch; async batch details can otherwise leave an empty
+			// batch key that duplicates an already-batched row.
+			const needsBatchMatch = (probe: any) =>
+				Boolean(probe?.has_batch_no && probe?.batch_no);
 			if (!context.new_line) {
 				// For normal additions (not returns), only merge with existing positive quantity lines
-				mergeTarget = findMergeTarget(context, item, requireBatchMatch);
+				mergeTarget = findMergeTarget(
+					context,
+					item,
+					Boolean(item.has_batch_no),
+				);
 				if (!canMergeWithTarget(context, mergeTarget?.item)) {
 					mergeTarget = null;
 				}
@@ -638,7 +647,7 @@ export function useItemAddition() {
 					mergeTarget = findMergeTarget(
 						context,
 						mergeProbeItem,
-						requireBatchMatch,
+						needsBatchMatch(mergeProbeItem),
 					);
 					if (!canMergeWithTarget(context, mergeTarget?.item)) {
 						mergeTarget = null;
