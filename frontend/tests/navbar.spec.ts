@@ -428,6 +428,69 @@ describe("Navbar supervisor access", () => {
 		wrapper.unmount();
 	});
 
+	it("makes cashiers available before the terminal state request finishes", async () => {
+		const employeeStore = useEmployeeStore();
+		let resolveTerminalState: (value: any) => void = () => undefined;
+		const terminalStateResponse = new Promise((resolve) => {
+			resolveTerminalState = resolve;
+		});
+		(frappe.call as ReturnType<typeof vi.fn>).mockImplementation(
+			async ({ method }: { method: string }) => {
+				if (method.endsWith("get_terminal_employees")) {
+					return {
+						message: [
+							{ user: "cashier@example.com", full_name: "Main Cashier" },
+						],
+					};
+				}
+				return terminalStateResponse;
+			},
+		);
+
+		const wrapper = shallowMount(Navbar, {
+			props: { posProfile: { name: "Main POS" } },
+			global: {
+				mocks: { __: (value: string) => value },
+				stubs: {
+					NavbarAppBar: true,
+					NavbarDrawer: true,
+					NavbarMenu: true,
+					NotificationBell: true,
+					StatusIndicator: true,
+					CacheUsageMeter: true,
+					AboutDialog: true,
+					EmployeeSwitchDialog: true,
+					OfflineInvoicesDialog: true,
+					ServerUsageGadget: true,
+					DatabaseUsageGadget: true,
+					VDialog: true,
+					VCard: true,
+					VCardTitle: true,
+					VCardText: true,
+					VSnackbar: true,
+					VBtn: true,
+					VProgressCircular: true,
+				},
+			},
+		});
+
+		await vi.waitFor(() => {
+			expect(employeeStore.terminalEmployeesLoadStatus).toBe("ready");
+		});
+		expect(employeeStore.terminalStateLoaded).toBe(false);
+		expect(employeeStore.terminalEmployees[0]?.user).toBe("cashier@example.com");
+
+		resolveTerminalState({
+			message: {
+				pos_profile: "Main POS",
+				active_cashier: null,
+				locked: true,
+			},
+		});
+		await vi.waitFor(() => expect(employeeStore.terminalStateLoaded).toBe(true));
+		wrapper.unmount();
+	});
+
 	it("turns never-settling cashier requests into a recoverable load error", async () => {
 		vi.useFakeTimers();
 		const employeeStore = useEmployeeStore();

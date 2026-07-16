@@ -78,6 +78,7 @@ const VTextFieldStub = defineComponent({
 					type: props.type,
 					name: attrs.name,
 					autocomplete: attrs.autocomplete,
+					autofocus: attrs.autofocus,
 					inputmode: attrs.inputmode,
 					pattern: attrs.pattern,
 					"data-1p-ignore": attrs["data-1p-ignore"],
@@ -333,6 +334,40 @@ describe("EmployeeSwitchDialog", () => {
 		expect(wrapper.get('[data-test="terminal-unlock-pin"]').exists()).toBe(
 			true,
 		);
+	});
+
+	it("shows the cached cashier and focused PIN field immediately during refresh", async () => {
+		const store = useEmployeeStore();
+		const uiStore = useUIStore();
+		uiStore.setPosProfile({ name: "Main POS" } as any);
+		store.beginTerminalEmployeesLoad("Main POS");
+		store.completeTerminalEmployeesLoad("Main POS", [
+			{ user: "cashier@example.com", full_name: "Main Cashier" },
+		]);
+		store.beginTerminalEmployeesLoad("Main POS");
+
+		const wrapper = mount(EmployeeSwitchDialog, {
+			global: {
+				components: {
+					VDialog: VDialogStub,
+					VCard: BoxStub,
+					VCardTitle: BoxStub,
+					VCardText: BoxStub,
+					VCardActions: BoxStub,
+					VBtn: VBtnStub,
+					VIcon: BoxStub,
+					VAlert: BoxStub,
+					VTextField: VTextFieldStub,
+					VProgressCircular: BoxStub,
+				},
+			},
+		});
+
+		expect(wrapper.find('[data-test="terminal-cashier-loading"]').exists()).toBe(false);
+		expect(wrapper.get('[data-test="terminal-unlock-cashier-cashier@example.com"]').text()).toContain(
+			"Main Cashier",
+		);
+		expect(wrapper.get('[data-test="terminal-unlock-pin"]').attributes("autofocus")).not.toBeUndefined();
 	});
 
 	it("shows a recoverable cashier load error without exposing stale options", async () => {

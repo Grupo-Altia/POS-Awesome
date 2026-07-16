@@ -210,6 +210,33 @@ def _get_roles_for_user(user: str) -> set[str]:
         return set()
 
 
+def _get_pos_supervisor_users(users: list[str]) -> set[str]:
+    if not users:
+        return set()
+
+    try:
+        rows = frappe.get_all(
+            "Has Role",
+            filters={
+                "parent": ["in", users],
+                "parenttype": "User",
+                "role": POS_SUPERVISOR_ROLE,
+            },
+            fields=["parent"],
+            ignore_permissions=True,
+        )
+        return {row.get("parent") for row in rows if row.get("parent")}
+    except Exception:
+        if hasattr(frappe, "log_error"):
+            frappe.log_error(
+                frappe.get_traceback(),
+                "POS Awesome: failed to batch-load cashier supervisor roles",
+            )
+        return {
+            user for user in users if POS_SUPERVISOR_ROLE in _get_roles_for_user(user)
+        }
+
+
 def _has_legacy_supervisor_field() -> bool:
     try:
         meta = frappe.get_meta("User")
@@ -292,6 +319,7 @@ def get_terminal_employees(pos_profile=None):
         ignore_permissions=True,
     )
     user_map = {row.get("name"): row for row in user_rows}
+    supervisor_users = _get_pos_supervisor_users(list(user_map))
     current_user = frappe.session.user
 
     employees = []
@@ -305,7 +333,8 @@ def get_terminal_employees(pos_profile=None):
                 "full_name": row.get("full_name") or row.get("name"),
                 "enabled": row.get("enabled", 1),
                 "is_current": row.get("name") == current_user,
-                "is_supervisor": _is_pos_supervisor(_as_user_doc(row)),
+                "is_supervisor": user in supervisor_users
+                or bool(row.get("posa_is_pos_supervisor", 0)),
             }
         )
 

@@ -85,10 +85,16 @@ export const useEmployeeStore = defineStore("employee", () => {
 	};
 
 	const beginTerminalEmployeesLoad = (profileName: string) => {
-		terminalEmployeesProfile.value = String(profileName || "").trim();
+		const nextProfileName = String(profileName || "").trim();
+		const canReuseLoadedEmployees =
+			terminalEmployeesProfile.value === nextProfileName &&
+			terminalEmployees.value.length > 0;
+		terminalEmployeesProfile.value = nextProfileName;
 		terminalEmployeesLoadStatus.value = "loading";
 		terminalEmployeesLoadError.value = "";
-		terminalEmployees.value = [];
+		if (!canReuseLoadedEmployees) {
+			terminalEmployees.value = [];
+		}
 		currentCashier.value = null;
 		lockDialogOpen.value = true;
 		terminalStateLoaded.value = false;
@@ -119,7 +125,6 @@ export const useEmployeeStore = defineStore("employee", () => {
 		) {
 			return false;
 		}
-		setTerminalEmployees([]);
 		terminalEmployeesLoadStatus.value = "error";
 		terminalEmployeesLoadError.value = String(message || "").trim();
 		return true;

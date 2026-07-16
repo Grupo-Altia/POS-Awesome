@@ -150,4 +150,26 @@ describe("employeeStore", () => {
 		expect(store.terminalEmployeesLoadStatus).toBe("error");
 		expect(store.terminalEmployeesLoadError).toContain("Unable to load");
 	});
+
+	it("keeps the last successful cashier list usable while the same profile refreshes", () => {
+		const store = useEmployeeStore();
+		store.beginTerminalEmployeesLoad("Main POS");
+		store.completeTerminalEmployeesLoad("Main POS", [
+			{ user: "cashier@example.com", full_name: "Main Cashier" },
+		]);
+
+		store.beginTerminalEmployeesLoad("Main POS");
+
+		expect(store.terminalEmployeesLoadStatus).toBe("loading");
+		expect(store.terminalEmployees.map((cashier) => cashier.user)).toEqual([
+			"cashier@example.com",
+		]);
+		expect(store.isLocked).toBe(true);
+
+		store.failTerminalEmployeesLoad("Main POS", "Refresh failed.");
+		expect(store.terminalEmployees.map((cashier) => cashier.user)).toEqual([
+			"cashier@example.com",
+		]);
+		expect(store.terminalEmployeesLoadStatus).toBe("error");
+	});
 });

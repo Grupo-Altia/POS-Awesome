@@ -598,32 +598,32 @@ export default {
 			}
 
 			this.employeeStore.beginTerminalEmployeesLoad(profileName);
-			const [employeesResult, stateResult] = await Promise.allSettled([
-				withRequestTimeout(
-					Promise.resolve().then(() =>
-						frappe.call({
-							method: "posawesome.posawesome.api.employees.get_terminal_employees",
-							args: {
-								pos_profile: profileName,
-							},
-						}),
-					),
-					TERMINAL_SECURITY_REQUEST_TIMEOUT_MS,
-					"Timed out loading authorized cashiers.",
+			const employeesRequest = withRequestTimeout(
+				Promise.resolve().then(() =>
+					frappe.call({
+						method: "posawesome.posawesome.api.employees.get_terminal_employees",
+						args: {
+							pos_profile: profileName,
+						},
+					}),
 				),
-				withRequestTimeout(
-					Promise.resolve().then(() =>
-						frappe.call({
-							method: "posawesome.posawesome.api.employees.get_terminal_state",
-							args: {
-								pos_profile: profileName,
-							},
-						}),
-					),
-					TERMINAL_SECURITY_REQUEST_TIMEOUT_MS,
-					"Timed out loading terminal state.",
+				TERMINAL_SECURITY_REQUEST_TIMEOUT_MS,
+				"Timed out loading authorized cashiers.",
+			);
+			const stateRequest = withRequestTimeout(
+				Promise.resolve().then(() =>
+					frappe.call({
+						method: "posawesome.posawesome.api.employees.get_terminal_state",
+						args: {
+							pos_profile: profileName,
+						},
+					}),
 				),
-			]);
+				TERMINAL_SECURITY_REQUEST_TIMEOUT_MS,
+				"Timed out loading terminal state.",
+			);
+
+			const [employeesResult] = await Promise.allSettled([employeesRequest]);
 
 			if (requestId !== this.terminalEmployeesRequestId || profileName !== this.posProfileName) {
 				return;
@@ -643,6 +643,12 @@ export default {
 						"Unable to load cashiers for this POS profile. The server took too long to respond; retry when ready.",
 					),
 				);
+			}
+
+			const [stateResult] = await Promise.allSettled([stateRequest]);
+
+			if (requestId !== this.terminalEmployeesRequestId || profileName !== this.posProfileName) {
+				return;
 			}
 
 			if (stateResult.status === "fulfilled") {

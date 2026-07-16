@@ -22,6 +22,19 @@
 				<div class="employee-switch-dialog__copy">
 					{{ __("Choose the cashier currently operating this terminal.") }}
 				</div>
+				<v-alert
+					v-if="cashiersRefreshFailed"
+					variant="tonal"
+					type="warning"
+					density="compact"
+					class="employee-switch-dialog__load-error"
+					data-test="cashier-list-refresh-error"
+				>
+					<div>{{ terminalEmployeesLoadError }}</div>
+					<button type="button" class="employee-switch-dialog__retry" @click="retryCashierLoad">
+						{{ __("Retry") }}
+					</button>
+				</v-alert>
 				<div
 					v-if="cashiersLoading"
 					class="employee-switch-dialog__status"
@@ -150,6 +163,19 @@
 				<div class="employee-switch-dialog__copy">
 					{{ __("Select the cashier who is taking over this terminal.") }}
 				</div>
+				<v-alert
+					v-if="cashiersRefreshFailed"
+					variant="tonal"
+					type="warning"
+					density="compact"
+					class="employee-switch-dialog__load-error"
+					data-test="terminal-cashier-refresh-error"
+				>
+					<div>{{ terminalEmployeesLoadError }}</div>
+					<button type="button" class="employee-switch-dialog__retry" @click="retryCashierLoad">
+						{{ __("Retry") }}
+					</button>
+				</v-alert>
 				<div
 					v-if="cashiersLoading"
 					class="employee-switch-dialog__status"
@@ -229,6 +255,7 @@
 						hide-details="auto"
 						:label="__('Cashier PIN')"
 						data-test="terminal-unlock-pin"
+						autofocus
 						@click:append-inner="showPin = !showPin"
 						@keyup.enter="submitUnlock"
 					/>
@@ -278,9 +305,17 @@ const posProfileName = computed(
 	() => uiStore.posProfile?.name || window.frappe?.boot?.pos_profile?.name || "",
 );
 const cashiersLoading = computed(
-	() => terminalEmployeesLoadStatus.value === "idle" || terminalEmployeesLoadStatus.value === "loading",
+	() =>
+		!terminalEmployees.value.length &&
+		(terminalEmployeesLoadStatus.value === "idle" ||
+			terminalEmployeesLoadStatus.value === "loading"),
 );
-const cashiersLoadFailed = computed(() => terminalEmployeesLoadStatus.value === "error");
+const cashiersLoadFailed = computed(
+	() => terminalEmployeesLoadStatus.value === "error" && !terminalEmployees.value.length,
+);
+const cashiersRefreshFailed = computed(
+	() => terminalEmployeesLoadStatus.value === "error" && terminalEmployees.value.length > 0,
+);
 
 const resolveDefaultCashierUser = (cashier) => {
 	const current = terminalEmployees.value.find((employee) => employee.user === cashier?.user);

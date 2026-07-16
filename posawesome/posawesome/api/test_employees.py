@@ -153,11 +153,10 @@ class TestEmployeesApi(unittest.TestCase):
             has_field=lambda fieldname: fieldname == "posa_is_pos_supervisor"
         )
         self.employees.frappe.get_all = lambda doctype, **kwargs: (
-            [
-                {"user": "cashier@example.com"},
-                {"user": "backup@example.com"},
-            ]
+            [{"user": "cashier@example.com"}, {"user": "backup@example.com"}]
             if doctype == "POS Profile User"
+            else []
+            if doctype == "Has Role"
             else [
                 {
                     "name": "cashier@example.com",
@@ -190,11 +189,10 @@ class TestEmployeesApi(unittest.TestCase):
             ["Sales User", "POS Awesome Supervisor"] if user == "cashier@example.com" else ["Sales User"]
         )
         self.employees.frappe.get_all = lambda doctype, **kwargs: (
-            [
-                {"user": "cashier@example.com"},
-                {"user": "backup@example.com"},
-            ]
+            [{"user": "cashier@example.com"}, {"user": "backup@example.com"}]
             if doctype == "POS Profile User"
+            else [{"parent": "cashier@example.com"}]
+            if doctype == "Has Role"
             else [
                 {
                     "name": "cashier@example.com",
@@ -233,6 +231,8 @@ class TestEmployeesApi(unittest.TestCase):
         def fake_get_all(doctype, **kwargs):
             if doctype == "POS Profile User":
                 return [{"user": "cashier@example.com"}]
+            if doctype == "Has Role":
+                return [{"parent": "cashier@example.com"}]
             if doctype == "User":
                 self.assertNotIn("posa_is_pos_supervisor", kwargs["fields"])
                 return [
