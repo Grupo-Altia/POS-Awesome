@@ -575,6 +575,10 @@ function scheduleIdleTask(task: () => void) {
 	}
 }
 
+function yieldToMainThread() {
+	return new Promise<void>((resolve) => setTimeout(resolve, 0));
+}
+
 type PostHydrationTask = () => Promise<void> | void;
 const postHydrationTasks = new Set<PostHydrationTask>();
 
@@ -603,7 +607,13 @@ export const initPromise = startupInitPromise.then(
 				const remainingKeys = Object.keys(memory).filter(
 					(key) => !startupKeys.has(key),
 				);
-				void initializeMemoryKeys(remainingKeys).then(async () => {
+				const lightweightKeys = remainingKeys.filter((key) => !LARGE_KEYS.has(key));
+				const largeKeys = remainingKeys.filter((key) => LARGE_KEYS.has(key));
+				void initializeMemoryKeys(lightweightKeys).then(async () => {
+					for (const key of largeKeys) {
+						await yieldToMainThread();
+						await initializeMemoryKeys([key]);
+					}
 					await runPostHydrationTasks();
 					scheduleIdleOfflinePruning();
 					resolve();

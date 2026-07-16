@@ -172,4 +172,18 @@ describe("employeeStore", () => {
 		]);
 		expect(store.terminalEmployeesLoadStatus).toBe("error");
 	});
+
+	it("hydrates a cached cashier list when a profile starts after a page reload", () => {
+		const store = useEmployeeStore();
+
+		store.beginTerminalEmployeesLoad("Main POS", [
+			{ user: "cached@example.com", full_name: "Cached Cashier" },
+		]);
+
+		expect(store.terminalEmployeesLoadStatus).toBe("loading");
+		expect(store.terminalEmployees.map((cashier) => cashier.user)).toEqual([
+			"cached@example.com",
+		]);
+		expect(store.isLocked).toBe(true);
+	});
 });

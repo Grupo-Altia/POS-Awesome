@@ -172,6 +172,10 @@ import { clearAllCaches } from "../../utils/clearAllCaches";
 import { isOffline } from "../../offline/index";
 import { useRtl } from "../composables/core/useRtl";
 import { withRequestTimeout } from "../utils/requestTimeout";
+import {
+	loadCachedTerminalEmployees,
+	saveCachedTerminalEmployees,
+} from "../utils/terminalEmployeeCache";
 
 const TERMINAL_SECURITY_REQUEST_TIMEOUT_MS = 20_000;
 
@@ -597,7 +601,9 @@ export default {
 				return;
 			}
 
-			this.employeeStore.beginTerminalEmployeesLoad(profileName);
+			const sessionUser = String(frappe.session?.user || "").trim();
+			const cachedEmployees = loadCachedTerminalEmployees(sessionUser, profileName);
+			this.employeeStore.beginTerminalEmployeesLoad(profileName, cachedEmployees);
 			const employeesRequest = withRequestTimeout(
 				Promise.resolve().then(() =>
 					frappe.call({
@@ -631,6 +637,7 @@ export default {
 
 			if (employeesResult.status === "fulfilled" && Array.isArray(employeesResult.value?.message)) {
 				this.employeeStore.completeTerminalEmployeesLoad(profileName, employeesResult.value.message);
+				saveCachedTerminalEmployees(sessionUser, profileName, employeesResult.value.message);
 			} else {
 				const error =
 					employeesResult.status === "rejected"

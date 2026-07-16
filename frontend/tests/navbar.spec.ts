@@ -33,6 +33,7 @@ describe("Navbar supervisor access", () => {
 
 	beforeEach(() => {
 		setActivePinia(createPinia());
+		window.localStorage.clear();
 		vi.stubGlobal("__", (value: string) => value);
 		vi.stubGlobal("frappe", {
 			session: {
