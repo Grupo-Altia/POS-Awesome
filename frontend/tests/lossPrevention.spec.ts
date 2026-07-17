@@ -4,6 +4,7 @@ import {
 	findLossRiskItems,
 	getEffectiveSellingRate,
 	getItemLossRisk,
+	resolveSaleFloorPolicy,
 } from "../src/posapp/utils/lossPrevention";
 
 describe("loss prevention", () => {
@@ -104,5 +105,34 @@ describe("loss prevention", () => {
 		});
 
 		expect(risk?.costRate).toBeCloseTo(1000 / 280);
+	});
+
+	it("preserves hard-block defaults when new profile fields are absent", () => {
+		expect(resolveSaleFloorPolicy({})).toEqual({
+			enabled: true,
+			action: "Block",
+			minimumMarginPercentage: 0,
+			missingCostAction: "Allow",
+		});
+	});
+
+	it("applies configured minimum margin to the loss floor", () => {
+		const risk = getItemLossRisk(
+			{ item_code: "MARGIN", qty: 1, rate: 104, trade_price: 100 },
+			{ minimumMarginPercentage: 5 },
+		);
+
+		expect(risk?.costRate).toBe(105);
+		expect(risk?.costLabel).toBe("Minimum Rate");
+	});
+
+	it("applies invoice-level discount before checking the sale floor", () => {
+		const risk = getItemLossRisk(
+			{ item_code: "DISCOUNTED", qty: 1, rate: 105, trade_price: 100 },
+			{ invoiceDiscountPercentage: 10 },
+		);
+
+		expect(risk?.sellingRate).toBeCloseTo(94.5);
+		expect(risk?.costRate).toBe(100);
 	});
 });

@@ -1,6 +1,8 @@
+import json
+
 import frappe
 from frappe import _
-from frappe.utils import flt, nowdate
+from frappe.utils import cint, cstr, flt, nowdate
 
 
 LOCKED_FIELD = "retailmind_locked_for_sale"
@@ -16,6 +18,14 @@ PHARMACY_SEARCH_FIELDS = (
     "retailmind_units_per_pack",
 )
 LOSS_EPSILON = 0.0001
+SALE_FLOOR_POLICY_FIELDS = (
+    "posa_enable_below_cost_guard",
+    "posa_below_cost_action",
+    "posa_minimum_margin_percentage",
+    "posa_missing_cost_action",
+)
+SALE_FLOOR_ACTIONS = {"Block", "POS Supervisor Override", "Warning Only"}
+MISSING_COST_ACTIONS = {"Allow", "Block"}
 
 
 def item_control_fields():
@@ -155,6 +165,37 @@ def _get_buying_price_rows(item_codes, pos_profile=None):
     return price_list, list(rows or [])
 
 
+def resolve_sale_floor_policy(pos_profile=None):
+    """Return POS Profile policy with defaults that preserve the existing hard block."""
+
+    values = {}
+    if pos_profile:
+        meta = frappe.get_meta("POS Profile")
+        installed_fields = [field for field in SALE_FLOOR_POLICY_FIELDS if meta.has_field(field)]
+        if installed_fields:
+            values = frappe.db.get_value(
+                "POS Profile",
+                pos_profile,
+                installed_fields,
+                as_dict=True,
+            ) or {}
+
+    enabled_value = values.get("posa_enable_below_cost_guard")
+    enabled = True if enabled_value in (None, "") else bool(cint(enabled_value))
+    action = cstr(values.get("posa_below_cost_action") or "Block").strip()
+    if action not in SALE_FLOOR_ACTIONS:
+        action = "Block"
+    missing_cost_action = cstr(values.get("posa_missing_cost_action") or "Allow").strip()
+    if missing_cost_action not in MISSING_COST_ACTIONS:
+        missing_cost_action = "Allow"
+    return {
+        "enabled": enabled,
+        "action": action,
+        "minimum_margin_percentage": max(
+            flt(values.get("posa_minimum_margin_percentage")), 0
+        ),
+        "missing_cost_action": missing_cost_action,
+    }
 def _is_price_row_valid(row, posting_date):
     """Return whether an Item Price is general-purpose and active on the invoice date."""
 
@@ -348,18 +389,39 @@ def resolve_buying_floors(items, pos_profile=None, invoice_doc=None):
 
 
 def collect_below_buying_price_errors(
-    items, is_return=False, pos_profile=None, invoice_doc=None
+    items, is_return=False, pos_profile=None, invoice_doc=None, policy=None
 ):
     if is_return:
         return []
 
     item_rows = list(items or [])
+    policy = policy or resolve_sale_floor_policy(pos_profile)
+    if not policy.get("enabled"):
+        return []
     buying_floors = resolve_buying_floors(
         item_rows,
         pos_profile=pos_profile,
         invoice_doc=invoice_doc,
     )
     errors = []
+    invoice_discount_percentage = (
+        max(flt(invoice_doc.get("additional_discount_percentage")), 0)
+        if invoice_doc and hasattr(invoice_doc, "get")
+        else 0
+    )
+    invoice_discount_amount = (
+        max(flt(invoice_doc.get("discount_amount")), 0)
+        if invoice_doc and hasattr(invoice_doc, "get")
+        else 0
+    )
+    eligible_row_total = sum(
+        abs(flt(item.get("rate")) * flt(item.get("qty")))
+        for item in item_rows
+        if hasattr(item, "get")
+        and not item.get("is_return")
+        and not item.get("posa_is_replace")
+        and flt(item.get("qty")) > 0
+    )
 
     for index, row in enumerate(item_rows):
         item_code = row.get("item_code") if hasattr(row, "get") else None
@@ -371,10 +433,30 @@ def collect_below_buying_price_errors(
         floor_info = buying_floors.get(index) or {}
         floor = flt(floor_info.get("rate"))
         if floor <= 0:
+            if policy.get("missing_cost_action") == "Block":
+                item_name = row.get("item_name") or item_code
+                errors.append(
+                    {
+                        "item_code": item_code,
+                        "item_name": item_name,
+                        "policy": "block",
+                        "reason": "missing_buying_price",
+                        "message": _(
+                            "Item {0} cannot be sold because no valid buying floor is available."
+                        ).format(item_name),
+                    }
+                )
             continue
 
+        minimum_margin = flt(policy.get("minimum_margin_percentage"))
+        minimum_selling_rate = floor * (1 + minimum_margin / 100)
+
         selling_rate = abs(flt(row.get("rate")))
-        if selling_rate + LOSS_EPSILON >= floor:
+        if invoice_discount_percentage > 0:
+            selling_rate *= max(1 - invoice_discount_percentage / 100, 0)
+        elif invoice_discount_amount > 0 and eligible_row_total > 0:
+            selling_rate *= max(1 - invoice_discount_amount / eligible_row_total, 0)
+        if selling_rate + LOSS_EPSILON >= minimum_selling_rate:
             continue
 
         item_name = row.get("item_name") or item_code
@@ -382,20 +464,80 @@ def collect_below_buying_price_errors(
             {
                 "item_code": item_code,
                 "item_name": item_name,
-                "policy": "block",
+                "policy": policy.get("action", "Block").lower().replace(" ", "_"),
                 "reason": "below_buying_price",
                 "selling_rate": selling_rate,
                 "buying_rate": floor,
+                "minimum_selling_rate": minimum_selling_rate,
+                "minimum_margin_percentage": minimum_margin,
                 "buying_price_list": floor_info.get("price_list"),
                 "buying_price_uom": floor_info.get("uom"),
                 "buying_price_currency": floor_info.get("invoice_currency"),
                 "message": _(
-                    "Item {0} cannot be sold at {1}; it is below buying/trade price {2}."
-                ).format(item_name, selling_rate, floor),
+                    "Item {0} cannot be sold at {1}; the minimum permitted rate is {2}."
+                ).format(item_name, selling_rate, minimum_selling_rate),
             }
         )
 
     return errors
+
+
+def _set_invoice_value(invoice_doc, fieldname, value):
+    meta = getattr(invoice_doc, "meta", None)
+    if meta is not None and hasattr(meta, "has_field") and not meta.has_field(fieldname):
+        return
+    if hasattr(invoice_doc, "set"):
+        invoice_doc.set(fieldname, value)
+    elif isinstance(invoice_doc, dict):
+        invoice_doc[fieldname] = value
+    else:
+        setattr(invoice_doc, fieldname, value)
+
+
+def _authorize_below_cost_override(pos_profile):
+    """Authorize the server-resolved session user or active terminal cashier."""
+
+    from posawesome.posawesome.api.employees import _get_user_doc, _is_pos_supervisor
+    from posawesome.posawesome.api.pos_access import get_authenticated_pos_user
+    from posawesome.posawesome.api.terminal_state import get_active_terminal_cashier
+
+    session_user = get_authenticated_pos_user()
+    if _is_pos_supervisor(_get_user_doc(session_user)):
+        return session_user
+
+    cashier = get_active_terminal_cashier(pos_profile)
+    if _is_pos_supervisor(_get_user_doc(cashier)):
+        return cashier
+    frappe.throw(
+        _("A POS supervisor is required to override a below-cost sale."),
+        frappe.PermissionError,
+    )
+
+
+def _apply_below_cost_override(invoice_doc, errors):
+    reason = cstr(invoice_doc.get("posa_below_cost_override_reason")).strip()
+    if not reason:
+        frappe.throw(_("A reason is required to override a below-cost sale."))
+    actor = _authorize_below_cost_override(invoice_doc.get("pos_profile"))
+    details = [
+        {
+            "item_code": error.get("item_code"),
+            "selling_rate": error.get("selling_rate"),
+            "buying_rate": error.get("buying_rate"),
+            "minimum_selling_rate": error.get("minimum_selling_rate"),
+            "minimum_margin_percentage": error.get("minimum_margin_percentage"),
+            "uom": error.get("buying_price_uom"),
+            "currency": error.get("buying_price_currency"),
+        }
+        for error in errors
+    ]
+    _set_invoice_value(invoice_doc, "posa_below_cost_override", 1)
+    _set_invoice_value(invoice_doc, "posa_below_cost_override_by", actor)
+    _set_invoice_value(
+        invoice_doc,
+        "posa_below_cost_override_details",
+        json.dumps(details, separators=(",", ":"), sort_keys=True),
+    )
 
 
 def validate_invoice_item_sale_controls(invoice_doc):
@@ -407,14 +549,37 @@ def validate_invoice_item_sale_controls(invoice_doc):
         invoice_doc.get("items") or [],
         is_return=bool(invoice_doc.get("is_return")),
     )
-    errors.extend(
-        collect_below_buying_price_errors(
-            invoice_doc.get("items") or [],
-            is_return=bool(invoice_doc.get("is_return")),
-            pos_profile=invoice_doc.get("pos_profile"),
-            invoice_doc=invoice_doc,
-        )
+    policy = resolve_sale_floor_policy(invoice_doc.get("pos_profile"))
+    floor_errors = collect_below_buying_price_errors(
+        invoice_doc.get("items") or [],
+        is_return=bool(invoice_doc.get("is_return")),
+        pos_profile=invoice_doc.get("pos_profile"),
+        invoice_doc=invoice_doc,
+        policy=policy,
     )
+    missing_cost_errors = [
+        error for error in floor_errors if error.get("reason") == "missing_buying_price"
+    ]
+    below_cost_errors = [
+        error for error in floor_errors if error.get("reason") != "missing_buying_price"
+    ]
+    if not below_cost_errors or policy.get("action") != "POS Supervisor Override":
+        _set_invoice_value(invoice_doc, "posa_below_cost_override", 0)
+        _set_invoice_value(invoice_doc, "posa_below_cost_override_by", None)
+        _set_invoice_value(invoice_doc, "posa_below_cost_override_details", None)
+        if not floor_errors:
+            _set_invoice_value(invoice_doc, "posa_below_cost_override_reason", None)
+    if below_cost_errors and policy.get("action") == "Warning Only":
+        floor_errors = missing_cost_errors
+    elif below_cost_errors and policy.get("action") == "POS Supervisor Override":
+        if cint(invoice_doc.get("posa_below_cost_override")):
+            _apply_below_cost_override(invoice_doc, below_cost_errors)
+            floor_errors = missing_cost_errors
+        else:
+            below_cost_errors[0]["message"] = _(
+                "This sale is below the permitted floor and requires a POS supervisor override."
+            )
+    errors.extend(floor_errors)
     if errors:
         frappe.throw(errors[0].get("message"))
 

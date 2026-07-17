@@ -554,6 +554,22 @@ Verification:
 - `POSA_KEYBOARD_E2E=1 POSA_SMOKE_BASE_URL=http://127.0.0.1:8000 POSA_SMOKE_USER=aqib@ai.ai POSA_SMOKE_PASSWORD=alpha123 POSA_KEYBOARD_TEST_ITEMS=02017,02016,02249 yarn playwright test --config=playwright.config.ts tests/e2e/pos-keyboard-accessibility.spec.ts -g "product search down arrow stays in product results" --reporter=list`
 - Result: `1 passed (36.5s)`.
 
+### 2026-07-17 Configurable Sale-Floor Policy and POS Supervisor Override
+
+- POS Profile is now the source of truth for enabling the guard, selecting `Block`, `POS Supervisor Override`, or `Warning Only`, setting a minimum margin, and deciding whether missing buying cost blocks submission.
+- Existing profiles remain safe by default: the guard is enabled, the action is `Block`, the minimum margin is zero, and missing cost retains the prior allow behavior.
+- Only a verified POS Supervisor can approve an override. General manager roles do not receive this authority, and override approval requires an online connection and a reason.
+- The backend re-authorizes the POS Supervisor and stores the actor, reason, and per-item rate/floor details on Sales Invoice and POS Invoice for audit reporting.
+- Invoice-level percentage and fixed-amount discounts are allocated into the effective selling rate before frontend and backend floor validation.
+- The policy is consumed from the active POS Profile, so the same settings are available in the cached profile used by the POS. Backend validation remains authoritative for online submission.
+
+Verification:
+
+- `python -m unittest posawesome.posawesome.api.test_item_sale_controls posawesome.posawesome.api.test_sale_floor_profile_settings` (`22 passed`)
+- `pnpm exec vitest run tests/lossPrevention.spec.ts tests/usePaymentSubmission.spec.ts` (`36 passed`)
+- `pnpm exec vue-tsc --noEmit`
+- Targeted ESLint for all changed frontend policy, payment, cart, employee-store, dialog, and test files.
+
 ## 2026-07-11 Cart Numeric Input Helper Suppression
 
 Issue resolved:

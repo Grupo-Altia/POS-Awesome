@@ -7,6 +7,7 @@ export interface TerminalEmployee {
 	enabled?: number;
 	is_current?: boolean;
 	is_supervisor?: boolean;
+	can_override_below_cost?: boolean;
 }
 
 export interface AuthoritativeTerminalState {
@@ -29,6 +30,9 @@ const normalizeEmployee = (cashier: TerminalEmployee): TerminalEmployee => ({
 	enabled: Number(cashier.enabled ?? 1),
 	is_current: Boolean(cashier.is_current),
 	is_supervisor: Boolean(cashier.is_supervisor),
+	can_override_below_cost: Boolean(
+		cashier.can_override_below_cost ?? cashier.is_supervisor,
+	),
 });
 
 export const useEmployeeStore = defineStore("employee", () => {

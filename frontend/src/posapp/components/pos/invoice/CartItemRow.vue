@@ -413,7 +413,10 @@
 import { computed, nextTick, ref, watch } from "vue";
 import { getCartGridCellId, getCartGridRowId } from "../../../utils/cartFieldFocus";
 import { normalizeCartEditQuantity } from "../../../utils/cartQuantity";
-import { getItemLossRisk } from "../../../utils/lossPrevention";
+import {
+	getItemLossRisk,
+	resolveSaleFloorPolicy,
+} from "../../../utils/lossPrevention";
 
 defineOptions({
 	name: "CartItemRow",
@@ -542,7 +545,17 @@ const qtyLength = computed(() => String(Math.abs(props.item.qty || 0)).replace("
 
 const rowDomId = computed(() => (props.rowIndex >= 0 ? getCartGridRowId(props.rowIndex) : undefined));
 
-const lossRisk = computed(() => getItemLossRisk(props.item));
+const saleFloorPolicy = computed(() =>
+	resolveSaleFloorPolicy(props.posProfile),
+);
+const lossRisk = computed(() =>
+	saleFloorPolicy.value.enabled
+		? getItemLossRisk(props.item, {
+				minimumMarginPercentage:
+					saleFloorPolicy.value.minimumMarginPercentage,
+			})
+		: null,
+);
 
 const rowClasses = computed(() => ({
 	"posa-cart-item-row--keyboard-active": props.activeRow,

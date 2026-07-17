@@ -114,6 +114,64 @@ describe("usePaymentSubmission", () => {
 		);
 	});
 
+	it("allows warning-only below-cost policy and shows a warning", async () => {
+		const toastShow = vi.fn();
+		const invoiceDoc = ref<any>({
+			is_return: 0,
+			items: [{ item_code: "LOW", qty: 1, rate: 9, trade_price: 10 }],
+			payments: [{ mode_of_payment: "Cash", amount: 9, type: "Cash" }],
+			rounded_total: 9,
+			grand_total: 9,
+		});
+		const { validateSubmission } = usePaymentSubmission({
+			invoiceDoc,
+			posProfile: ref({ posa_below_cost_action: "Warning Only" }),
+			stockSettings: ref({}),
+			invoiceType: ref("Invoice"),
+			formatFloat: (value) => Number(value || 0),
+			stores: { toastStore: { show: toastShow } },
+			diff_payment: ref(0) as any,
+			isCashback: ref(true),
+		});
+
+		await expect(validateSubmission(true)).resolves.toBe(true);
+		expect(toastShow).toHaveBeenCalledWith(
+			expect.objectContaining({ color: "warning" }),
+		);
+	});
+
+	it("captures a POS supervisor override reason before submission", async () => {
+		const requestBelowCostOverride = vi.fn().mockResolvedValue({
+			approved: true,
+			reason: "Approved clearance",
+		});
+		const invoiceDoc = ref<any>({
+			is_return: 0,
+			items: [{ item_code: "LOW", qty: 1, rate: 9, trade_price: 10 }],
+			payments: [{ mode_of_payment: "Cash", amount: 9, type: "Cash" }],
+			rounded_total: 9,
+			grand_total: 9,
+		});
+		const { validateSubmission } = usePaymentSubmission({
+			invoiceDoc,
+			posProfile: ref({
+				posa_below_cost_action: "POS Supervisor Override",
+			}),
+			stockSettings: ref({}),
+			invoiceType: ref("Invoice"),
+			formatFloat: (value) => Number(value || 0),
+			requestBelowCostOverride,
+			diff_payment: ref(0) as any,
+			isCashback: ref(true),
+		});
+
+		await expect(validateSubmission(true)).resolves.toBe(true);
+		expect(invoiceDoc.value.posa_below_cost_override).toBe(1);
+		expect(invoiceDoc.value.posa_below_cost_override_reason).toBe(
+			"Approved clearance",
+		);
+	});
+
 	it("defers print and schedules background wait when invoice submission is queued", async () => {
 		const invoiceService = (
 			await import("../src/posapp/services/invoiceService")

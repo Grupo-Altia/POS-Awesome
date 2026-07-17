@@ -15,6 +15,18 @@ export type LossRisk = {
 	costField: string;
 };
 
+export type SaleFloorPolicy = {
+	enabled: boolean;
+	action: "Block" | "POS Supervisor Override" | "Warning Only";
+	minimumMarginPercentage: number;
+	missingCostAction: "Allow" | "Block";
+};
+
+export type LossPreventionOptions = {
+	minimumMarginPercentage?: number;
+	invoiceDiscountPercentage?: number;
+};
+
 const COST_CANDIDATES = [
 	{ field: "trade_price", label: "Trade Price" },
 	{ field: "buying_price", label: "Buying Price" },
@@ -26,6 +38,35 @@ const COST_CANDIDATES = [
 ];
 
 const EPSILON = 0.0001;
+
+export function resolveSaleFloorPolicy(
+	profile: Record<string, unknown> | null | undefined,
+): SaleFloorPolicy {
+	const enabledValue = profile?.posa_enable_below_cost_guard;
+	const enabled =
+		enabledValue === null || enabledValue === undefined || enabledValue === ""
+			? true
+			: [true, 1, "1", "true", "Yes"].includes(enabledValue as any);
+	const rawAction = String(profile?.posa_below_cost_action || "Block");
+	const action = ["Block", "POS Supervisor Override", "Warning Only"].includes(
+		rawAction,
+	)
+		? (rawAction as SaleFloorPolicy["action"])
+		: "Block";
+	const rawMissingAction = String(
+		profile?.posa_missing_cost_action || "Allow",
+	);
+	return {
+		enabled,
+		action,
+		minimumMarginPercentage: Math.max(
+			toFiniteNumber(profile?.posa_minimum_margin_percentage) || 0,
+			0,
+		),
+		missingCostAction:
+			rawMissingAction === "Block" ? "Block" : "Allow",
+	};
+}
 
 export function toFiniteNumber(value: unknown): number | null {
 	if (value === null || value === undefined || value === "") {
@@ -99,6 +140,7 @@ export function getEffectiveSellingRate(
 
 export function getItemLossRisk(
 	item: Record<string, unknown> | null | undefined,
+	options: LossPreventionOptions = {},
 ): LossRisk | null {
 	if (!item || item.is_return || item.posa_is_replace) {
 		return null;
@@ -112,34 +154,48 @@ export function getItemLossRisk(
 		return null;
 	}
 	const sellingRate = getEffectiveSellingRate(item);
+	const invoiceDiscountPercentage = Math.min(
+		Math.max(toFiniteNumber(options.invoiceDiscountPercentage) || 0, 0),
+		100,
+	);
+	const effectiveSellingRate =
+		sellingRate * (1 - invoiceDiscountPercentage / 100);
+	const minimumMarginPercentage = Math.max(
+		toFiniteNumber(options.minimumMarginPercentage) || 0,
+		0,
+	);
+	const minimumCostRate =
+		cost.rate * (1 + minimumMarginPercentage / 100);
 	const currencyConversionRate = toFiniteNumber(item.conversion_rate) || 1;
 	const comparisonSellingRate = cost.baseCurrency
-		? sellingRate * currencyConversionRate
-		: sellingRate;
-	if (comparisonSellingRate + EPSILON >= cost.rate) {
+		? effectiveSellingRate * currencyConversionRate
+		: effectiveSellingRate;
+	if (comparisonSellingRate + EPSILON >= minimumCostRate) {
 		return null;
 	}
 	const displayCostRate = cost.baseCurrency
-		? cost.rate / currencyConversionRate
-		: cost.rate;
+		? minimumCostRate / currencyConversionRate
+		: minimumCostRate;
 	return {
 		belowCost: true,
 		itemCode: String(item.item_code || ""),
 		itemName: String(item.item_name || item.item_code || ""),
-		sellingRate,
+		sellingRate: effectiveSellingRate,
 		costRate: displayCostRate,
-		costLabel: cost.label,
+		costLabel:
+			minimumMarginPercentage > 0 ? "Minimum Rate" : cost.label,
 		costField: cost.field,
 	};
 }
 
 export function findLossRiskItems(
 	items: Array<Record<string, unknown>> | null | undefined,
+	options: LossPreventionOptions = {},
 ): LossRisk[] {
 	if (!Array.isArray(items)) {
 		return [];
 	}
 	return items
-		.map((item) => getItemLossRisk(item))
+		.map((item) => getItemLossRisk(item, options))
 		.filter((risk): risk is LossRisk => Boolean(risk?.belowCost));
 }

@@ -18,7 +18,11 @@ import { parseBooleanSetting } from "../../../utils/stock";
 import { resolvePosDocumentDoctype } from "../../../utils/posDocumentMode";
 import { toCompanyCurrency } from "../../../utils/erpnextCurrency";
 import { shouldApplyReturnRefundCap } from "../../../utils/paymentInitialization";
-import { findLossRiskItems } from "../../../utils/lossPrevention";
+import {
+	findLossRiskItems,
+	getItemCostFloor,
+	resolveSaleFloorPolicy,
+} from "../../../utils/lossPrevention";
 
 declare const frappe: any;
 declare const __: (_str: string, _args?: any[]) => string;
@@ -41,6 +45,9 @@ export interface PaymentSubmissionOptions {
 	is_credit_sale?: Ref<boolean>;
 	loyaltyAmount?: Ref<number>;
 	customerInfo?: Ref<any>;
+	requestBelowCostOverride?: (
+		_risks: any[],
+	) => Promise<{ approved: boolean; reason?: string } | null>;
 	stores?: {
 		toastStore?: any;
 		syncStore?: any;
@@ -454,12 +461,99 @@ export function usePaymentSubmission(options: PaymentSubmissionOptions) {
 			: Array.isArray(storeItemsSource?.value)
 				? storeItemsSource.value
 				: [];
-		const docLossRiskItems = findLossRiskItems(doc?.items || []);
+		const saleFloorPolicy = resolveSaleFloorPolicy(profile);
+		const invoiceGrossAmount = (doc?.items || []).reduce(
+			(total: number, item: any) => {
+				if (item?.is_return || item?.posa_is_replace || Number(item?.qty || 0) <= 0) {
+					return total;
+				}
+				return total + Math.abs(Number(item?.rate || 0) * Number(item?.qty || 0));
+			},
+			0,
+		);
+		const explicitInvoiceDiscount = Math.max(
+			Number(doc?.additional_discount_percentage || 0),
+			0,
+		);
+		const fixedInvoiceDiscountPercentage =
+			explicitInvoiceDiscount <= 0 && invoiceGrossAmount > 0
+				? (Math.max(Number(doc?.discount_amount || 0), 0) / invoiceGrossAmount) * 100
+				: 0;
+		const lossOptions = {
+			minimumMarginPercentage:
+				saleFloorPolicy.minimumMarginPercentage,
+			invoiceDiscountPercentage:
+				explicitInvoiceDiscount || fixedInvoiceDiscountPercentage,
+		};
+		const docLossRiskItems = saleFloorPolicy.enabled
+			? findLossRiskItems(doc?.items || [], lossOptions)
+			: [];
 		const lossRiskItems = docLossRiskItems.length
 			? docLossRiskItems
-			: findLossRiskItems(liveCartItems);
+			: saleFloorPolicy.enabled
+				? findLossRiskItems(liveCartItems, lossOptions)
+				: [];
+		const missingCostItems = saleFloorPolicy.enabled
+			? (doc?.items || []).filter(
+					(item: any) =>
+						!item?.is_return &&
+						!item?.posa_is_replace &&
+						Number(item?.qty || 0) >= 0 &&
+						!getItemCostFloor(item),
+				)
+			: [];
+		if (
+			missingCostItems.length &&
+			saleFloorPolicy.missingCostAction === "Block"
+		) {
+			const first = missingCostItems[0];
+			throw new Error(
+				__(
+					"Cannot submit invoice because no valid buying floor is available for {0}.",
+					[first.item_name || first.item_code],
+				),
+			);
+		}
+		if (!lossRiskItems.length && doc?.posa_below_cost_override) {
+			doc.posa_below_cost_override = 0;
+			doc.posa_below_cost_override_reason = "";
+			doc.posa_below_cost_override_by = "";
+			doc.posa_below_cost_override_details = "";
+		}
 		if (lossRiskItems.length) {
 			const first = lossRiskItems[0]!;
+			if (saleFloorPolicy.action === "Warning Only") {
+				stores?.toastStore?.show({
+					title: __(
+						"Warning: {0} is selling below the permitted minimum rate {1}.",
+						[
+							first.itemName || first.itemCode,
+							formatFloat(first.costRate, prec),
+						],
+					),
+					color: "warning",
+				});
+			} else if (saleFloorPolicy.action === "POS Supervisor Override") {
+				if (
+					!doc.posa_below_cost_override ||
+					!String(doc.posa_below_cost_override_reason || "").trim()
+				) {
+					const approval = await options.requestBelowCostOverride?.(
+						lossRiskItems,
+					);
+					if (!approval?.approved || !String(approval.reason || "").trim()) {
+						throw new Error(
+							__(
+								"This sale is below the permitted floor and requires a POS supervisor override.",
+							),
+						);
+					}
+					doc.posa_below_cost_override = 1;
+					doc.posa_below_cost_override_reason = String(
+						approval.reason,
+					).trim();
+				}
+			} else {
 			throw new Error(
 				__(
 					"Cannot submit invoice because {0} is selling at {1}, below {2} {3}.",
@@ -471,6 +565,7 @@ export function usePaymentSubmission(options: PaymentSubmissionOptions) {
 					],
 				),
 			);
+			}
 		}
 
 		// 1. Ensure return payments are negative

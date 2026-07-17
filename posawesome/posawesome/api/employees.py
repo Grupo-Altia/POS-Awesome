@@ -335,6 +335,8 @@ def get_terminal_employees(pos_profile=None):
                 "is_current": row.get("name") == current_user,
                 "is_supervisor": user in supervisor_users
                 or bool(row.get("posa_is_pos_supervisor", 0)),
+                "can_override_below_cost": user in supervisor_users
+                or bool(row.get("posa_is_pos_supervisor", 0)),
             }
         )
 
@@ -367,6 +369,7 @@ def verify_terminal_employee_pin(pos_profile=None, user=None, pin=None):
         "full_name": user_doc.full_name or user_doc.name,
         "enabled": user_doc.enabled,
         "is_supervisor": _is_pos_supervisor(user_doc),
+        "can_override_below_cost": _is_pos_supervisor(user_doc),
     }
     result["terminal_state"] = activate_verified_cashier(profile_doc, user_doc.name)
     return result

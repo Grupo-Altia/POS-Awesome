@@ -283,6 +283,16 @@
 			@issue-card="issueGiftCard"
 			@top-up-card="topUpGiftCard"
 		/>
+		<BelowCostOverrideDialog
+			v-model="belowCostOverrideDialogOpen"
+			:risks="belowCostOverrideRisks"
+			:reason="belowCostOverrideReason"
+			:cashier-name="currentCashier?.full_name || currentCashier?.user || ''"
+			:format-float="(value) => formatFloat(value, currency_precision)"
+			@update:reason="belowCostOverrideReason = $event"
+			@approve="approveBelowCostOverride"
+			@cancel="cancelBelowCostOverride"
+		/>
 	</div>
 </template>
 
@@ -314,6 +324,7 @@ import {
 	saveGiftCardSnapshot,
 } from "../../../offline/index";
 import GiftCardDialog from "./wallet/GiftCardDialog.vue";
+import BelowCostOverrideDialog from "./payments/BelowCostOverrideDialog.vue";
 import {
 	applyPreferredPaymentAmount,
 	initializePaymentLinesForDialog,
@@ -425,12 +436,56 @@ const giftCardLoading = ref(false);
 const giftCardMode = ref("redeem");
 const giftCardError = ref("");
 const giftCardRedemptions = ref([]);
+const belowCostOverrideDialogOpen = ref(false);
+const belowCostOverrideRisks = ref([]);
+const belowCostOverrideReason = ref("");
+let belowCostOverrideResolver = null;
 
 // Computed Properties
 const invoice_doc = computed({
 	get: () => invoiceStore.invoiceDoc || {},
 	set: (value) => invoiceStore.setInvoiceDoc(value),
 });
+
+const resolveBelowCostOverride = (result) => {
+	const resolver = belowCostOverrideResolver;
+	belowCostOverrideResolver = null;
+	belowCostOverrideDialogOpen.value = false;
+	if (resolver) resolver(result);
+};
+
+const requestBelowCostOverride = async (risks) => {
+	if (isOffline()) {
+		toastStore.show({
+			title: __("POS supervisor overrides require an online server connection."),
+			color: "error",
+		});
+		return { approved: false };
+	}
+	if (!currentCashier.value?.can_override_below_cost) {
+		toastStore.show({
+			title: __("Switch to a POS supervisor to approve this sale."),
+			color: "error",
+		});
+		return { approved: false };
+	}
+	belowCostOverrideRisks.value = Array.isArray(risks) ? risks : [];
+	belowCostOverrideReason.value = "";
+	belowCostOverrideDialogOpen.value = true;
+	return await new Promise((resolve) => {
+		belowCostOverrideResolver = resolve;
+	});
+};
+
+const approveBelowCostOverride = () => {
+	const reason = String(belowCostOverrideReason.value || "").trim();
+	if (!reason) return;
+	resolveBelowCostOverride({ approved: true, reason });
+};
+
+const cancelBelowCostOverride = () => {
+	resolveBelowCostOverride({ approved: false });
+};
 
 const paymentItemDiscountTotal = computed(() => {
 	const items = Array.isArray(invoice_doc.value?.items) ? invoice_doc.value.items : [];
@@ -702,6 +757,7 @@ const { ensureReturnPaymentsAreNegative, restoreReturnPayments, validateSubmissi
 			invoiceStore,
 		},
 		currencyPrecision: currency_precision,
+		requestBelowCostOverride,
 	});
 
 const isGiftCardPayment = (payment) => {
@@ -2043,6 +2099,9 @@ watch(isPaymentOpen, (isOpen) => {
 		ensurePaymentLinesInitialized();
 		handleShowPayment();
 	} else {
+		if (belowCostOverrideResolver) {
+			resolveBelowCostOverride({ approved: false });
+		}
 		releaseActiveFocus();
 		paymentVisible.value = false;
 		highlightSubmit.value = false;
@@ -2177,6 +2236,7 @@ onMounted(() => {
 });
 
 onBeforeUnmount(() => {
+	resolveBelowCostOverride({ approved: false });
 	eventBus.off("send_invoice_doc_payment");
 	eventBus.off("register_pos_profile");
 	eventBus.off("add_the_new_address");
