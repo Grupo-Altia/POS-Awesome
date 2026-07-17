@@ -35,6 +35,7 @@ def _install_frappe_stub():
 
     frappe_utils = types.ModuleType("frappe.utils")
     frappe_utils.flt = lambda value, precision=None: float(value or 0)
+    frappe_utils.nowdate = lambda: "2026-07-17"
     sys.modules["frappe.utils"] = frappe_utils
 
     return frappe_module
@@ -55,6 +56,39 @@ class TestItemSaleControls(unittest.TestCase):
     def setUpClass(cls):
         cls.frappe = _install_frappe_stub()
         cls.controls = _load_module()
+
+    def setUp(self):
+        self.frappe.get_all = lambda *args, **kwargs: []
+        self.frappe.db.get_value = lambda *args, **kwargs: None
+        self.frappe.db.get_single_value = lambda *args, **kwargs: None
+        self.frappe.db.exists = lambda *args, **kwargs: False
+
+    def _install_buying_price(self, rate=12.75, uom="Nos", currency="PKR"):
+        self.frappe.db.get_single_value = lambda *args, **kwargs: "Standard Buying"
+        self.frappe.db.get_value = lambda doctype, *args, **kwargs: (
+            currency if doctype == "Price List" else None
+        )
+
+        def get_all(doctype, *args, **kwargs):
+            if doctype == "Item Price":
+                return [
+                    {
+                        "name": "IP-LOW-NOS",
+                        "item_code": "LOW",
+                        "price_list": "Standard Buying",
+                        "price_list_rate": rate,
+                        "currency": currency,
+                        "uom": uom,
+                        "valid_from": "2026-01-01",
+                    }
+                ]
+            if doctype == "Item":
+                return [{"item_code": "LOW", "stock_uom": "Nos"}]
+            if doctype == "UOM Conversion Detail":
+                return []
+            return []
+
+        self.frappe.get_all = get_all
 
     def test_locked_item_blocks_sale(self):
         self.frappe.get_all = lambda *args, **kwargs: [
@@ -112,7 +146,8 @@ class TestItemSaleControls(unittest.TestCase):
 
         self.assertEqual(errors, [])
 
-    def test_below_trade_price_blocks_sale(self):
+    def test_database_buying_price_blocks_sale(self):
+        self._install_buying_price()
         errors = self.controls.collect_below_buying_price_errors(
             [
                 {
@@ -120,7 +155,7 @@ class TestItemSaleControls(unittest.TestCase):
                     "item_name": "Below Cost",
                     "qty": 1,
                     "rate": 10,
-                    "trade_price": 12.75,
+                    "uom": "Nos",
                 }
             ]
         )
@@ -129,20 +164,136 @@ class TestItemSaleControls(unittest.TestCase):
         self.assertEqual(errors[0]["policy"], "block")
 
     def test_buying_price_sale_control_queries_price_list_when_row_has_no_trade_price(self):
-        self.frappe.db.get_single_value = lambda *args, **kwargs: "Standard Buying"
-        self.frappe.get_all = lambda *args, **kwargs: [
-            {
-                "item_code": "LOW",
-                "price_list_rate": 12.75,
-                "uom": "Nos",
-            }
-        ]
+        self._install_buying_price()
 
         errors = self.controls.collect_below_buying_price_errors(
-            [{"item_code": "LOW", "item_name": "Below Cost", "qty": 1, "rate": 10}]
+            [
+                {
+                    "item_code": "LOW",
+                    "item_name": "Below Cost",
+                    "qty": 1,
+                    "rate": 10,
+                    "uom": "Nos",
+                }
+            ]
         )
 
         self.assertEqual(errors[0]["reason"], "below_buying_price")
+
+    def test_client_trade_price_cannot_lower_database_floor(self):
+        self._install_buying_price(rate=12.75)
+
+        errors = self.controls.collect_below_buying_price_errors(
+            [
+                {
+                    "item_code": "LOW",
+                    "item_name": "Below Cost",
+                    "qty": 1,
+                    "rate": 10,
+                    "uom": "Nos",
+                    "trade_price": 1,
+                    "buying_rate": 1,
+                }
+            ]
+        )
+
+        self.assertEqual(errors[0]["buying_rate"], 12.75)
+
+    def test_stock_uom_price_is_converted_for_selected_uom(self):
+        self._install_buying_price(rate=12.75, uom="Nos")
+        original_get_all = self.frappe.get_all
+
+        def get_all(doctype, *args, **kwargs):
+            if doctype == "UOM Conversion Detail":
+                return [
+                    {
+                        "parent": "LOW",
+                        "uom": "Box",
+                        "conversion_factor": 10,
+                    }
+                ]
+            return original_get_all(doctype, *args, **kwargs)
+
+        self.frappe.get_all = get_all
+
+        errors = self.controls.collect_below_buying_price_errors(
+            [
+                {
+                    "item_code": "LOW",
+                    "item_name": "Below Cost",
+                    "qty": 1,
+                    "rate": 100,
+                    "uom": "Box",
+                }
+            ]
+        )
+
+        self.assertEqual(errors[0]["buying_rate"], 127.5)
+
+    def test_exact_selected_uom_price_wins_without_conversion(self):
+        self._install_buying_price(rate=120, uom="Box")
+        original_get_all = self.frappe.get_all
+
+        def get_all(doctype, *args, **kwargs):
+            if doctype == "UOM Conversion Detail":
+                return [
+                    {
+                        "parent": "LOW",
+                        "uom": "Box",
+                        "conversion_factor": 10,
+                    }
+                ]
+            return original_get_all(doctype, *args, **kwargs)
+
+        self.frappe.get_all = get_all
+
+        errors = self.controls.collect_below_buying_price_errors(
+            [
+                {
+                    "item_code": "LOW",
+                    "item_name": "Below Cost",
+                    "qty": 1,
+                    "rate": 115,
+                    "uom": "Box",
+                }
+            ]
+        )
+
+        self.assertEqual(errors[0]["buying_rate"], 120)
+
+    def test_buying_floor_is_converted_to_invoice_currency(self):
+        self._install_buying_price(rate=12.75, currency="USD")
+        self.frappe.db.get_value = lambda doctype, *args, **kwargs: {
+            "Price List": "USD",
+            "Company": "PKR",
+        }.get(doctype)
+        erpnext_module = types.ModuleType("erpnext")
+        erpnext_setup = types.ModuleType("erpnext.setup")
+        erpnext_utils = types.ModuleType("erpnext.setup.utils")
+        erpnext_utils.get_exchange_rate = lambda *args, **kwargs: 280
+        sys.modules["erpnext"] = erpnext_module
+        sys.modules["erpnext.setup"] = erpnext_setup
+        sys.modules["erpnext.setup.utils"] = erpnext_utils
+
+        errors = self.controls.collect_below_buying_price_errors(
+            [
+                {
+                    "item_code": "LOW",
+                    "item_name": "Below Cost",
+                    "qty": 1,
+                    "rate": 3500,
+                    "uom": "Nos",
+                }
+            ],
+            invoice_doc={
+                "company": "Test Company",
+                "currency": "PKR",
+                "conversion_rate": 1,
+                "posting_date": "2026-07-17",
+            },
+        )
+
+        self.assertEqual(errors[0]["buying_rate"], 3570)
 
     def test_pos_invoice_hook_delegates_to_sale_control_validation(self):
         validator = Mock()

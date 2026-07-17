@@ -533,6 +533,15 @@ Verification:
 - `POSA_KEYBOARD_E2E=1 POSA_SMOKE_BASE_URL=http://127.0.0.1:8000 POSA_SMOKE_USER=aqib@ai.ai POSA_SMOKE_PASSWORD=alpha123 POSA_KEYBOARD_TEST_ITEMS=02017,02016,02249 yarn --cwd frontend playwright test --config=playwright.config.ts tests/e2e/pos-keyboard-accessibility.spec.ts -g "below buying price sale turns row red and blocks keyboard submit" --reporter=list`
 - Result: targeted Playwright scenario passed; backend guard blocked `ARINAC FORT TAB 100"S` at rate `12.3` below buying/trade price `12.75`.
 
+### 2026-07-17 Buying Floor Correctness Hardening
+
+- Backend validation now resolves the buying floor from authoritative Item Price master data and no longer trusts client-supplied `trade_price`/`buying_rate` values.
+- Buying floors honor Item Price validity dates, ignore customer/supplier-specific rows, prefer the selected UOM, and convert stock-UOM prices with the Item master conversion factor.
+- Buying-list rates are normalized through company currency into the invoice currency before comparison; missing required exchange rates block validation instead of silently comparing incompatible values.
+- Item detail responses expose buying prices by UOM in company currency so cart warnings use the same UOM/currency contract.
+- Offline Item Price sync now includes the resolved buying price list and persists UOM, currency, supplier/customer, buying/selling, and validity metadata. The schema bump forces existing clients to refresh the expanded scope.
+- Offline item detail hydration rebuilds buying floors from IndexedDB and dated currency-rate records.
+
 - Updated the Playwright helper to press `Enter` after filling item search, matching limited-search cashier workflow.
 
 Verification:

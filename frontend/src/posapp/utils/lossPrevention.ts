@@ -2,6 +2,7 @@ export type LossCostFloor = {
 	field: string;
 	label: string;
 	rate: number;
+	baseCurrency?: boolean;
 };
 
 export type LossRisk = {
@@ -39,6 +40,30 @@ export function getItemCostFloor(
 ): LossCostFloor | null {
 	if (!item) {
 		return null;
+	}
+	const pricesByUom = item._buying_prices_by_uom;
+	if (pricesByUom && typeof pricesByUom === "object") {
+		const prices = pricesByUom as Record<
+			string,
+			Record<string, unknown> | undefined
+		>;
+		const selectedUom = String(item.uom || item.stock_uom || "");
+		const stockUom = String(item.stock_uom || "");
+		const exact = prices[selectedUom];
+		const fallback = prices[stockUom] || prices[""];
+		const selected = exact || fallback;
+		const baseRate = toFiniteNumber(selected?.base_price_list_rate);
+		if (baseRate !== null && baseRate > EPSILON) {
+			const conversionFactor = exact
+				? 1
+				: toFiniteNumber(item.conversion_factor) || 1;
+			return {
+				field: "_buying_prices_by_uom",
+				label: "Trade Price",
+				rate: baseRate * conversionFactor,
+				baseCurrency: true,
+			};
+		}
 	}
 	for (const candidate of COST_CANDIDATES) {
 		const rate = toFiniteNumber(item[candidate.field]);
@@ -87,15 +112,22 @@ export function getItemLossRisk(
 		return null;
 	}
 	const sellingRate = getEffectiveSellingRate(item);
-	if (sellingRate + EPSILON >= cost.rate) {
+	const currencyConversionRate = toFiniteNumber(item.conversion_rate) || 1;
+	const comparisonSellingRate = cost.baseCurrency
+		? sellingRate * currencyConversionRate
+		: sellingRate;
+	if (comparisonSellingRate + EPSILON >= cost.rate) {
 		return null;
 	}
+	const displayCostRate = cost.baseCurrency
+		? cost.rate / currencyConversionRate
+		: cost.rate;
 	return {
 		belowCost: true,
 		itemCode: String(item.item_code || ""),
 		itemName: String(item.item_name || item.item_code || ""),
 		sellingRate,
-		costRate: cost.rate,
+		costRate: displayCostRate,
 		costLabel: cost.label,
 		costField: cost.field,
 	};

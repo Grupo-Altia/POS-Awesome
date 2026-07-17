@@ -52,4 +52,57 @@ describe("loss prevention", () => {
 		expect(risks).toHaveLength(1);
 		expect(risks[0].itemCode).toBe("LOW");
 	});
+
+	it("converts a stock-UOM buying floor for the selected UOM", () => {
+		const risk = getItemLossRisk({
+			item_code: "BOXED",
+			qty: 1,
+			rate: 100,
+			conversion_rate: 1,
+			uom: "Box",
+			stock_uom: "Nos",
+			conversion_factor: 10,
+			_buying_prices_by_uom: {
+				Nos: { base_price_list_rate: 12.75 },
+			},
+		});
+
+		expect(risk?.costRate).toBe(127.5);
+		expect(risk?.costField).toBe("_buying_prices_by_uom");
+	});
+
+	it("prefers an exact selected-UOM buying price", () => {
+		const risk = getItemLossRisk({
+			item_code: "BOXED",
+			qty: 1,
+			rate: 115,
+			conversion_rate: 1,
+			uom: "Box",
+			stock_uom: "Nos",
+			conversion_factor: 10,
+			_buying_prices_by_uom: {
+				Nos: { base_price_list_rate: 12.75 },
+				Box: { base_price_list_rate: 120 },
+			},
+		});
+
+		expect(risk?.costRate).toBe(120);
+	});
+
+	it("compares company-currency buying floor in the invoice currency", () => {
+		const risk = getItemLossRisk({
+			item_code: "USD-ITEM",
+			qty: 1,
+			rate: 3.5,
+			conversion_rate: 280,
+			uom: "Nos",
+			stock_uom: "Nos",
+			conversion_factor: 1,
+			_buying_prices_by_uom: {
+				Nos: { base_price_list_rate: 1000 },
+			},
+		});
+
+		expect(risk?.costRate).toBeCloseTo(1000 / 280);
+	});
 });

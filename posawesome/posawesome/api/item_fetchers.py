@@ -93,7 +93,8 @@ def _fetch_item_prices(
             price_list_rate,
             currency,
             uom,
-            customer
+            customer,
+            supplier
         FROM (
             SELECT
                 item_code,
@@ -102,6 +103,7 @@ def _fetch_item_prices(
                 currency,
                 uom,
                 customer,
+                supplier,
                 valid_from,
                 valid_upto
             FROM `tabItem Price`
@@ -111,6 +113,7 @@ def _fetch_item_prices(
                 AND currency = %(currency)s
                 AND (valid_from IS NULL OR valid_from <= %(today)s)
                 AND IFNULL(customer, '') IN ('', %(customer)s)
+                AND IFNULL(supplier, '') = ''
                 AND (valid_upto IS NULL OR valid_upto = '' OR valid_upto >= %(today)s)
         ) ip
         ORDER BY IFNULL(customer, '') ASC, valid_from ASC, valid_upto DESC
@@ -523,6 +526,7 @@ def merge_item_row(
     lookup_data: ItemLookupData,
     price_list_currency: Optional[str],
     exchange_rate: float,
+    buying_exchange_rate: Optional[float] = 1,
 ) -> Dict[str, Any]:
     """Merge lookup data into a POS item row for downstream consumption."""
 
@@ -561,6 +565,7 @@ def merge_item_row(
             "trade_price": buying_price_row.get("price_list_rate") if buying_price_row else None,
             "buying_rate": buying_price_row.get("price_list_rate") if buying_price_row else None,
             "buying_price_list": buying_price_row.get("price_list") if buying_price_row else None,
+            "buying_price_currency": buying_price_row.get("currency") if buying_price_row else None,
             "default_bom": meta.get("default_bom"),
             "batch_no_data": batch_rows,
             "serial_no_data": lookup_data.serial_map.get(item_code, []),
@@ -585,6 +590,22 @@ def merge_item_row(
             "currency": pr.get("currency"),
         }
     row["_prices_by_uom"] = prices_by_uom
+    buying_prices_by_uom: Dict[str, Dict[str, object]] = {}
+    for uom_key, pr in lookup_data.buying_price_map.get(item_code, {}).items():
+        uom_name = "" if uom_key == "None" else uom_key
+        raw_rate = flt(pr.get("price_list_rate"))
+        normalized_rate = (
+            raw_rate * flt(buying_exchange_rate)
+            if flt(buying_exchange_rate) > 0
+            else None
+        )
+        buying_prices_by_uom[uom_name] = {
+            "price_list_rate": raw_rate,
+            "base_price_list_rate": normalized_rate,
+            "currency": pr.get("currency"),
+            "price_list": pr.get("price_list"),
+        }
+    row["_buying_prices_by_uom"] = buying_prices_by_uom
 
     if not row.get("item_name") and meta.get("item_name"):
         row["item_name"] = meta.get("item_name")
@@ -608,6 +629,7 @@ class ItemDetailAggregator:
         self.warehouse = pos_profile.get("warehouse")
         self.price_list_currency = self._determine_price_list_currency(self.price_list)
         self.exchange_rate = self._compute_exchange_rate()
+        self.buying_exchange_rate = 1.0
 
     def _resolve_ttl(self) -> Optional[int]:
         """Convert the POS profile cache duration to seconds."""
@@ -695,6 +717,23 @@ class ItemDetailAggregator:
 
         buying_price_list = self._resolve_buying_price_list()
         buying_price_currency = self._determine_price_list_currency(buying_price_list)
+        company = self.pos_profile.get("company")
+        company_currency = (
+            frappe.db.get_value("Company", company, "default_currency") if company else None
+        )
+        if buying_price_currency and company_currency and buying_price_currency != company_currency:
+            try:
+                self.buying_exchange_rate = get_exchange_rate(
+                    buying_price_currency, company_currency, self.today
+                )
+            except Exception:
+                self.buying_exchange_rate = None
+                frappe.log_error(
+                    f"Missing exchange rate from {buying_price_currency} to {company_currency}",
+                    "POS Awesome buying floor",
+                )
+        else:
+            self.buying_exchange_rate = 1.0
         buying_price_rows = []
         if buying_price_list:
             if use_cache:
@@ -825,6 +864,7 @@ class ItemDetailAggregator:
                     lookup_data,
                     self.price_list_currency or self.pos_profile.get("currency"),
                     self.exchange_rate,
+                    self.buying_exchange_rate,
                 )
             )
         return result

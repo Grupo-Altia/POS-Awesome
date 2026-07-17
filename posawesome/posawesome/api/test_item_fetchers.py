@@ -168,6 +168,53 @@ class TestItemFetchers(unittest.TestCase):
         self.assertEqual(row["manufacturing_cost_source"], "bom")
         self.assertEqual(row["manufacturing_bom"], "BOM-ITEM-001")
 
+    def test_merge_item_row_exposes_base_currency_buying_prices_by_uom(self):
+        lookup = self.module.ItemLookupData(
+            price_map={},
+            buying_price_map={
+                "ITEM-001": {
+                    "Nos": AttrDict(
+                        {
+                            "price_list_rate": 2,
+                            "currency": "USD",
+                            "price_list": "Standard Buying",
+                        }
+                    ),
+                    "Box": AttrDict(
+                        {
+                            "price_list_rate": 18,
+                            "currency": "USD",
+                            "price_list": "Standard Buying",
+                        }
+                    ),
+                }
+            },
+            stock_map={},
+            meta_map={"ITEM-001": AttrDict({"name": "ITEM-001", "stock_uom": "Nos"})},
+            uom_map={"ITEM-001": [{"uom": "Box", "conversion_factor": 10}]},
+            barcode_map={},
+            batch_map={},
+            serial_map={},
+            bom_map={},
+        )
+
+        row = self.module.merge_item_row(
+            {"item_code": "ITEM-001", "uom": "Box"},
+            lookup,
+            "PKR",
+            1,
+            buying_exchange_rate=280,
+        )
+
+        self.assertEqual(
+            row["_buying_prices_by_uom"]["Nos"]["base_price_list_rate"],
+            560,
+        )
+        self.assertEqual(
+            row["_buying_prices_by_uom"]["Box"]["base_price_list_rate"],
+            5040,
+        )
+
     def test_fetch_barcodes_includes_standard_uom_field(self):
         calls = []
 

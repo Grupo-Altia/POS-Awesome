@@ -1180,6 +1180,8 @@ export function saveItemDetailsCache(profileName, priceList, items) {
 		try {
 			cleanItems = items.map((it) => ({
 				item_code: it.item_code,
+				stock_uom: it.stock_uom,
+				conversion_factor: it.conversion_factor,
 				actual_qty: it.actual_qty,
 				serial_no_data: it.serial_no_data,
 				batch_no_data: it.batch_no_data,
@@ -1188,6 +1190,11 @@ export function saveItemDetailsCache(profileName, priceList, items) {
 				item_uoms: it.item_uoms,
 				rate: it.rate,
 				price_list_rate: it.price_list_rate,
+				trade_price: it.trade_price,
+				buying_rate: it.buying_rate,
+				buying_price_list: it.buying_price_list,
+				buying_price_currency: it.buying_price_currency,
+				_buying_prices_by_uom: it._buying_prices_by_uom,
 			}));
 			cleanItems = JSON.parse(JSON.stringify(cleanItems));
 		} catch (err) {
@@ -1207,6 +1214,109 @@ export function saveItemDetailsCache(profileName, priceList, items) {
 	} catch (e) {
 		console.error("Failed to cache item details", e);
 	}
+}
+
+async function attachOfflineBuyingFloors(profileName: string, items: any[]) {
+	if (!profileName || !items.length) return items;
+	const profile = await db.table("pos_profiles").get(profileName);
+	const buyingPriceList = String(profile?.buying_price_list || "").trim();
+	if (!buyingPriceList) return items;
+
+	const itemCodes = new Set(items.map((item) => String(item?.item_code || "")));
+	const today = new Date().toISOString().slice(0, 10);
+	const priceRows = await db
+		.table("item_price_records")
+		.where("price_list")
+		.equals(buyingPriceList)
+		.filter(
+			(row) =>
+				itemCodes.has(String(row?.item_code || "")) &&
+				!row?.customer &&
+				!row?.supplier &&
+				(!row?.valid_from || String(row.valid_from).slice(0, 10) <= today) &&
+				(!row?.valid_upto || String(row.valid_upto).slice(0, 10) >= today),
+		)
+		.toArray();
+	if (!priceRows.length) return items;
+
+	const companyCurrency = String(
+		profile?.company_currency || profile?.currency || "",
+	);
+	const currencyRates = new Map<string, number>();
+	const toCompanyRate = async (currency: string) => {
+		if (!currency || !companyCurrency || currency === companyCurrency) return 1;
+		if (currencyRates.has(currency)) return currencyRates.get(currency) || 0;
+		const rows = await db
+			.table("currency_rate_records")
+			.where("[profile_name+company+from_currency+to_currency]")
+			.equals([
+				profileName,
+				String(profile?.company || ""),
+				currency,
+				companyCurrency,
+			])
+			.toArray();
+		const selected = rows
+			.filter((row) => !row?.date || String(row.date).slice(0, 10) <= today)
+			.sort((left, right) =>
+				String(right?.date || right?.modified || "").localeCompare(
+					String(left?.date || left?.modified || ""),
+				),
+			)[0];
+		const rate = Number(selected?.exchange_rate || 0);
+		currencyRates.set(currency, Number.isFinite(rate) ? rate : 0);
+		return currencyRates.get(currency) || 0;
+	};
+
+	const rowsByItem = new Map<string, any[]>();
+	for (const row of priceRows) {
+		const itemCode = String(row.item_code || "");
+		const rows = rowsByItem.get(itemCode) || [];
+		rows.push(row);
+		rowsByItem.set(itemCode, rows);
+	}
+
+	for (const item of items) {
+		const buyingRows = rowsByItem.get(String(item?.item_code || "")) || [];
+		buyingRows.sort((left, right) =>
+			String(right?.valid_from || right?.modified || "").localeCompare(
+				String(left?.valid_from || left?.modified || ""),
+			),
+		);
+		const pricesByUom: Record<string, any> = {};
+		for (const row of buyingRows) {
+			const uom = String(row?.uom || "");
+			if (pricesByUom[uom]) continue;
+			const rate = Number(row?.price_list_rate || 0);
+			const exchangeRate = await toCompanyRate(String(row?.currency || ""));
+			if (!Number.isFinite(rate) || rate <= 0 || exchangeRate <= 0) continue;
+			pricesByUom[uom] = {
+				price_list_rate: rate,
+				base_price_list_rate: rate * exchangeRate,
+				currency: row?.currency || companyCurrency,
+				price_list: buyingPriceList,
+			};
+		}
+		if (Object.keys(pricesByUom).length) {
+			item._buying_prices_by_uom = pricesByUom;
+			item.buying_price_list = buyingPriceList;
+		}
+	}
+	return items;
+}
+
+export async function setProfileBuyingPriceList(
+	profile: any,
+	buyingPriceList: string | null | undefined,
+) {
+	if (!profile?.name || !buyingPriceList) return;
+	await checkDbHealth();
+	if (!db.isOpen()) await db.open();
+	const current = (await db.table("pos_profiles").get(profile.name)) || profile;
+	await db.table("pos_profiles").put({
+		...current,
+		buying_price_list: buyingPriceList,
+	});
 }
 
 /**
@@ -1259,6 +1369,7 @@ export async function getCachedItemDetails(
 				const base = map.get(det.item_code) || {};
 				cached[idx] = { ...base, ...det };
 			});
+			await attachOfflineBuyingFloors(profileName, cached);
 		}
 
 		return { cached, missing };

@@ -7,6 +7,9 @@ export type OfflineItemPriceRecord = {
 	uom?: string | null;
 	currency?: string | null;
 	customer?: string | null;
+	supplier?: string | null;
+	buying?: number | boolean | null;
+	selling?: number | boolean | null;
 	price_list_rate?: number | null;
 	valid_from?: string | null;
 	valid_upto?: string | null;
