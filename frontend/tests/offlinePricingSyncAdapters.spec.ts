@@ -17,6 +17,7 @@ const repositoryMocks = vi.hoisted(() => ({
 
 const cacheMocks = vi.hoisted(() => ({
 	savePricingRulesSnapshot: vi.fn(),
+	setProfileBuyingPriceList: vi.fn().mockResolvedValue(undefined),
 }));
 
 const commonMocks = vi.hoisted(() => ({
@@ -65,7 +66,10 @@ describe("offline pricing sync adapters", () => {
 				has_more: true,
 				next_offset: 1,
 				next_watermark: null,
-				scope: { price_lists: ["Retail", "Export"] },
+				scope: {
+					price_lists: ["Retail", "Export", "Standard Buying"],
+					buying_price_list: "Standard Buying",
+				},
 			})
 			.mockResolvedValueOnce({
 				changes: [
@@ -95,7 +99,11 @@ describe("offline pricing sync adapters", () => {
 		).toHaveBeenCalledWith(["IP-OLD"]);
 		expect(
 			repositoryMocks.itemPriceRepository.deleteOutsidePriceLists,
-		).toHaveBeenCalledWith(["Retail", "Export"]);
+		).toHaveBeenCalledWith(["Retail", "Export", "Standard Buying"]);
+		expect(cacheMocks.setProfileBuyingPriceList).toHaveBeenCalledWith(
+			expect.objectContaining({ name: "POS-1" }),
+			"Standard Buying",
+		);
 		expect(fetcher).toHaveBeenNthCalledWith(
 			2,
 			expect.objectContaining({ offset: 1, watermark: null }),

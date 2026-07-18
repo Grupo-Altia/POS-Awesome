@@ -20,6 +20,12 @@ export interface LoadingState {
 let sourceCount = 0;
 let completedSum = 0;
 let isCompleting = false;
+const sourceReleaseTimers = new Map<string, ReturnType<typeof setTimeout>>();
+
+function clearAllSourceReleaseTimers(): void {
+	sourceReleaseTimers.forEach((timer) => clearTimeout(timer));
+	sourceReleaseTimers.clear();
+}
 
 /**
  * Reactive loading state used by the UI.
@@ -42,6 +48,7 @@ export const loadingState = reactive<LoadingState>({
  */
 export function initLoadingSources(list: string[]): void {
 	// Reset state
+	clearAllSourceReleaseTimers();
 	loadingState.sources = {};
 	sourceCount = list.length;
 	completedSum = 0;
@@ -184,13 +191,55 @@ function completeLoading(): void {
  * Marks a specific source as 100% loaded.
  */
 export function markSourceLoaded(name: string): void {
+	clearSourceRelease(name);
 	setSourceProgress(name, 100);
+}
+
+/**
+ * Stops a slow, non-critical source from holding the startup progress surface
+ * forever. The underlying load continues and remains authoritative.
+ */
+export function scheduleSourceRelease(
+	name: string,
+	timeoutMs: number,
+	onRelease?: () => void,
+): void {
+	clearSourceRelease(name);
+	if (!(name in loadingState.sources)) return;
+
+	const timer = setTimeout(
+		() => {
+			sourceReleaseTimers.delete(name);
+			if (
+				!(name in loadingState.sources) ||
+				(loadingState.sources[name] ?? 0) >= 100
+			) {
+				return;
+			}
+			try {
+				onRelease?.();
+			} finally {
+				setSourceProgress(name, 100);
+			}
+		},
+		Math.max(1, Number(timeoutMs) || 1),
+	);
+	sourceReleaseTimers.set(name, timer);
+}
+
+export function clearSourceRelease(name: string): void {
+	const timer = sourceReleaseTimers.get(name);
+	if (timer) {
+		clearTimeout(timer);
+		sourceReleaseTimers.delete(name);
+	}
 }
 
 /**
  * Manually resets the loading state.
  */
 export function resetLoadingState(): void {
+	clearAllSourceReleaseTimers();
 	loadingState.active = false;
 	loadingState.progress = 0;
 	loadingState.message = __("Loading app data...");

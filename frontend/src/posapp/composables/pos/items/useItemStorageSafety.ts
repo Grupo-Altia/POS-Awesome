@@ -11,29 +11,54 @@ declare const frappe: any;
  * Ensuring storage is available before attempting heavy operations prevents crashes.
  */
 export function useItemStorageSafety() {
+	const STORAGE_RECHECK_COOLDOWN_MS = 5 * 1000;
 	// State
 	const storageAvailable = ref(true);
 	const itemWorker = ref<Worker | null>(null);
+	let lastFailedHealthCheckAt = 0;
 
 	/**
 	 * Checks if the database is healthy and actionable.
 	 * @returns {Promise<boolean>}
 	 */
 	async function ensureStorageHealth() {
-		// If we already know storage is broken, don't keep checking unless we want to implement retry logic.
-		// For now, we assume if it failed once, it's safer to degrade gracefully.
-		if (!storageAvailable.value) return false;
+		if (!storageAvailable.value) {
+			const now = Date.now();
+			if (now - lastFailedHealthCheckAt < STORAGE_RECHECK_COOLDOWN_MS) {
+				return false;
+			}
+		}
 
 		const isHealthy = await checkDbHealth();
+		if (isHealthy) {
+			if (!storageAvailable.value) {
+				markStorageAvailable();
+			}
+			return true;
+		}
+
+		lastFailedHealthCheckAt = Date.now();
 		if (!isHealthy) {
 			console.warn("Storage health check failed");
 			markStorageUnavailable({
 				error: "Storage health check failed",
 				details: "Database could not be accessed or recovered.",
 			});
-			return false;
 		}
-		return true;
+		return false;
+	}
+
+	function markStorageAvailable() {
+		storageAvailable.value = true;
+		lastFailedHealthCheckAt = 0;
+		startItemWorker();
+
+		if (window.frappe) {
+			frappe.show_alert({
+				message: __("Local item storage recovered. Background sync resumed."),
+				indicator: "green",
+			});
+		}
 	}
 
 	/**
@@ -45,6 +70,7 @@ export function useItemStorageSafety() {
 
 		console.error("Marking storage as unavailable", args);
 		storageAvailable.value = false;
+		lastFailedHealthCheckAt = Date.now();
 
 		// Terminate worker to prevent it from trying to access broken DB
 		if (itemWorker.value) {
@@ -127,6 +153,7 @@ export function useItemStorageSafety() {
 		// Methods
 		ensureStorageHealth,
 		markStorageUnavailable,
+		markStorageAvailable,
 		startItemWorker,
 	};
 }

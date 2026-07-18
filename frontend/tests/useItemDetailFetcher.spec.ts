@@ -104,5 +104,38 @@ describe("useItemDetailFetcher", () => {
 		expect((globalThis as any).frappe.call).toHaveBeenCalledTimes(1);
 		expect(details).toHaveLength(1);
 	});
-});
 
+	it("re-applies cart reservations after cached visible stock refreshes", async () => {
+		getCachedItemDetails.mockResolvedValue({
+			cached: [{ item_code: "ITEM-1", actual_qty: 10 }],
+			missing: [],
+		});
+		const item = { item_code: "ITEM-1", actual_qty: 8 };
+		const itemAvailability = {
+			captureBaseAvailability: vi.fn(),
+			applyReservationToItem: vi.fn((target: any) => {
+				target.actual_qty = 8;
+			}),
+		};
+		const fetcher = useItemDetailFetcher();
+		fetcher.registerContext({
+			pos_profile: { name: "POS-TEST" },
+			active_price_list: "Standard Selling",
+			itemAvailability,
+			displayedItems: [item],
+			usesLimitSearch: false,
+			storageAvailable: false,
+		});
+
+		await fetcher.refreshPricesForVisibleItems();
+
+		expect(itemAvailability.captureBaseAvailability).toHaveBeenCalledWith(
+			item,
+			10,
+		);
+		expect(itemAvailability.applyReservationToItem).toHaveBeenCalledWith(
+			item,
+		);
+		expect(item.actual_qty).toBe(8);
+	});
+});

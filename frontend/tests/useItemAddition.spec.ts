@@ -216,6 +216,30 @@ describe("useItemAddition new line behavior", () => {
 		expect(invoiceStore.recalculateTotals).toHaveBeenCalled();
 	});
 
+	it("merges an unresolved batch click into the existing batched row", async () => {
+		const api = useItemAddition();
+		const context = createContext(false) as any;
+		context.items.push({
+			...createItem(),
+			posa_row_id: "batch-row",
+			has_batch_no: 1,
+			batch_no: "B-FEFO",
+			qty: 1,
+		});
+
+		const incoming = {
+			...createItem(),
+			has_batch_no: 1,
+			batch_no: null,
+			batch_no_data: [],
+		};
+		await api.prepareItemForCart(incoming, 1, context);
+		await api.addItem(incoming, context);
+
+		expect(context.items).toHaveLength(1);
+		expect(context.items[0].qty).toBe(2);
+	});
+
 	it("keeps grouped merge quantities numeric when incoming qty is a string", () => {
 		const { groupAndAddItem } = useItemMerging() as any;
 		const items = [{ item_code: "ITEM-001", uom: "Nos", rate: 10, qty: "1", amount: 10 }];
@@ -242,6 +266,38 @@ describe("useItemAddition new line behavior", () => {
 		expect(context.items).toHaveLength(2);
 		expect(context.items[0].qty).toBe(1);
 		expect(context.items[1].qty).toBe(1);
+	});
+
+	it("appends distinct Counter Grid items in entry order", async () => {
+		const api = useItemAddition();
+		const invoiceStore = useInvoiceStore();
+		const context = {
+			...createContext(false),
+			invoiceStore,
+			appendNewItems: true,
+			currency_precision: 2,
+			flt: (value: any) => Number(value),
+		} as any;
+		Object.defineProperty(context, "items", {
+			get: () => invoiceStore.items,
+		});
+
+		const first = createItem();
+		await api.prepareItemForCart(first, 1, context);
+		await api.addItem(first, context);
+
+		const second = {
+			...createItem(),
+			item_code: "ITEM-002",
+			item_name: "Second Item",
+		};
+		await api.prepareItemForCart(second, 1, context);
+		await api.addItem(second, context);
+
+		expect(invoiceStore.items.map((item) => item.item_code)).toEqual([
+			"ITEM-001",
+			"ITEM-002",
+		]);
 	});
 
 	it("auto-selects the FEFO batch and applies its batch price on add", async () => {

@@ -118,6 +118,45 @@ class TestCustomersApi(unittest.TestCase):
         self.assertNotIn("conversion_factor", rows[0])
         self.assertEqual(self.state["loyalty_detail_calls"], 0)
 
+    def test_duplicate_customer_lookup_reports_matching_fields(self):
+        def get_all(doctype, **kwargs):
+            filters = kwargs.get("filters", {})
+            if doctype != "Customer":
+                return []
+            if filters.get("mobile_no") == "+92 300 1234567":
+                return [
+                    AttrDict(
+                        name="CUST-EXISTING",
+                        customer_name="Existing Customer",
+                        mobile_no="+92 300 1234567",
+                        email_id="existing@example.com",
+                        tax_id="TIN-1",
+                    )
+                ]
+            if filters.get("email_id") == "existing@example.com":
+                return [
+                    AttrDict(
+                        name="CUST-EXISTING",
+                        customer_name="Existing Customer",
+                        mobile_no="+92 300 1234567",
+                        email_id="existing@example.com",
+                        tax_id="TIN-1",
+                    )
+                ]
+            return []
+
+        self.module.frappe.get_all = get_all
+        matches = self.module._find_duplicate_customer_records(
+            customer_name="Different Name",
+            mobile_no="+92 300 1234567",
+            email_id="Existing@Example.com",
+            allow_duplicate_names=True,
+        )
+
+        self.assertEqual(len(matches), 1)
+        self.assertEqual(matches[0]["name"], "CUST-EXISTING")
+        self.assertEqual(matches[0]["matching_fields"], ["mobile_no", "email_id"])
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -28,8 +28,7 @@ const SCHEMA_V14 = {
 	...BASE_SCHEMA,
 	item_price_records:
 		"&name,price_list,item_code,uom,currency,customer,modified,[price_list+item_code],[price_list+item_code+uom]",
-	pricing_rule_records:
-		"&key,rule_name,target_type,target_value,modified,[target_type+target_value]",
+	pricing_rule_records: "&key,rule_name,target_type,target_value,modified,[target_type+target_value]",
 	currency_rate_records:
 		"&name,profile_name,company,from_currency,to_currency,date,modified,[profile_name+company+from_currency+to_currency]",
 };
@@ -44,11 +43,17 @@ const SCHEMA_V15 = {
 
 const SCHEMA_V16 = {
 	...SCHEMA_V15,
-	items:
-		"&item_code,item_name,item_group,profile_scope,item_code_lc,item_name_lc,*barcodes,*barcodes_lc,*name_keywords,*name_keywords_lc,*serials,*batches",
+	items: "&item_code,item_name,item_group,profile_scope,item_code_lc,item_name_lc,*barcodes,*barcodes_lc,*name_keywords,*name_keywords_lc,*serials,*batches",
 };
 
-const SCHEMA_SIGNATURE = JSON.stringify(SCHEMA_V16);
+const SCHEMA_V17 = {
+	...SCHEMA_V16,
+	item_catalog_rows:
+		"&[profile_scope+catalog_generation+item_code],[profile_scope+catalog_generation],profile_scope,catalog_generation,item_code,item_name,item_group,item_code_lc,item_name_lc,*barcodes,*barcodes_lc,*name_keywords,*name_keywords_lc,*serials,*batches",
+	item_catalog_state: "&profile_scope,active_generation,updated_at",
+};
+
+const SCHEMA_SIGNATURE = JSON.stringify(SCHEMA_V17);
 
 const normalizeSearchValue = (value) =>
 	String(value || "")
@@ -58,13 +63,7 @@ const normalizeSearchValue = (value) =>
 		.trim();
 
 const uniqueStrings = (values) =>
-	Array.from(
-		new Set(
-			values
-				.map((value) => String(value || "").trim())
-				.filter(Boolean),
-		),
-	);
+	Array.from(new Set(values.map((value) => String(value || "").trim()).filter(Boolean)));
 
 const deriveItemSearchFields = (it) => {
 	const barcodes = uniqueStrings([
@@ -74,14 +73,10 @@ const deriveItemSearchFields = (it) => {
 				? [String(it.item_barcode)]
 				: []),
 		...(Array.isArray(it.barcodes)
-			? it.barcodes.map((entry) =>
-					entry && typeof entry === "object" ? entry.barcode : entry,
-				)
+			? it.barcodes.map((entry) => (entry && typeof entry === "object" ? entry.barcode : entry))
 			: []),
 	]);
-	const nameKeywords = uniqueStrings(
-		it.item_name ? normalizeSearchValue(it.item_name).split(/\s+/) : [],
-	);
+	const nameKeywords = uniqueStrings(it.item_name ? normalizeSearchValue(it.item_name).split(/\s+/) : []);
 	const itemCodeLc = normalizeSearchValue(it.item_code);
 	const itemNameLc = normalizeSearchValue(it.item_name);
 	const barcodesLc = barcodes.map(normalizeSearchValue).filter(Boolean);
@@ -94,14 +89,7 @@ const deriveItemSearchFields = (it) => {
 		item_name_lc: itemNameLc,
 		barcodes_lc: barcodesLc,
 		name_keywords_lc: nameKeywordsLc,
-		search_text: [
-			itemCodeLc,
-			itemNameLc,
-			...barcodesLc,
-			...nameKeywordsLc,
-		]
-			.filter(Boolean)
-			.join(" "),
+		search_text: [itemCodeLc, itemNameLc, ...barcodesLc, ...nameKeywordsLc].filter(Boolean).join(" "),
 	};
 };
 
@@ -241,6 +229,14 @@ const dbReady = (async () => {
 	db.version(14).stores(SCHEMA_V14);
 	db.version(15).stores(SCHEMA_V15);
 	db.version(16).stores(SCHEMA_V16);
+	db.version(17)
+		.stores(SCHEMA_V17)
+		.upgrade((tx) =>
+			tx.table("settings").put({
+				key: "schema_signature",
+				value: SCHEMA_SIGNATURE,
+			}),
+		);
 	try {
 		await db.open();
 	} catch (err) {
@@ -306,10 +302,7 @@ async function safeBulkPut(tableName, rows) {
 			await table.bulkPut(rows);
 		});
 	} catch (error) {
-		console.warn(
-			`Worker bulkPut failed for ${tableName}; retrying row-by-row`,
-			error,
-		);
+		console.warn(`Worker bulkPut failed for ${tableName}; retrying row-by-row`, error);
 		await db.transaction("rw", table, async () => {
 			for (const row of rows) {
 				await table.put(row);
@@ -335,9 +328,7 @@ async function persistBatch(entries) {
 	}
 
 	await Promise.all(
-		Array.from(rowsByTable.entries()).map(([tableName, rows]) =>
-			safeBulkPut(tableName, rows),
-		),
+		Array.from(rowsByTable.entries()).map(([tableName, rows]) => safeBulkPut(tableName, rows)),
 	);
 }
 
@@ -451,9 +442,7 @@ self.onmessage = async (event) => {
 		}
 	} else if (data.type === "persist_batch") {
 		try {
-			const operation = persistBatchChain.then(() =>
-				persistBatch(data.entries),
-			);
+			const operation = persistBatchChain.then(() => persistBatch(data.entries));
 			persistBatchChain = operation.catch(() => undefined);
 			await operation;
 			self.postMessage({

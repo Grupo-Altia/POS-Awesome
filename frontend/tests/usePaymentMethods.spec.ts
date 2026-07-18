@@ -1,5 +1,5 @@
 import { computed, ref } from "vue";
-import { describe, expect, it, vi } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { usePaymentMethods } from "../src/posapp/composables/pos/payments/usePaymentMethods";
 
@@ -11,6 +11,36 @@ vi.mock("../src/utils/smartTender", () => ({
 }));
 
 describe("usePaymentMethods", () => {
+	afterEach(() => {
+		vi.unstubAllGlobals();
+	});
+
+	it("discovers M-Pesa modes within the active POS Profile scope", () => {
+		const call = vi.fn();
+		vi.stubGlobal("frappe", { call });
+		const posProfile = ref({ name: "Main POS", company: "Test Company" });
+		const { get_mpesa_modes } = usePaymentMethods({
+			invoiceDoc: ref({ payments: [] }),
+			posProfile,
+			diffPayment: computed(() => 0),
+			stores: {
+				toastStore: { show: () => undefined },
+				uiStore: { freeze: () => undefined, unfreeze: () => undefined },
+			},
+		});
+
+		get_mpesa_modes();
+
+		expect(call).toHaveBeenCalledWith(
+			expect.objectContaining({
+				args: {
+					company: "Test Company",
+					pos_profile: "Main POS",
+				},
+			}),
+		);
+	});
+
 	it("sets the selected payment method to the post-credit outstanding amount", () => {
 		const invoiceDoc = ref<any>({
 			rounded_total: 500,

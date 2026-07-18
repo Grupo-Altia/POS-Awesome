@@ -2,6 +2,7 @@ import {
 	itemPriceRepository,
 	type OfflineItemPriceRecord,
 } from "../../repositories";
+import { setProfileBuyingPriceList } from "../../cache";
 import {
 	buildResourceSyncResult,
 	persistResourceSyncState,
@@ -58,6 +59,12 @@ export async function syncItemPricesResource(
 				response.scope.price_lists,
 			);
 			scopeApplied = true;
+		}
+		if (response?.scope?.buying_price_list) {
+			await setProfileBuyingPriceList(
+				args.posProfile,
+				String(response.scope.buying_price_list),
+			);
 		}
 
 		if (response?.full_resync_required) {

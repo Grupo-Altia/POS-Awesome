@@ -4,6 +4,8 @@ import {
 	buildCustomerSearchText,
 	customerMatchesSearchParts,
 	customerMatchesSearchTerm,
+	getCustomerDuplicateFields,
+	normalizeCustomerDuplicateValue,
 	normalizeCustomerSearchTerm,
 } from "../src/posapp/stores/customers/customerSearch";
 import type { CustomerSummary } from "../src/posapp/types/models";
@@ -51,5 +53,35 @@ describe("customer search helpers", () => {
 		expect(customerMatchesSearchParts(customer, ["jane", "tin-99"])).toBe(
 			true,
 		);
+	});
+
+	it("normalizes duplicate identifiers consistently", () => {
+		expect(
+			normalizeCustomerDuplicateValue("mobile_no", "+92 300-123 4567"),
+		).toBe("923001234567");
+		expect(
+			normalizeCustomerDuplicateValue("email_id", " User@Example.COM "),
+		).toBe("user@example.com");
+		expect(normalizeCustomerDuplicateValue("tax_id", " TAX  99 ")).toBe(
+			"tax99",
+		);
+	});
+
+	it("detects duplicate customer identifiers without requiring the same formatting", () => {
+		const customer: CustomerSummary = {
+			name: "CUST-001",
+			customer_name: "Jane Doe",
+			mobile_no: "+92 300-1234567",
+			email_id: "jane@example.com",
+			tax_id: "TIN 99",
+		};
+
+		expect(
+			getCustomerDuplicateFields(customer, {
+				customer_name: "Different Name",
+				mobile_no: "923001234567",
+				tax_id: "tin99",
+			}),
+		).toEqual(["mobile_no", "tax_id"]);
 	});
 });

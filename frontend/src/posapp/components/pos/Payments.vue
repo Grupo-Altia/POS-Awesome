@@ -3,6 +3,7 @@
 	<div
 		ref="paymentRoot"
 		data-pos-keyboard-root="payment"
+		data-testid="payment-root"
 		:class="['payment-shell', { 'payment-shell--dialog': dialogMode }]"
 	>
 		<v-card
@@ -17,6 +18,7 @@
 				absolute
 				location="top"
 				color="info"
+				:aria-label="__('Loading payment details')"
 			></v-progress-linear>
 			<div ref="paymentContainer" class="overflow-y-auto payment-scroll">
 				<div :class="['payment-sections', { 'payment-sections--dialog': dialogMode }]">
@@ -64,6 +66,7 @@
 							:isCashLikePayment="isCashLikePayment"
 							:isMpesaC2bPayment="is_mpesa_c2b_payment"
 							:isGiftCardPayment="isGiftCardPayment"
+							:show-keyboard-shortcuts="counterGridMode"
 							@update-amount="handlePaymentAmountChange"
 							@set-full-amount="set_full_amount"
 							@set-denomination="setPaymentToDenomination"
@@ -243,6 +246,7 @@
 				:validatePayment="validatePayment"
 				:highlightSubmit="highlightSubmit"
 				:compact="dialogMode"
+				:show-keyboard-shortcuts="counterGridMode"
 				@submit="submit"
 				@submit-and-print="submit(undefined, false, true)"
 				@cancel="back_to_invoice"
@@ -279,6 +283,16 @@
 			@issue-card="issueGiftCard"
 			@top-up-card="topUpGiftCard"
 		/>
+		<BelowCostOverrideDialog
+			v-model="belowCostOverrideDialogOpen"
+			:risks="belowCostOverrideRisks"
+			:reason="belowCostOverrideReason"
+			:cashier-name="currentCashier?.full_name || currentCashier?.user || ''"
+			:format-float="(value) => formatFloat(value, currency_precision)"
+			@update:reason="belowCostOverrideReason = $event"
+			@approve="approveBelowCostOverride"
+			@cancel="cancelBelowCostOverride"
+		/>
 	</div>
 </template>
 
@@ -310,6 +324,7 @@ import {
 	saveGiftCardSnapshot,
 } from "../../../offline/index";
 import GiftCardDialog from "./wallet/GiftCardDialog.vue";
+import BelowCostOverrideDialog from "./payments/BelowCostOverrideDialog.vue";
 import {
 	applyPreferredPaymentAmount,
 	initializePaymentLinesForDialog,
@@ -323,6 +338,7 @@ import { resolvePaymentPrintFormat } from "../../utils/paymentPrintFormat";
 import { parseBooleanSetting } from "../../utils/stock";
 import { toCompanyCurrency } from "../../utils/erpnextCurrency";
 import { focusFirstKeyboardTarget } from "../../utils/keyboardNavigation";
+import { resolveCounterGridPaymentShortcut } from "../../utils/counterGridPaymentShortcuts";
 
 // Components
 import PaymentSummary from "./payments/PaymentSummary.vue";
@@ -338,8 +354,12 @@ import PaymentOptions from "./payments/PaymentOptions.vue";
 import PaymentSelectionFields from "./payments/PaymentSelectionFields.vue";
 import PaymentDialogs from "./payments/PaymentDialogs.vue";
 
-defineProps({
+const props = defineProps({
 	dialogMode: {
+		type: Boolean,
+		default: false,
+	},
+	counterGridMode: {
 		type: Boolean,
 		default: false,
 	},
@@ -416,12 +436,56 @@ const giftCardLoading = ref(false);
 const giftCardMode = ref("redeem");
 const giftCardError = ref("");
 const giftCardRedemptions = ref([]);
+const belowCostOverrideDialogOpen = ref(false);
+const belowCostOverrideRisks = ref([]);
+const belowCostOverrideReason = ref("");
+let belowCostOverrideResolver = null;
 
 // Computed Properties
 const invoice_doc = computed({
 	get: () => invoiceStore.invoiceDoc || {},
 	set: (value) => invoiceStore.setInvoiceDoc(value),
 });
+
+const resolveBelowCostOverride = (result) => {
+	const resolver = belowCostOverrideResolver;
+	belowCostOverrideResolver = null;
+	belowCostOverrideDialogOpen.value = false;
+	if (resolver) resolver(result);
+};
+
+const requestBelowCostOverride = async (risks) => {
+	if (isOffline()) {
+		toastStore.show({
+			title: __("POS supervisor overrides require an online server connection."),
+			color: "error",
+		});
+		return { approved: false };
+	}
+	if (!currentCashier.value?.can_override_below_cost) {
+		toastStore.show({
+			title: __("Switch to a POS supervisor to approve this sale."),
+			color: "error",
+		});
+		return { approved: false };
+	}
+	belowCostOverrideRisks.value = Array.isArray(risks) ? risks : [];
+	belowCostOverrideReason.value = "";
+	belowCostOverrideDialogOpen.value = true;
+	return await new Promise((resolve) => {
+		belowCostOverrideResolver = resolve;
+	});
+};
+
+const approveBelowCostOverride = () => {
+	const reason = String(belowCostOverrideReason.value || "").trim();
+	if (!reason) return;
+	resolveBelowCostOverride({ approved: true, reason });
+};
+
+const cancelBelowCostOverride = () => {
+	resolveBelowCostOverride({ approved: false });
+};
 
 const paymentItemDiscountTotal = computed(() => {
 	const items = Array.isArray(invoice_doc.value?.items) ? invoice_doc.value.items : [];
@@ -693,6 +757,7 @@ const { ensureReturnPaymentsAreNegative, restoreReturnPayments, validateSubmissi
 			invoiceStore,
 		},
 		currencyPrecision: currency_precision,
+		requestBelowCostOverride,
 	});
 
 const isGiftCardPayment = (payment) => {
@@ -711,9 +776,7 @@ const visiblePaymentMethods = computed(() =>
 	),
 );
 
-const creditSaleAllowed = computed(() =>
-	parseBooleanSetting(pos_profile.value?.posa_allow_credit_sale),
-);
+const creditSaleAllowed = computed(() => parseBooleanSetting(pos_profile.value?.posa_allow_credit_sale));
 
 const giftCardAppliedAmount = computed(() =>
 	(Array.isArray(giftCardRedemptions.value) ? giftCardRedemptions.value : []).reduce(
@@ -1720,6 +1783,34 @@ const handlePaymentShortcut = (event) => {
 	if (event.repeat) return;
 	if (!paymentVisible.value) return;
 
+	if (props.counterGridMode) {
+		const counterShortcut = resolveCounterGridPaymentShortcut(event, visiblePaymentMethods.value.length);
+		if (counterShortcut) {
+			event.preventDefault();
+			event.stopPropagation();
+			if (counterShortcut.type === "submit") {
+				submit(null, false, counterShortcut.print);
+				return;
+			}
+
+			const payment = visiblePaymentMethods.value[counterShortcut.index];
+			if (!payment) return;
+			if (is_mpesa_c2b_payment(payment)) {
+				mpesa_c2b_dialog(payment);
+				return;
+			}
+			set_full_amount(payment, Boolean(invoice_doc.value?.is_return));
+			nextTick(() => {
+				const card = paymentRoot.value?.querySelector?.(
+					`[data-payment-shortcut-index="${counterShortcut.index + 1}"]`,
+				);
+				const target = card?.querySelector?.("input, button");
+				target?.focus?.();
+			});
+			return;
+		}
+	}
+
 	const isAltOnly = event.altKey && !event.ctrlKey && !event.metaKey;
 	const key = event.key.toLowerCase();
 
@@ -1747,11 +1838,7 @@ const handleSubmitPaymentShortcut = ({ print = false, amount = null } = {}) => {
 
 	if (amount !== null) {
 		const shortcutAmount = Number(amount);
-		if (
-			!invoice_doc.value?.is_return &&
-			Number.isFinite(shortcutAmount) &&
-			shortcutAmount === 0
-		) {
+		if (!invoice_doc.value?.is_return && Number.isFinite(shortcutAmount) && shortcutAmount === 0) {
 			if (!enableShortcutCreditSale()) {
 				return;
 			}
@@ -2012,6 +2099,9 @@ watch(isPaymentOpen, (isOpen) => {
 		ensurePaymentLinesInitialized();
 		handleShowPayment();
 	} else {
+		if (belowCostOverrideResolver) {
+			resolveBelowCostOverride({ approved: false });
+		}
 		releaseActiveFocus();
 		paymentVisible.value = false;
 		highlightSubmit.value = false;
@@ -2146,6 +2236,7 @@ onMounted(() => {
 });
 
 onBeforeUnmount(() => {
+	resolveBelowCostOverride({ approved: false });
 	eventBus.off("send_invoice_doc_payment");
 	eventBus.off("register_pos_profile");
 	eventBus.off("add_the_new_address");
@@ -2307,6 +2398,12 @@ defineExpose({
 	border-radius: var(--pos-radius-sm);
 }
 
+:deep(.payment-section .v-label),
+:deep(.payment-section .v-field-label) {
+	color: var(--pos-text-secondary) !important;
+	opacity: 1;
+}
+
 .payment-footer {
 	flex: 0 0 auto;
 	position: sticky;
@@ -2366,6 +2463,13 @@ defineExpose({
 
 :deep(.payment-shell--dialog .payment-section .v-label) {
 	font-size: 0.78rem;
+	color: var(--pos-text-secondary) !important;
+	opacity: 1;
+}
+
+:deep(.payment-shell--dialog .payment-section .v-field-label) {
+	color: var(--pos-text-secondary) !important;
+	opacity: 1;
 }
 
 :deep(.payment-shell--dialog .payment-section .v-input) {
@@ -2379,6 +2483,8 @@ defineExpose({
 
 :deep(.payment-shell--dialog .v-switch .v-label) {
 	font-size: 0.82rem;
+	color: var(--pos-text-secondary) !important;
+	opacity: 1;
 }
 
 .submit-highlight {

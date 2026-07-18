@@ -25,6 +25,69 @@ def _assert_customer_write_allowed(pos_profile_doc=None, company=None):
     return assert_pos_profile_write_allowed(pos_profile_doc, company=company)
 
 
+def _find_duplicate_customer_records(
+    customer_name=None,
+    mobile_no=None,
+    email_id=None,
+    tax_id=None,
+    exclude_customer=None,
+    allow_duplicate_names=False,
+):
+    """Return exact duplicate candidates without loading the full customer table."""
+    checks = []
+    if customer_name and not allow_duplicate_names:
+        checks.append(("customer_name", str(customer_name).strip()))
+    if mobile_no:
+        checks.append(("mobile_no", str(mobile_no).strip()))
+    if email_id:
+        checks.append(("email_id", str(email_id).strip().lower()))
+    if tax_id:
+        checks.append(("tax_id", str(tax_id).strip()))
+
+    matches = {}
+    for fieldname, value in checks:
+        if not value:
+            continue
+        filters = {fieldname: value, "disabled": 0}
+        if exclude_customer:
+            filters["name"] = ["!=", exclude_customer]
+        for customer in frappe.get_all(
+            "Customer",
+            filters=filters,
+            fields=["name", "customer_name", "mobile_no", "email_id", "tax_id"],
+            limit_page_length=5,
+        ):
+            customer_name_key = customer.get("name")
+            if not customer_name_key:
+                continue
+            match = matches.setdefault(customer_name_key, dict(customer, matching_fields=[]))
+            match["matching_fields"].append(fieldname)
+
+    return list(matches.values())
+
+
+@frappe.whitelist()
+def find_duplicate_customers(
+    customer_name,
+    company,
+    pos_profile_doc,
+    mobile_no=None,
+    email_id=None,
+    tax_id=None,
+    customer_id=None,
+):
+    pos_profile_doc_obj = _assert_customer_write_allowed(pos_profile_doc, company=company)
+    pos_profile = pos_profile_doc_obj.as_dict() if pos_profile_doc_obj else {}
+    return _find_duplicate_customer_records(
+        customer_name=customer_name,
+        mobile_no=mobile_no,
+        email_id=email_id,
+        tax_id=tax_id,
+        exclude_customer=customer_id,
+        allow_duplicate_names=bool(pos_profile.get("posa_allow_duplicate_customer_names")),
+    )
+
+
 def get_customer_groups(pos_profile):
     customer_groups = []
     if pos_profile.get("customer_groups"):
@@ -299,8 +362,21 @@ def create_customer(
             frappe.log_error(f"Error formatting birthday: {birthday}", "POS Awesome")
 
     if method == "create":
-        is_exist = frappe.db.exists("Customer", {"customer_name": customer_name})
-        if pos_profile.get("posa_allow_duplicate_customer_names") or not is_exist:
+        duplicate_customers = _find_duplicate_customer_records(
+            customer_name=customer_name,
+            mobile_no=mobile_no,
+            email_id=email_id,
+            tax_id=tax_id,
+            allow_duplicate_names=bool(pos_profile.get("posa_allow_duplicate_customer_names")),
+        )
+        if duplicate_customers:
+            existing = duplicate_customers[0]
+            frappe.throw(
+                _("Customer already exists: {0}").format(
+                    existing.get("customer_name") or existing.get("name")
+                )
+            )
+        else:
             customer = frappe.get_doc(
                 {
                     "doctype": "Customer",
@@ -343,9 +419,6 @@ def create_customer(
                 make_address(json.dumps(args))
 
             return customer
-        else:
-            frappe.throw(_("Customer already exists"))
-
     elif method == "update":
         customer_doc = frappe.get_doc("Customer", customer_id)
         customer_doc.customer_name = customer_name

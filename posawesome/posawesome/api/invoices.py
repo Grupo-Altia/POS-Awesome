@@ -41,6 +41,12 @@ from posawesome.posawesome.api.invoice_processing.returns import (
 from posawesome.posawesome.api.invoice_processing.payment import _create_change_payment_entries
 from posawesome.posawesome.api.invoice_processing.data import get_last_invoice_rates
 from posawesome.posawesome.api.utils import log_perf_event
+from posawesome.posawesome.api.submitted_invoice_edits import (
+    get_submitted_invoice_for_edit,
+    list_submitted_invoices,
+    preview_submitted_invoice_edit,
+    submit_submitted_invoice_edit,
+)
 
 
 @frappe.whitelist()
@@ -76,21 +82,25 @@ def get_draft_invoices(
     if frappe.db.has_column(doctype, "posa_is_printed"):
         filters["posa_is_printed"] = 0
 
+    fields = [
+        "name",
+        "customer",
+        "customer_name",
+        "posting_date",
+        "posting_time",
+        "grand_total",
+        "currency",
+        "pos_profile",
+        "owner",
+        "modified_by",
+    ]
+    if frappe.db.has_column(doctype, "posa_cashier"):
+        fields.append("posa_cashier")
+
     invoices_list = frappe.get_list(
         doctype,
         filters=filters,
-        fields=[
-            "name",
-            "customer",
-            "customer_name",
-            "posting_date",
-            "posting_time",
-            "grand_total",
-            "currency",
-            "pos_profile",
-            "owner",
-            "modified_by",
-        ],
+        fields=fields,
         limit_page_length=limit_page_length,
         order_by="modified desc",
     )

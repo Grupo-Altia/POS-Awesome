@@ -5,7 +5,10 @@ import { usePaymentSubmission } from "../src/posapp/composables/pos/payments/use
 import { ApiEnvelopeError } from "../src/posapp/services/api";
 
 vi.mock("../src/offline/index", () => ({
+	enqueueInvoiceOutboxEntry: vi.fn(async () => ({})),
 	isOffline: vi.fn(() => false),
+	persistInvoiceIntentJournal: vi.fn(() => "test-request-id"),
+	removeInvoiceOutboxEntry: vi.fn(async () => 1),
 	saveOfflineInvoice: vi.fn(),
 	updateLocalStock: vi.fn(),
 }));
@@ -74,6 +77,99 @@ describe("usePaymentSubmission", () => {
 			{ mode_of_payment: "Card", amount: 0, base_amount: 0 },
 			{ mode_of_payment: "Bank", amount: 35, base_amount: 35 },
 		]);
+	});
+
+	it("blocks submission validation when a sale row is below trade price", async () => {
+		const invoiceDoc = ref<any>({
+			is_return: 0,
+			items: [
+				{
+					item_code: "02017",
+					item_name: "ARINAC FORT",
+					qty: 1,
+					rate: 10,
+					trade_price: 12.75,
+				},
+			],
+			payments: [{ mode_of_payment: "Cash", amount: 10, type: "Cash" }],
+			rounded_total: 10,
+			grand_total: 10,
+		});
+
+		const { validateSubmission } = usePaymentSubmission({
+			invoiceDoc,
+			posProfile: ref({ posa_allow_partial_payment: 0 }),
+			stockSettings: ref({}),
+			invoiceType: ref("Invoice"),
+			formatFloat: (value) => Number(value || 0),
+			stores: {
+				toastStore: { show: vi.fn() },
+			},
+			diff_payment: ref(0) as any,
+			isCashback: ref(true),
+		});
+
+		await expect(validateSubmission(true)).rejects.toThrow(
+			/below Trade Price/i,
+		);
+	});
+
+	it("allows warning-only below-cost policy and shows a warning", async () => {
+		const toastShow = vi.fn();
+		const invoiceDoc = ref<any>({
+			is_return: 0,
+			items: [{ item_code: "LOW", qty: 1, rate: 9, trade_price: 10 }],
+			payments: [{ mode_of_payment: "Cash", amount: 9, type: "Cash" }],
+			rounded_total: 9,
+			grand_total: 9,
+		});
+		const { validateSubmission } = usePaymentSubmission({
+			invoiceDoc,
+			posProfile: ref({ posa_below_cost_action: "Warning Only" }),
+			stockSettings: ref({}),
+			invoiceType: ref("Invoice"),
+			formatFloat: (value) => Number(value || 0),
+			stores: { toastStore: { show: toastShow } },
+			diff_payment: ref(0) as any,
+			isCashback: ref(true),
+		});
+
+		await expect(validateSubmission(true)).resolves.toBe(true);
+		expect(toastShow).toHaveBeenCalledWith(
+			expect.objectContaining({ color: "warning" }),
+		);
+	});
+
+	it("captures a POS supervisor override reason before submission", async () => {
+		const requestBelowCostOverride = vi.fn().mockResolvedValue({
+			approved: true,
+			reason: "Approved clearance",
+		});
+		const invoiceDoc = ref<any>({
+			is_return: 0,
+			items: [{ item_code: "LOW", qty: 1, rate: 9, trade_price: 10 }],
+			payments: [{ mode_of_payment: "Cash", amount: 9, type: "Cash" }],
+			rounded_total: 9,
+			grand_total: 9,
+		});
+		const { validateSubmission } = usePaymentSubmission({
+			invoiceDoc,
+			posProfile: ref({
+				posa_below_cost_action: "POS Supervisor Override",
+			}),
+			stockSettings: ref({}),
+			invoiceType: ref("Invoice"),
+			formatFloat: (value) => Number(value || 0),
+			requestBelowCostOverride,
+			diff_payment: ref(0) as any,
+			isCashback: ref(true),
+		});
+
+		await expect(validateSubmission(true)).resolves.toBe(true);
+		expect(invoiceDoc.value.posa_below_cost_override).toBe(1);
+		expect(invoiceDoc.value.posa_below_cost_override_reason).toBe(
+			"Approved clearance",
+		);
 	});
 
 	it("defers print and schedules background wait when invoice submission is queued", async () => {
@@ -616,15 +712,33 @@ describe("usePaymentSubmission", () => {
 		expect(submittedDoc.base_write_off_amount).toBe(2800);
 	});
 
-	it("reuses the same client request id across repeated invoice submit attempts", async () => {
+	it("reuses one identity after an ambiguous timeout and Submit & Print retry", async () => {
 		const invoiceService = (
 			await import("../src/posapp/services/invoiceService")
 		).default;
-		(invoiceService.submitInvoice as any).mockResolvedValue({
-			name: "ACC-SINV-0100",
-			doctype: "Sales Invoice",
-			docstatus: 1,
-		});
+		const offlineModule = await import("../src/offline/index");
+		(invoiceService.submitInvoice as any)
+			.mockRejectedValueOnce(
+				new ApiEnvelopeError({
+					ok: false,
+					data: null,
+					error: {
+						code: "TIMEOUT",
+						message: "Request timed out",
+						retryable: true,
+					},
+					requestId: "transport-timeout-001",
+					serverTime: null,
+				}),
+			)
+			.mockResolvedValueOnce({
+				name: "ACC-SINV-0100",
+				doctype: "Sales Invoice",
+				docstatus: 1,
+			});
+		const consoleError = vi
+			.spyOn(console, "error")
+			.mockImplementation(() => undefined);
 
 		const invoiceDoc = ref<any>({
 			name: "ACC-SINV-0100",
@@ -662,15 +776,19 @@ describe("usePaymentSubmission", () => {
 			diff_payment: ref(0),
 		});
 
-		await submitInvoice(false, {
-			onFinishNavigation: vi.fn(),
-		});
-		await submitInvoice(false, {
+		await expect(
+			submitInvoice(false, {
+				onFinishNavigation: vi.fn(),
+			}),
+		).rejects.toThrow("Request timed out");
+		await submitInvoice(true, {
 			onFinishNavigation: vi.fn(),
 		});
 
+		const firstData = (invoiceService.submitInvoice as any).mock.calls[0][0];
 		const firstSubmittedDoc = (invoiceService.submitInvoice as any).mock
 			.calls[0][1];
+		const secondData = (invoiceService.submitInvoice as any).mock.calls[1][0];
 		const secondSubmittedDoc = (invoiceService.submitInvoice as any).mock
 			.calls[1][1];
 
@@ -683,6 +801,31 @@ describe("usePaymentSubmission", () => {
 		expect(invoiceDoc.value.posa_client_request_id).toBe(
 			firstSubmittedDoc.posa_client_request_id,
 		);
+		expect(firstData).toEqual(
+			expect.objectContaining({
+				idempotency_key: firstSubmittedDoc.posa_client_request_id,
+				client_request_id: firstSubmittedDoc.posa_client_request_id,
+			}),
+		);
+		expect(secondData).toEqual(
+			expect.objectContaining({
+				idempotency_key: firstSubmittedDoc.posa_client_request_id,
+				client_request_id: firstSubmittedDoc.posa_client_request_id,
+			}),
+		);
+		expect(offlineModule.enqueueInvoiceOutboxEntry).toHaveBeenCalledTimes(2);
+		expect(offlineModule.enqueueInvoiceOutboxEntry).toHaveBeenNthCalledWith(
+			1,
+			expect.objectContaining({
+				invoice: expect.objectContaining({
+					posa_client_request_id: firstSubmittedDoc.posa_client_request_id,
+				}),
+			}),
+		);
+		expect(offlineModule.removeInvoiceOutboxEntry).toHaveBeenCalledWith(
+			firstSubmittedDoc.posa_client_request_id,
+		);
+		consoleError.mockRestore();
 	});
 
 	it("normalizes loyalty redemption fields before online submit", async () => {

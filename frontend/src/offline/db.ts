@@ -86,9 +86,16 @@ const SCHEMA_V15 = {
 
 const SCHEMA_V16 = {
 	...SCHEMA_V15,
-	items:
-		"&item_code,item_name,item_group,profile_scope,item_code_lc,item_name_lc,*barcodes,*barcodes_lc,*name_keywords,*name_keywords_lc,*serials,*batches",
+	items: "&item_code,item_name,item_group,profile_scope,item_code_lc,item_name_lc,*barcodes,*barcodes_lc,*name_keywords,*name_keywords_lc,*serials,*batches",
 };
+
+const SCHEMA_V17 = {
+	...SCHEMA_V16,
+	item_catalog_rows:
+		"&[profile_scope+catalog_generation+item_code],[profile_scope+catalog_generation],profile_scope,catalog_generation,item_code,item_name,item_group,item_code_lc,item_name_lc,*barcodes,*barcodes_lc,*name_keywords,*name_keywords_lc,*serials,*batches",
+	item_catalog_state: "&profile_scope,active_generation,updated_at",
+};
+const OFFLINE_DB_SCHEMA_SIGNATURE = JSON.stringify(SCHEMA_V17);
 
 export const KEY_TABLE_MAP: Record<string, string> = {
 	offline_invoices: "queue",
@@ -221,6 +228,8 @@ const DERIVED_OFFLINE_METADATA_KEYS = Object.freeze(["cache_version"]);
 
 const DERIVED_OFFLINE_TABLES_TO_CLEAR = Object.freeze([
 	"items",
+	"item_catalog_rows",
+	"item_catalog_state",
 	"item_prices",
 	"item_price_records",
 	"customers",
@@ -276,6 +285,14 @@ db.version(13).stores(BASE_SCHEMA);
 db.version(14).stores(SCHEMA_V14);
 db.version(15).stores(SCHEMA_V15);
 db.version(16).stores(SCHEMA_V16);
+db.version(17)
+	.stores(SCHEMA_V17)
+	.upgrade((tx) =>
+		tx.table("settings").put({
+			key: "schema_signature",
+			value: OFFLINE_DB_SCHEMA_SIGNATURE,
+		}),
+	);
 
 let persistWorker: Worker | null = null;
 if (typeof Worker !== "undefined") {
@@ -467,7 +484,9 @@ let nextPersistBatchId = 1;
 let persistWorkerHealthy = Boolean(persistWorker);
 let directPersistChain: Promise<void> = Promise.resolve();
 
-export async function hydrateMemoryKeys(keys: readonly string[]): Promise<void> {
+export async function hydrateMemoryKeys(
+	keys: readonly string[],
+): Promise<void> {
 	const uniqueKeys = Array.from(new Set(keys)).filter((key) =>
 		Object.prototype.hasOwnProperty.call(memory, key),
 	);
@@ -492,18 +511,22 @@ export async function hydrateMemoryKeys(keys: readonly string[]): Promise<void> 
 	const primaryRecords = new Map<string, PersistedValueRecord>();
 	const legacyRecords = new Map<string, PersistedValueRecord>();
 	await Promise.all([
-		...Array.from(primaryGroups.entries()).map(async ([tableName, tableKeys]) => {
-			const rows = (await db.table(tableName).bulkGet(tableKeys)) as PersistedValueRecord[];
-			tableKeys.forEach((key, index) => {
-				primaryRecords.set(key, rows[index]);
-			});
-		}),
+		...Array.from(primaryGroups.entries()).map(
+			async ([tableName, tableKeys]) => {
+				const rows = (await db
+					.table(tableName)
+					.bulkGet(tableKeys)) as PersistedValueRecord[];
+				tableKeys.forEach((key, index) => {
+					primaryRecords.set(key, rows[index]);
+				});
+			},
+		),
 		(async () => {
 			// One keyval read covers both keys owned by keyval and legacy fallback
 			// rows left behind before KEY_TABLE_MAP routed them elsewhere.
-			const rows = (await db.table("keyval").bulkGet(
-				uniqueKeys,
-			)) as PersistedValueRecord[];
+			const rows = (await db
+				.table("keyval")
+				.bulkGet(uniqueKeys)) as PersistedValueRecord[];
 			uniqueKeys.forEach((key, index) => {
 				legacyRecords.set(key, rows[index]);
 			});
@@ -552,6 +575,10 @@ function scheduleIdleTask(task: () => void) {
 	}
 }
 
+function yieldToMainThread() {
+	return new Promise<void>((resolve) => setTimeout(resolve, 0));
+}
+
 type PostHydrationTask = () => Promise<void> | void;
 const postHydrationTasks = new Set<PostHydrationTask>();
 
@@ -580,7 +607,13 @@ export const initPromise = startupInitPromise.then(
 				const remainingKeys = Object.keys(memory).filter(
 					(key) => !startupKeys.has(key),
 				);
-				void initializeMemoryKeys(remainingKeys).then(async () => {
+				const lightweightKeys = remainingKeys.filter((key) => !LARGE_KEYS.has(key));
+				const largeKeys = remainingKeys.filter((key) => LARGE_KEYS.has(key));
+				void initializeMemoryKeys(lightweightKeys).then(async () => {
+					for (const key of largeKeys) {
+						await yieldToMainThread();
+						await initializeMemoryKeys([key]);
+					}
 					await runPostHydrationTasks();
 					scheduleIdleOfflinePruning();
 					resolve();
@@ -688,7 +721,10 @@ function disablePersistWorker(error: unknown) {
 		return;
 	}
 	persistWorkerHealthy = false;
-	console.error("Persistence worker disabled; using main-thread fallback", error);
+	console.error(
+		"Persistence worker disabled; using main-thread fallback",
+		error,
+	);
 	try {
 		persistWorker?.terminate();
 	} catch {
@@ -697,10 +733,7 @@ function disablePersistWorker(error: unknown) {
 	persistWorker = null;
 }
 
-function settleWorkerBatch(
-	batchId: number,
-	error?: unknown,
-) {
+function settleWorkerBatch(batchId: number, error?: unknown) {
 	const batch = inFlightWorkerBatches.get(batchId);
 	if (!batch) {
 		return;
@@ -781,10 +814,10 @@ function dispatchPersistBatch(entries: PersistEntry[]) {
 }
 
 function drainPendingPersistEntries() {
-	const entries = Array.from(
-		pendingPersistEntries,
-		([key, value]) => ({ key, value }),
-	);
+	const entries = Array.from(pendingPersistEntries, ([key, value]) => ({
+		key,
+		value,
+	}));
 	pendingPersistEntries.clear();
 	return entries;
 }
@@ -890,14 +923,29 @@ async function pruneInvoiceOutboxRows(cutoff: number, cutoffIso: string) {
 	for (const status of ["acknowledged", "dead_letter"]) {
 		deleted += await pruneCollectionInChunks(
 			"invoice_outbox",
-			(table) => statusDateRange(table, "[status+acknowledged_at]", status, cutoffIso),
+			(table) =>
+				statusDateRange(
+					table,
+					"[status+acknowledged_at]",
+					status,
+					cutoffIso,
+				),
 			(row) =>
 				row.status === status &&
-				isOlderThan(row.acknowledged_at || row.updated_at || row.created_at, cutoff),
+				isOlderThan(
+					row.acknowledged_at || row.updated_at || row.created_at,
+					cutoff,
+				),
 		);
 		deleted += await pruneCollectionInChunks(
 			"invoice_outbox",
-			(table) => statusDateRange(table, "[status+updated_at]", status, cutoffIso),
+			(table) =>
+				statusDateRange(
+					table,
+					"[status+updated_at]",
+					status,
+					cutoffIso,
+				),
 			(row) =>
 				row.status === status &&
 				!row.acknowledged_at &&
@@ -905,7 +953,13 @@ async function pruneInvoiceOutboxRows(cutoff: number, cutoffIso: string) {
 		);
 		deleted += await pruneCollectionInChunks(
 			"invoice_outbox",
-			(table) => statusDateRange(table, "[status+created_at]", status, cutoffIso),
+			(table) =>
+				statusDateRange(
+					table,
+					"[status+created_at]",
+					status,
+					cutoffIso,
+				),
 			(row) =>
 				row.status === status &&
 				!row.acknowledged_at &&
@@ -920,14 +974,21 @@ async function pruneWriteQueueRows(cutoff: number, cutoffIso: string) {
 	const status = "synced";
 	let deleted = await pruneCollectionInChunks(
 		"write_queue",
-		(table) => statusDateRange(table, "[status+last_attempt_at]", status, cutoffIso),
+		(table) =>
+			statusDateRange(
+				table,
+				"[status+last_attempt_at]",
+				status,
+				cutoffIso,
+			),
 		(row) =>
 			row.status === status &&
 			isOlderThan(row.last_attempt_at || row.created_at, cutoff),
 	);
 	deleted += await pruneCollectionInChunks(
 		"write_queue",
-		(table) => statusDateRange(table, "[status+created_at]", status, cutoffIso),
+		(table) =>
+			statusDateRange(table, "[status+created_at]", status, cutoffIso),
 		(row) =>
 			row.status === status &&
 			!row.last_attempt_at &&
@@ -945,7 +1006,8 @@ async function pruneSyncStateRows(cutoff: number, cutoffIso: string) {
 	deleted += await pruneCollectionInChunks(
 		"sync_state",
 		(table) => table.where("key").startsWith("posa_sync_state::"),
-		(row) => !row.updated_at && isOlderThan(row.value?.lastSyncedAt, cutoff),
+		(row) =>
+			!row.updated_at && isOlderThan(row.value?.lastSyncedAt, cutoff),
 	);
 	return deleted;
 }
@@ -957,7 +1019,8 @@ async function pruneKeyvalPrefixRows(
 	return pruneCollectionInChunks(
 		"keyval",
 		(table) => table.where("key").startsWith(prefix),
-		(row) => isOlderThan(row.value?.created_at || row.value?.updated_at, cutoff),
+		(row) =>
+			isOlderThan(row.value?.created_at || row.value?.updated_at, cutoff),
 	);
 }
 
@@ -988,7 +1051,10 @@ export async function pruneOfflineStorage(
 	result.writeQueue = await pruneWriteQueueRows(cutoff, cutoffIso);
 	result.syncState = await pruneSyncStateRows(cutoff, cutoffIso);
 	result.tombstones = await pruneKeyvalPrefixRows("tombstone:", cutoff);
-	result.localTelemetry = await pruneKeyvalPrefixRows("local_telemetry:", cutoff);
+	result.localTelemetry = await pruneKeyvalPrefixRows(
+		"local_telemetry:",
+		cutoff,
+	);
 
 	return result;
 }
@@ -1240,7 +1306,11 @@ function legacyQueuePruneCutoff(
 ) {
 	return (
 		(options.now || Date.now()) -
-		(options.maxAgeDays || LEGACY_QUEUE_PRUNE_MAX_AGE_DAYS) * 24 * 60 * 60 * 1000
+		(options.maxAgeDays || LEGACY_QUEUE_PRUNE_MAX_AGE_DAYS) *
+			24 *
+			60 *
+			60 *
+			1000
 	);
 }
 

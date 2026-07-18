@@ -2,6 +2,8 @@
 	<div
 		:class="['card-item-card', { 'item-highlighted': isItemHighlighted }]"
 		data-pos-keyboard-target="item-card"
+		:data-testid="`pos-item-card-${item.item_code}`"
+		:data-item-code="item.item_code"
 		tabindex="0"
 		role="button"
 		:aria-label="`${item.item_name || item.item_code}`"

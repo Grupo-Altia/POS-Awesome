@@ -86,6 +86,76 @@ function queueBuildReconciliation(deferInitialBaseline: boolean) {
 	return buildReconciliationChain;
 }
 
+const POS_INPUT_HELPER_SELECTOR = "input, textarea";
+
+function suppressBrowserInputHelpers(root: HTMLElement | null | undefined) {
+	if (
+		!root ||
+		typeof window === "undefined" ||
+		typeof MutationObserver === "undefined"
+	) {
+		return () => {};
+	}
+
+	const normalizeInput = (element: Element | null) => {
+		if (
+			!(
+				element instanceof HTMLInputElement ||
+				element instanceof HTMLTextAreaElement
+			)
+		) {
+			return;
+		}
+		if (
+			element.type === "file" ||
+			element.dataset.posAllowBrowserHelpers === "true"
+		) {
+			return;
+		}
+		if (!element.hasAttribute("autocomplete")) {
+			element.setAttribute("autocomplete", "off");
+		}
+		element.setAttribute("autocorrect", "off");
+		element.setAttribute("autocapitalize", "off");
+		element.setAttribute("spellcheck", "false");
+		element.setAttribute("data-1p-ignore", "true");
+		element.setAttribute("data-lpignore", "true");
+		element.setAttribute("data-bwignore", "true");
+	};
+
+	const normalizeTree = (node: ParentNode | Element | null) => {
+		if (!node) return;
+		if (node instanceof Element) {
+			normalizeInput(node);
+		}
+		node.querySelectorAll?.(POS_INPUT_HELPER_SELECTOR).forEach(
+			normalizeInput,
+		);
+	};
+
+	const handleFocusIn = (event: Event) => {
+		normalizeInput(event.target as Element | null);
+	};
+
+	normalizeTree(root);
+	const observer = new MutationObserver((mutations) => {
+		mutations.forEach((mutation) => {
+			mutation.addedNodes.forEach((node) => {
+				if (node instanceof Element) {
+					normalizeTree(node);
+				}
+			});
+		});
+	});
+	observer.observe(root, { childList: true, subtree: true });
+	root.addEventListener("focusin", handleFocusIn, true);
+
+	return () => {
+		observer.disconnect();
+		root.removeEventListener("focusin", handleFocusIn, true);
+	};
+}
+
 registerPostHydrationTask(async () => {
 	await queueBuildReconciliation(false);
 });
@@ -145,12 +215,14 @@ class PosAppController {
 	router: any;
 	routerHistory: any;
 	$el: any;
+	inputHelperCleanup: (() => void) | null;
 
 	constructor(input: any) {
 		const parent = input?.parent || input;
 		this.$parent = $(document);
 		this.page = parent?.page || parent;
 		this.app = null;
+		this.inputHelperCleanup = null;
 		this.make_body();
 	}
 
@@ -195,6 +267,7 @@ class PosAppController {
 		installGlobalErrorHandlers(this.app);
 
 		this.app.mount(this.$el[0]);
+		this.inputHelperCleanup = suppressBrowserInputHelpers(this.$el[0]);
 		clearChunkRecoveryState();
 		void this.router.isReady().finally(() => {
 			scheduleChunkRecoveryStateReset();
@@ -213,6 +286,8 @@ class PosAppController {
 
 	unmount() {
 		if (this.app) {
+			this.inputHelperCleanup?.();
+			this.inputHelperCleanup = null;
 			// Clean up router to prevent global navigation interference
 			if (this.router) {
 				// Remove all route guards and listeners

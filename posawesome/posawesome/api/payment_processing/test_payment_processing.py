@@ -9,6 +9,17 @@ from unittest.mock import Mock, patch
 REPO_ROOT = pathlib.Path(__file__).resolve().parents[4]
 if str(REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(REPO_ROOT))
+_ORIGINAL_MODULES = dict(sys.modules)
+
+
+def tearDownModule():
+    managed_prefixes = ("frappe", "erpnext", "posawesome")
+    for name in list(sys.modules):
+        if name.startswith(managed_prefixes) and name not in _ORIGINAL_MODULES:
+            sys.modules.pop(name, None)
+    for name, module in _ORIGINAL_MODULES.items():
+        if name.startswith(managed_prefixes):
+            sys.modules[name] = module
 
 
 class AttrDict(dict):
@@ -52,11 +63,13 @@ def _install_framework_stubs():
 
     frappe_module._ = lambda text: text
     frappe_module._dict = lambda value: AttrDict(value)
-    frappe_module.throw = lambda message: (_ for _ in ()).throw(Exception(message))
+    frappe_module.throw = lambda message, *args, **kwargs: (_ for _ in ()).throw(Exception(message))
     frappe_module.whitelist = lambda *args, **kwargs: (lambda fn: fn)
     frappe_module.log_error = lambda *args, **kwargs: None
     frappe_module.logger = lambda: types.SimpleNamespace(info=lambda *args, **kwargs: None)
     frappe_module.msgprint = lambda *args, **kwargs: None
+    frappe_module.PermissionError = PermissionError
+    frappe_module.session = types.SimpleNamespace(user="cashier@example.com")
     frappe_module.get_cached_value = lambda *args, **kwargs: None
     frappe_module.get_list = lambda *args, **kwargs: []
     frappe_module.get_doc = lambda *args, **kwargs: None
@@ -69,6 +82,26 @@ def _install_framework_stubs():
 
     sys.modules["frappe"] = frappe_module
     sys.modules["frappe.utils"] = frappe_utils
+
+    pos_access_module = types.ModuleType("posawesome.posawesome.api.pos_access")
+    pos_access_module.get_authorized_pos_profile = lambda pos_profile=None, company=None: AttrDict(
+        {
+            "name": pos_profile or "Main POS",
+            "company": company or "Test Company",
+            "posa_use_pos_awesome_payments": 1,
+            "posa_allow_make_new_payments": 1,
+            "posa_allow_reconcile_payments": 1,
+            "posa_allow_mpesa_reconcile_payments": 1,
+            "cost_center": "Main - TC",
+        }
+    )
+    sys.modules["posawesome.posawesome.api.pos_access"] = pos_access_module
+
+    terminal_state_module = types.ModuleType("posawesome.posawesome.api.terminal_state")
+    terminal_state_module.get_active_terminal_cashier = (
+        lambda *_args, **_kwargs: "cashier@example.com"
+    )
+    sys.modules["posawesome.posawesome.api.terminal_state"] = terminal_state_module
 
     erpnext_module = types.ModuleType("erpnext")
     erpnext_module.get_default_cost_center = lambda company: "Main - TC"
@@ -117,6 +150,7 @@ def _install_framework_stubs():
     sys.modules["erpnext.controllers.accounts_controller"] = accounts_controller_module
 
     mpesa_module = types.ModuleType("posawesome.posawesome.api.m_pesa")
+    mpesa_module.get_authorized_mpesa_payment = lambda *args, **kwargs: None
     mpesa_module.submit_mpesa_payment = lambda *args, **kwargs: None
     sys.modules["posawesome.posawesome.api.m_pesa"] = mpesa_module
 
@@ -170,6 +204,529 @@ class TestPosPaymentProcessing(unittest.TestCase):
         cls.reconciliation = _load_module(
             "posawesome.posawesome.api.payment_processing.reconciliation",
             payment_processing_dir / "reconciliation.py",
+        )
+
+    def setUp(self):
+        self.real_authorize_payment_request = self.processor._authorize_payment_request
+
+        def authorize_legacy_fixture(data):
+            profile = AttrDict(dict(data.get("pos_profile") or {}))
+            profile["name"] = data.get("pos_profile_name") or "Main POS"
+            profile["company"] = data.get("company") or "Test Company"
+            data.pos_profile = profile
+            data.pos_profile_name = profile["name"]
+            data.company = profile["company"]
+            return profile, "cashier@example.com"
+
+        self.authorization_patcher = patch.object(
+            self.processor,
+            "_authorize_payment_request",
+            side_effect=authorize_legacy_fixture,
+        )
+        self.authorization_patcher.start()
+        self.addCleanup(self.authorization_patcher.stop)
+
+    def _payment_request_data(self, **overrides):
+        data = AttrDict(
+            {
+                "pos_profile_name": "Main POS",
+                "pos_profile": {"name": "Main POS"},
+                "company": "Test Company",
+                "pos_opening_shift_name": "POS-OPEN-0001",
+            }
+        )
+        data.update(overrides)
+        return data
+
+    def test_supplier_payment_reconciliation_row_uses_payable_direction(self):
+        row = self.processor._build_payment_reconciliation_row(
+            AttrDict(
+                paid_from="Bank - TC",
+                paid_to="Creditors - TC",
+                cost_center="Main - TC",
+            ),
+            "ACC-PAY-SUP-0001",
+            {
+                "name": "PINV-0001",
+                "voucher_type": "Purchase Invoice",
+                "due_date": "2026-07-31",
+            },
+            "Supplier",
+            "SUPP-0001",
+            200,
+            125,
+            300,
+        )
+
+        self.assertEqual(row["against_voucher_type"], "Purchase Invoice")
+        self.assertEqual(row["against_voucher"], "PINV-0001")
+        self.assertEqual(row["account"], "Creditors - TC")
+        self.assertEqual(row["party_type"], "Supplier")
+        self.assertEqual(row["party"], "SUPP-0001")
+        self.assertEqual(row["dr_or_cr"], "debit_in_account_currency")
+        self.assertEqual(row["allocated_amount"], 125)
+
+    def test_selected_mpesa_reference_is_reloaded_and_normalized_from_server(self):
+        profile = AttrDict(
+            name="Main POS",
+            company="Test Company",
+        )
+        register = AttrDict(
+            name="MPRE-0001",
+            transamount=150,
+            company="Test Company",
+            mode_of_payment="M-Pesa",
+        )
+        authorize = Mock(return_value=register)
+        original_authorize = self.processor.get_authorized_mpesa_payment
+        self.processor.get_authorized_mpesa_payment = authorize
+        self.addCleanup(
+            setattr,
+            self.processor,
+            "get_authorized_mpesa_payment",
+            original_authorize,
+        )
+
+        rows = self.processor._load_authorized_mpesa_payments(
+            [
+                {
+                    "name": "MPRE-0001",
+                    "amount": 999999,
+                    "company": "Other Company",
+                    "mode_of_payment": "Forged Mode",
+                    "customer": "CUST-OTHER",
+                }
+            ],
+            "CUST-0001",
+            "Customer",
+            profile,
+            allow_completed_replay=True,
+        )
+
+        authorize.assert_called_once_with(
+            "MPRE-0001",
+            "CUST-0001",
+            profile,
+            allow_submitted=True,
+        )
+        self.assertEqual(
+            {key: value for key, value in rows[0].items() if key != "_doc"},
+            {
+                "name": "MPRE-0001",
+                "amount": 150.0,
+                "company": "Test Company",
+                "mode_of_payment": "M-Pesa",
+            },
+        )
+        self.assertIs(rows[0]["_doc"], register)
+
+    def test_supplier_cannot_submit_mpesa_reconciliation_reference(self):
+        with self.assertRaisesRegex(Exception, "only available for Customer receipts"):
+            self.processor._load_authorized_mpesa_payments(
+                [{"name": "MPRE-0001"}],
+                "SUPP-0001",
+                "Supplier",
+                AttrDict(name="Main POS", company="Test Company"),
+            )
+
+    def _opening_shift(self, **overrides):
+        opening = AttrDict(
+            {
+                "name": "POS-OPEN-0001",
+                "pos_profile": "Main POS",
+                "company": "Test Company",
+                "user": "cashier@example.com",
+                "docstatus": 1,
+                "status": "Open",
+                "pos_closing_shift": None,
+            }
+        )
+        opening.update(overrides)
+        opening["check_permission"] = Mock()
+        return opening
+
+    def test_authorization_rejects_forged_embedded_profile_before_lookup(self):
+        authorize_profile = Mock()
+        with patch.object(
+            self.processor,
+            "get_authorized_pos_profile",
+            authorize_profile,
+        ):
+            with self.assertRaisesRegex(Exception, "POS Profile values do not match"):
+                self.real_authorize_payment_request(
+                    self._payment_request_data(
+                        pos_profile={
+                            "name": "Other POS",
+                            "posa_use_pos_awesome_payments": 1,
+                        }
+                    )
+                )
+
+        authorize_profile.assert_not_called()
+
+    def test_authorization_rejects_unassigned_profile_before_terminal_access(self):
+        terminal_cashier = Mock()
+        with (
+            patch.object(
+                self.processor,
+                "get_authorized_pos_profile",
+                side_effect=PermissionError("unassigned profile"),
+            ),
+            patch.object(
+                self.processor,
+                "get_active_terminal_cashier",
+                terminal_cashier,
+            ),
+        ):
+            with self.assertRaisesRegex(PermissionError, "unassigned profile"):
+                self.real_authorize_payment_request(self._payment_request_data())
+
+        terminal_cashier.assert_not_called()
+
+    def test_authorization_propagates_forged_company_rejection(self):
+        authorize_profile = Mock(side_effect=PermissionError("forged company"))
+        with patch.object(
+            self.processor,
+            "get_authorized_pos_profile",
+            authorize_profile,
+        ):
+            with self.assertRaisesRegex(PermissionError, "forged company"):
+                self.real_authorize_payment_request(
+                    self._payment_request_data(company="Other Company")
+                )
+
+        authorize_profile.assert_called_once_with("Main POS", company="Other Company")
+
+    def test_authorization_rejects_locked_terminal_before_opening_lookup(self):
+        canonical_profile = AttrDict(name="Main POS", company="Test Company")
+        opening_lookup = Mock()
+        with (
+            patch.object(
+                self.processor,
+                "get_authorized_pos_profile",
+                return_value=canonical_profile,
+            ),
+            patch.object(
+                self.processor,
+                "get_active_terminal_cashier",
+                side_effect=PermissionError("terminal locked"),
+            ),
+            patch.object(self.processor.frappe, "get_doc", opening_lookup),
+        ):
+            with self.assertRaisesRegex(PermissionError, "terminal locked"):
+                self.real_authorize_payment_request(self._payment_request_data())
+
+        opening_lookup.assert_not_called()
+
+    def test_authorization_rejects_opening_shift_from_another_profile(self):
+        canonical_profile = AttrDict(name="Main POS", company="Test Company")
+        with (
+            patch.object(
+                self.processor,
+                "get_authorized_pos_profile",
+                return_value=canonical_profile,
+            ),
+            patch.object(
+                self.processor,
+                "get_active_terminal_cashier",
+                return_value="cashier@example.com",
+            ),
+            patch.object(
+                self.processor.frappe,
+                "get_doc",
+                return_value=self._opening_shift(pos_profile="Other POS"),
+            ),
+        ):
+            with self.assertRaisesRegex(Exception, "does not belong to this POS Profile"):
+                self.real_authorize_payment_request(self._payment_request_data())
+
+    def test_authorization_uses_canonical_profile_settings_not_client_flags(self):
+        canonical_profile = AttrDict(
+            name="Main POS",
+            company="Test Company",
+            posa_use_pos_awesome_payments=0,
+            posa_allow_make_new_payments=0,
+            cost_center="Canonical - TC",
+        )
+        data = self._payment_request_data(
+            pos_profile={
+                "name": "Main POS",
+                "posa_use_pos_awesome_payments": 1,
+                "posa_allow_make_new_payments": 1,
+                "cost_center": "Forged - XX",
+            }
+        )
+        with (
+            patch.object(
+                self.processor,
+                "get_authorized_pos_profile",
+                return_value=canonical_profile,
+            ) as authorize_profile,
+            patch.object(
+                self.processor,
+                "get_active_terminal_cashier",
+                return_value="cashier@example.com",
+            ),
+            patch.object(
+                self.processor.frappe,
+                "get_doc",
+                return_value=self._opening_shift(),
+            ),
+        ):
+            resolved_profile, cashier = self.real_authorize_payment_request(data)
+
+        authorize_profile.assert_called_once_with("Main POS", company="Test Company")
+        self.assertIs(resolved_profile, canonical_profile)
+        self.assertIs(data.pos_profile, canonical_profile)
+        self.assertEqual(data.pos_profile.get("cost_center"), "Canonical - TC")
+        self.assertEqual(cashier, "cashier@example.com")
+
+    def test_selected_invoice_is_loaded_and_normalized_from_server_state(self):
+        invoice_doc = AttrDict(
+            name="ACC-SINV-0001",
+            docstatus=1,
+            company="Test Company",
+            customer="Customer 727",
+            is_return=0,
+            outstanding_amount=125,
+            conversion_rate=1.25,
+            due_date="2026-04-30",
+            posting_date="2026-04-01",
+            currency="USD",
+            check_permission=Mock(),
+        )
+        with patch.object(self.processor.frappe, "get_doc", return_value=invoice_doc):
+            rows = self.processor._load_authorized_outstanding_invoices(
+                [
+                    {
+                        "name": "ACC-SINV-0001",
+                        "voucher_type": "Sales Invoice",
+                        "outstanding_amount": 20,
+                        "conversion_rate": 99,
+                    }
+                ],
+                "Test Company",
+                "Customer",
+                "Customer 727",
+            )
+
+        self.assertEqual(rows[0]["outstanding_amount"], 125)
+        self.assertEqual(rows[0]["conversion_rate"], 1.25)
+        invoice_doc.check_permission.assert_called_once_with("read")
+
+    def test_selected_invoice_rejects_cross_scope_cancelled_and_overstated_rows(self):
+        base = {
+            "name": "ACC-SINV-0001",
+            "docstatus": 1,
+            "company": "Test Company",
+            "customer": "Customer 727",
+            "is_return": 0,
+            "outstanding_amount": 100,
+        }
+        cases = (
+            ({"company": "Other Company"}, 50, "selected company"),
+            ({"customer": "Other Customer"}, 50, "selected Customer"),
+            ({"docstatus": 2}, 50, "submitted and not cancelled"),
+            ({}, 101, "exceeds its current available amount"),
+        )
+        for overrides, requested_amount, expected_error in cases:
+            with self.subTest(expected_error=expected_error):
+                invoice_doc = AttrDict({**base, **overrides})
+                with (
+                    patch.object(self.processor.frappe, "get_doc", return_value=invoice_doc),
+                    self.assertRaisesRegex(Exception, expected_error),
+                ):
+                    self.processor._load_authorized_outstanding_invoices(
+                        [
+                            {
+                                "name": "ACC-SINV-0001",
+                                "voucher_type": "Sales Invoice",
+                                "outstanding_amount": requested_amount,
+                            }
+                        ],
+                        "Test Company",
+                        "Customer",
+                        "Customer 727",
+                    )
+
+    def test_completed_payment_replay_accepts_stale_client_amount_but_keeps_server_zero(self):
+        invoice_doc = AttrDict(
+            name="ACC-SINV-PAID-0001",
+            docstatus=1,
+            company="Test Company",
+            customer="Customer 727",
+            is_return=0,
+            outstanding_amount=0,
+        )
+        payment_doc = AttrDict(
+            name="ACC-PAY-ALLOCATED-0001",
+            docstatus=1,
+            company="Test Company",
+            party_type="Customer",
+            party="Customer 727",
+            payment_type="Receive",
+            unallocated_amount=0,
+        )
+
+        def get_doc(doctype, name):
+            return invoice_doc if doctype == "Sales Invoice" else payment_doc
+
+        with patch.object(self.processor.frappe, "get_doc", side_effect=get_doc):
+            invoices = self.processor._load_authorized_outstanding_invoices(
+                [{"name": invoice_doc.name, "outstanding_amount": 100}],
+                "Test Company",
+                "Customer",
+                "Customer 727",
+                allow_completed_replay=True,
+            )
+            payments = self.processor._load_authorized_reconciliation_payments(
+                [{"name": payment_doc.name, "voucher_type": "Payment Entry", "amount": 100}],
+                "Test Company",
+                "Customer",
+                "Customer 727",
+                allow_completed_replay=True,
+            )
+
+        self.assertEqual(invoices[0]["outstanding_amount"], 0)
+        self.assertEqual(payments[0]["unallocated_amount"], 0)
+
+    def test_selected_payment_is_loaded_and_normalized_from_server_state(self):
+        payment_doc = AttrDict(
+            name="ACC-PAY-0001",
+            docstatus=1,
+            company="Test Company",
+            party_type="Customer",
+            party="Customer 727",
+            payment_type="Receive",
+            unallocated_amount=80,
+            check_permission=Mock(),
+        )
+        with patch.object(self.processor.frappe, "get_doc", return_value=payment_doc):
+            rows = self.processor._load_authorized_reconciliation_payments(
+                [{"name": "ACC-PAY-0001", "voucher_type": "Payment Entry", "amount": 25}],
+                "Test Company",
+                "Customer",
+                "Customer 727",
+            )
+
+        self.assertEqual(rows[0]["unallocated_amount"], 80)
+        self.assertEqual(rows[0]["voucher_type"], "Payment Entry")
+        payment_doc.check_permission.assert_called_once_with("read")
+
+    def test_selected_payment_rejects_forged_party_direction_and_amount(self):
+        base = {
+            "name": "ACC-PAY-0001",
+            "docstatus": 1,
+            "company": "Test Company",
+            "party_type": "Customer",
+            "party": "Customer 727",
+            "payment_type": "Receive",
+            "unallocated_amount": 80,
+        }
+        cases = (
+            ({"party": "Other Customer"}, 20, "selected Customer"),
+            ({"payment_type": "Pay"}, 20, "incompatible payment direction"),
+            ({"docstatus": 2}, 20, "submitted and not cancelled"),
+            ({}, 81, "exceeds its current available amount"),
+        )
+        for overrides, requested_amount, expected_error in cases:
+            with self.subTest(expected_error=expected_error):
+                payment_doc = AttrDict({**base, **overrides})
+                with (
+                    patch.object(self.processor.frappe, "get_doc", return_value=payment_doc),
+                    self.assertRaisesRegex(Exception, expected_error),
+                ):
+                    self.processor._load_authorized_reconciliation_payments(
+                        [
+                            {
+                                "name": "ACC-PAY-0001",
+                                "voucher_type": "Payment Entry",
+                                "amount": requested_amount,
+                            }
+                        ],
+                        "Test Company",
+                        "Customer",
+                        "Customer 727",
+                    )
+
+    def test_credit_note_selection_requires_a_submitted_customer_return(self):
+        credit_note = AttrDict(
+            name="ACC-SINV-RET-0001",
+            docstatus=1,
+            company="Test Company",
+            customer="Customer 727",
+            is_return=0,
+            outstanding_amount=-50,
+        )
+        with (
+            patch.object(self.processor.frappe, "get_doc", return_value=credit_note),
+            self.assertRaisesRegex(Exception, "is not a credit note"),
+        ):
+            self.processor._load_authorized_reconciliation_payments(
+                [
+                    {
+                        "name": "ACC-SINV-RET-0001",
+                        "voucher_type": "Sales Invoice",
+                        "outstanding_amount": -50,
+                    }
+                ],
+                "Test Company",
+                "Customer",
+                "Customer 727",
+            )
+
+    def test_locked_terminal_blocks_payment_replay_lookup(self):
+        self.processor._authorize_payment_request.side_effect = PermissionError("terminal locked")
+        replay_lookup = Mock()
+        payload = {
+            "customer": "Customer 727",
+            "company": "Test Company",
+            "currency": "USD",
+            "pos_profile_name": "Main POS",
+            "pos_opening_shift_name": "POS-OPEN-0001",
+            "selected_invoices": [],
+            "selected_payments": [],
+            "selected_mpesa_payments": [],
+            "payment_methods": [{"mode_of_payment": "Cash", "amount": 100}],
+            "total_selected_invoices": 0,
+            "total_selected_payments": 0,
+            "total_selected_mpesa_payments": 0,
+            "total_payment_methods": 100,
+            "pos_profile": {"name": "Main POS"},
+        }
+
+        with patch.object(
+            self.processor,
+            "find_payment_entries_by_client_request_id",
+            replay_lookup,
+        ):
+            with self.assertRaisesRegex(PermissionError, "terminal locked"):
+                self.processor.process_pos_payment(json.dumps(payload))
+
+        replay_lookup.assert_not_called()
+
+    def test_payment_request_replay_lookup_is_scoped_to_company_and_party(self):
+        get_list = Mock(return_value=[])
+        original_get_list = self.processor.frappe.get_list
+        self.processor.frappe.get_list = get_list
+        self.addCleanup(setattr, self.processor.frappe, "get_list", original_get_list)
+
+        result = self.processor.find_payment_entries_by_client_request_id(
+            "pay-scope-001",
+            company="Test Company",
+            party_type="Customer",
+            party="Customer 727",
+        )
+
+        self.assertEqual(result, [])
+        self.assertEqual(
+            get_list.call_args.kwargs["filters"],
+            {
+                "posa_client_request_id": "pay-scope-001",
+                "company": "Test Company",
+                "party_type": "Customer",
+                "party": "Customer 727",
+            },
         )
 
     def test_party_bank_account_uses_lazy_erpnext_compat_resolver(self):
