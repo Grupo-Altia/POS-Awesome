@@ -595,6 +595,7 @@ describe("ItemsSelector stock wiring", () => {
 			currency: "PKR",
 			selling_price_list: "Standard Selling",
 			posa_auto_set_batch: 1,
+			posa_decimal_precision: 3,
 		} as any);
 
 		const ItemsSelector = (await import(
@@ -618,6 +619,8 @@ describe("ItemsSelector stock wiring", () => {
 		await selectorContext.addItem(item, { qty: 1 });
 
 		const context = itemAdditionSpies.prepareItemForCart.mock.calls.at(-1)?.[2];
+		expect(context?.flt).toEqual(expect.any(Function));
+		expect(context?.currency_precision).toBe(3);
 		expect(context?.setBatchQty).toEqual(expect.any(Function));
 		context.setBatchQty(item, "BATCH-1", false);
 		expect(batchSerialSpies.setBatchQty).toHaveBeenCalledWith(

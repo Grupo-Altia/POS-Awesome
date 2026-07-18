@@ -310,6 +310,7 @@ import { useItemDetailFetcher } from "../../../composables/pos/items/useItemDeta
 import { useItemAddition } from "../../../composables/pos/items/useItemAddition";
 import { useAlternateItems } from "../../../composables/pos/items/useAlternateItems";
 import { useBatchSerial } from "../../../composables/pos/shared/useBatchSerial";
+import { useFormat } from "../../../format";
 import { useItemSelection } from "../../../composables/pos/items/useItemSelection";
 import { useItemSelectorLayout } from "../../../composables/pos/items/useItemSelectorLayout";
 import { useLastInvoiceRate } from "../../../composables/pos/items/useLastInvoiceRate";
@@ -438,6 +439,7 @@ const scannerInput = useScannerInput();
 const itemAvailability = useItemAvailability();
 const itemDetailFetcher = useItemDetailFetcher();
 const batchSerial = useBatchSerial();
+const { flt: fmtFlt, currency_precision: fmtCurrencyPrecision } = useFormat();
 const itemSelection = useItemSelection();
 const alternates = useAlternateItems();
 const itemSync = useItemSync();
@@ -997,6 +999,8 @@ const add_item = async (item, optionsOrQty: any = {}) => {
 			...options,
 			new_line: typeof options?.new_line === "boolean" ? options.new_line : !!new_line.value,
 			appendNewItems: props.presentation === "counter-grid-dialog",
+			flt: fmtFlt,
+			currency_precision: fmtCurrencyPrecision.value,
 			setBatchQty: (line: any, value: any, update = false) =>
 				batchSerial.setBatchQty(line, value, update, context),
 		};
