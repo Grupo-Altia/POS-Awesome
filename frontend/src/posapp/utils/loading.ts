@@ -12,6 +12,7 @@ export interface LoadingState {
 	active: boolean;
 	progress: number;
 	sources: Record<string, number>;
+	releasedSources: Record<string, boolean>;
 	message: string;
 	sourceMessages: Record<string, string>;
 }
@@ -34,6 +35,7 @@ export const loadingState = reactive<LoadingState>({
 	active: false,
 	progress: 0,
 	sources: {},
+	releasedSources: {},
 	message: __("Loading app data..."),
 	sourceMessages: {
 		init: __("Initializing application..."),
@@ -50,6 +52,7 @@ export function initLoadingSources(list: string[]): void {
 	// Reset state
 	clearAllSourceReleaseTimers();
 	loadingState.sources = {};
+	loadingState.releasedSources = {};
 	sourceCount = list.length;
 	completedSum = 0;
 	isCompleting = false;
@@ -82,7 +85,12 @@ export function initLoadingSources(list: string[]): void {
  */
 export function setSourceProgress(name: string, value: number): void {
 	// Safety checks
-	if (!(name in loadingState.sources) || isCompleting || sourceCount === 0)
+	if (
+		!(name in loadingState.sources) ||
+		loadingState.releasedSources[name] ||
+		isCompleting ||
+		sourceCount === 0
+	)
 		return;
 
 	// Clamp value between 0 and 100 and prevent regressions
@@ -159,7 +167,9 @@ function completeLoading(): void {
 	isCompleting = true;
 
 	loadingState.progress = 100;
-	loadingState.message = __("Setup complete!");
+	loadingState.message = Object.keys(loadingState.releasedSources).length
+		? __("Startup continuing with limited data")
+		: __("Setup complete!");
 	setScopeMeta("bootstrap", {
 		message: loadingState.message,
 		progress: 100,
@@ -168,7 +178,9 @@ function completeLoading(): void {
 	// Brief completion phase, then show ready
 	setTimeout(() => {
 		if (!loadingState.active) return; // Check if still active
-		loadingState.message = __("Ready!");
+		loadingState.message = Object.keys(loadingState.releasedSources).length
+			? __("Background loading continues")
+			: __("Ready!");
 		setScopeMeta("bootstrap", {
 			message: loadingState.message,
 			progress: 100,
@@ -192,7 +204,21 @@ function completeLoading(): void {
  */
 export function markSourceLoaded(name: string): void {
 	clearSourceRelease(name);
+	delete loadingState.releasedSources[name];
 	setSourceProgress(name, 100);
+}
+
+function releaseSource(name: string): void {
+	if (!(name in loadingState.sources) || loadingState.releasedSources[name])
+		return;
+	const existingProgress = loadingState.sources[name] || 0;
+	loadingState.releasedSources[name] = true;
+	completedSum = Math.max(0, completedSum - existingProgress);
+	sourceCount = Math.max(0, sourceCount - 1);
+	loadingState.message = __(`Continuing while ${name} loads...`);
+	if (sourceCount === 0 || Math.round(completedSum / sourceCount) >= 100) {
+		completeLoading();
+	}
 }
 
 /**
@@ -219,7 +245,7 @@ export function scheduleSourceRelease(
 			try {
 				onRelease?.();
 			} finally {
-				setSourceProgress(name, 100);
+				releaseSource(name);
 			}
 		},
 		Math.max(1, Number(timeoutMs) || 1),
@@ -244,6 +270,7 @@ export function resetLoadingState(): void {
 	loadingState.progress = 0;
 	loadingState.message = __("Loading app data...");
 	loadingState.sources = {};
+	loadingState.releasedSources = {};
 	sourceCount = 0;
 	completedSum = 0;
 	isCompleting = false;
@@ -258,6 +285,7 @@ export function getLoadingStatus() {
 		active: loadingState.active,
 		progress: loadingState.progress,
 		sources: { ...loadingState.sources },
+		releasedSources: { ...loadingState.releasedSources },
 		sourceCount,
 		completedSum,
 		isCompleting,

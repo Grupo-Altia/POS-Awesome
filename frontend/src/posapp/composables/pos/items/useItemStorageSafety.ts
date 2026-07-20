@@ -1,5 +1,9 @@
 import { ref, onUnmounted } from "vue";
 import { checkDbHealth } from "../../../../offline/index";
+import {
+	finishStartupPhase,
+	startStartupPhase,
+} from "../../../../utils/startupTrace";
 
 declare const __: (_text: string) => string;
 declare const frappe: any;
@@ -55,7 +59,9 @@ export function useItemStorageSafety() {
 
 		if (window.frappe) {
 			frappe.show_alert({
-				message: __("Local item storage recovered. Background sync resumed."),
+				message: __(
+					"Local item storage recovered. Background sync resumed.",
+				),
 				indicator: "green",
 			});
 		}
@@ -103,6 +109,7 @@ export function useItemStorageSafety() {
 			return;
 		}
 
+		const phase = startStartupPhase("items.worker_creation");
 		try {
 			// Correct path to the worker file
 			const workerUrl =
@@ -132,8 +139,10 @@ export function useItemStorageSafety() {
 			};
 
 			console.log("Item Worker started");
+			finishStartupPhase(phase, "ok");
 		} catch (e: unknown) {
 			console.error("Failed to start item worker", e);
+			finishStartupPhase(phase, "error", { error: e });
 		}
 	}
 

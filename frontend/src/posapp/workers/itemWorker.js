@@ -93,7 +93,30 @@ const deriveItemSearchFields = (it) => {
 	};
 };
 
+const workerStartedAt = typeof performance !== "undefined" ? performance.now() : Date.now();
+const workerTraceEnabled = (() => {
+	try {
+		return new URL(self.location.href).searchParams.get("posa_startup_trace") === "1";
+	} catch {
+		return false;
+	}
+})();
+const workerNow = () => (typeof performance !== "undefined" ? performance.now() : Date.now());
+const workerTrace = (phase, status, details = {}) => {
+	if (!workerTraceEnabled) return;
+	console.info(
+		`[POSA_STARTUP] ${JSON.stringify({
+			phase,
+			status,
+			atMs: Math.round((workerNow() - workerStartedAt) * 10) / 10,
+			details,
+		})}`,
+	);
+};
+
 const dbReady = (async () => {
+	const openStartedAt = workerNow();
+	workerTrace("persistence_worker.indexeddb_open", "start", { requestedVersion: 17 });
 	let DexieLib;
 	try {
 		importScripts("/assets/posawesome/dist/js/libs/dexie.min.js?v=1");
@@ -103,125 +126,13 @@ const dbReady = (async () => {
 		DexieLib = await import("/assets/posawesome/dist/js/libs/dexie.min.js?v=1");
 	}
 	db = new DexieLib.default("posawesome_offline");
-	db.version(7)
-		.stores({
-			keyval: "&key",
-			queue: "&key",
-			cache: "&key",
-			items: "&item_code,item_name,item_group,*barcodes,*name_keywords,*serials,*batches",
-			item_prices: "&[price_list+item_code],price_list,item_code",
-			customers: "&name,customer_name,mobile_no,email_id,tax_id",
-		})
-		.upgrade((tx) =>
-			tx
-				.table("items")
-				.toCollection()
-				.modify((item) => {
-					item.barcodes = Array.isArray(item.item_barcode)
-						? item.item_barcode.map((b) => b.barcode).filter(Boolean)
-						: item.item_barcode
-							? [String(item.item_barcode)]
-							: [];
-					item.name_keywords = item.item_name
-						? item.item_name.toLowerCase().split(/\s+/).filter(Boolean)
-						: [];
-					item.serials = Array.isArray(item.serial_no_data)
-						? item.serial_no_data.map((s) => s.serial_no).filter(Boolean)
-						: [];
-					item.batches = Array.isArray(item.batch_no_data)
-						? item.batch_no_data.map((b) => b.batch_no).filter(Boolean)
-						: [];
-				}),
-		);
-	db.version(8)
-		.stores({
-			keyval: "&key",
-			queue: "&key",
-			cache: "&key",
-			items: "&item_code,item_name,item_group,*barcodes,*name_keywords,*serials,*batches",
-			item_prices: "&[price_list+item_code],price_list,item_code",
-			customers: "&name,customer_name,mobile_no,email_id,tax_id",
-			local_stock: "&key",
-			coupons: "&key",
-			item_groups: "&key",
-			translations: "&key",
-			pricing_rules: "&key",
-		})
-		.upgrade(async (tx) => {
-			const migrateKey = async (key, targetTable) => {
-				try {
-					const entry = await tx.table("keyval").get(key);
-					if (entry) {
-						await tx.table(targetTable).put(entry);
-					}
-				} catch (err) {
-					console.warn(`Worker migration failed for ${key} -> ${targetTable}`, err);
-				}
-			};
-
-			await Promise.all([
-				migrateKey("local_stock_cache", "local_stock"),
-				migrateKey("coupons_cache", "coupons"),
-				migrateKey("item_groups_cache", "item_groups"),
-				migrateKey("translation_cache", "translations"),
-				migrateKey("pricing_rules_snapshot", "pricing_rules"),
-				migrateKey("pricing_rules_context", "pricing_rules"),
-				migrateKey("pricing_rules_last_sync", "pricing_rules"),
-				migrateKey("pricing_rules_stale_at", "pricing_rules"),
-			]);
-		});
-	db.version(9)
-		.stores(BASE_SCHEMA)
-		.upgrade(async (tx) => {
-			const migrateKey = async (key, targetTable) => {
-				try {
-					const entry = await tx.table("keyval").get(key);
-					if (entry) {
-						await tx.table(targetTable).put(entry);
-					}
-				} catch (err) {
-					console.warn(`Worker migration failed for ${key} -> ${targetTable}`, err);
-				}
-			};
-
-			const settingsKeys = [
-				"cache_version",
-				"cache_ready",
-				"stock_cache_ready",
-				"manual_offline",
-				"invoice_outbox_mode",
-				"bootstrap_snapshot",
-				"bootstrap_snapshot_status",
-				"bootstrap_limited_mode",
-				"schema_signature",
-			];
-
-			const syncStateKeys = [
-				"items_last_sync",
-				"customers_last_sync",
-				"payment_methods_last_sync",
-				"pos_last_sync_totals",
-			];
-
-			await Promise.all([
-				migrateKey("local_stock_cache", "local_stock"),
-				migrateKey("coupons_cache", "coupons"),
-				migrateKey("item_groups_cache", "item_groups"),
-				migrateKey("translation_cache", "translations"),
-				migrateKey("pricing_rules_snapshot", "pricing_rules"),
-				migrateKey("pricing_rules_context", "pricing_rules"),
-				migrateKey("pricing_rules_last_sync", "pricing_rules"),
-				migrateKey("pricing_rules_stale_at", "pricing_rules"),
-				...settingsKeys.map((key) => migrateKey(key, "settings")),
-				...syncStateKeys.map((key) => migrateKey(key, "sync_state")),
-			]);
-
-			try {
-				await tx.table("settings").put({ key: "schema_signature", value: SCHEMA_SIGNATURE });
-			} catch (err) {
-				console.warn("Worker failed to persist schema signature", err);
-			}
-		});
+	// Keep the worker schema declarations identical to the main Dexie owner. The
+	// worker must never run historical full-table migrations during application
+	// startup; normalized search fields are written by current catalog sync paths.
+	db.version(1).stores(BASE_SCHEMA);
+	db.version(7).stores(BASE_SCHEMA);
+	db.version(8).stores(BASE_SCHEMA);
+	db.version(9).stores(BASE_SCHEMA);
 	db.version(10).stores(BASE_SCHEMA);
 	db.version(11).stores(BASE_SCHEMA);
 	db.version(12).stores(BASE_SCHEMA);
@@ -239,8 +150,22 @@ const dbReady = (async () => {
 		);
 	try {
 		await db.open();
+		const openDurationMs = workerNow() - openStartedAt;
+		workerTrace("persistence_worker.indexeddb_open", "ok", {
+			databaseVersion: db.verno,
+			openDurationMs,
+		});
+		self.postMessage({
+			type: "persistence_worker_ready",
+			databaseVersion: db.verno,
+			openDurationMs,
+		});
 	} catch (err) {
 		console.error("Failed to open IndexedDB in worker", err);
+		workerTrace("persistence_worker.indexeddb_open", "error", {
+			name: err?.name,
+			message: err?.message || String(err),
+		});
 	}
 	return db;
 })();
@@ -312,6 +237,7 @@ async function safeBulkPut(tableName, rows) {
 }
 
 async function persistBatch(entries) {
+	const startedAt = workerNow();
 	await dbReady;
 	if (!db.isOpen()) {
 		await db.open();
@@ -330,6 +256,14 @@ async function persistBatch(entries) {
 	await Promise.all(
 		Array.from(rowsByTable.entries()).map(([tableName, rows]) => safeBulkPut(tableName, rows)),
 	);
+	return {
+		durationMs: workerNow() - startedAt,
+		tables: Array.from(rowsByTable, ([tableName, rows]) => ({
+			tableName,
+			recordCount: rows.length,
+		})),
+		recordCount: Array.from(rowsByTable.values()).reduce((total, rows) => total + rows.length, 0),
+	};
 }
 
 async function bulkPutItems(items, syncedAt = Date.now()) {
@@ -444,10 +378,11 @@ self.onmessage = async (event) => {
 		try {
 			const operation = persistBatchChain.then(() => persistBatch(data.entries));
 			persistBatchChain = operation.catch(() => undefined);
-			await operation;
+			const diagnostics = await operation;
 			self.postMessage({
 				type: "persisted_batch",
 				batchId: data.batchId,
+				...diagnostics,
 			});
 		} catch (error) {
 			console.error("Worker persist batch failed", error);

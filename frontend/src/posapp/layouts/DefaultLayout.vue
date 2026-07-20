@@ -102,6 +102,7 @@ import { useSyncStore } from "../stores/syncStore.js";
 import { useToastStore } from "../stores/toastStore.js";
 import { useUIStore } from "../stores/uiStore.js";
 import { useUpdateStore } from "../stores/updateStore.js";
+import { finishStartupPhase, startStartupPhase, traceStartupEvent } from "../../utils/startupTrace";
 import { useItemsStore } from "../stores/itemsStore.js";
 import { usePricingRulesStore } from "../stores/pricingRulesStore";
 import { useOfflineSyncStore } from "../stores/offlineSyncStore";
@@ -119,7 +120,7 @@ import {
 	queueHealthCheck,
 	purgeOldQueueEntries,
 	initPromise,
-	memoryInitPromise,
+	startupInitPromise,
 	ensureOfflineQueueReady,
 	toggleManualOffline,
 	isManualOffline as getIsManualOffline,
@@ -262,7 +263,9 @@ const offlineSyncRuntime = createOfflineSyncRuntime({
 // Network status
 const networkOnline = ref(navigator.onLine || false);
 const serverOnline = ref(false);
-const serverConnecting = ref(false);
+// Until the first health probe settles, an online browser is "Checking", not
+// "Server Offline". This avoids misclassifying a storage-bound cold start.
+const serverConnecting = ref(Boolean(navigator.onLine));
 const internetReachable = ref(false);
 const isIpHost = ref(false);
 
@@ -310,11 +313,18 @@ const eventBus = instance?.proxy?.eventBus;
 initLoadingSources(["init", "items", "customers"]);
 scheduleSourceRelease("items", PRODUCT_CATALOG_BOOTSTRAP_GRACE_MS, () => {
 	if (itemsLoaded.value) return;
+	traceStartupEvent("ui.product_catalog_progress", "timeout", {
+		progress: itemsLoadProgress.value,
+		itemCount: itemsStore.items.length,
+		backgroundLoading: itemsBackgroundLoading.value,
+	});
 	console.warn("Product catalog is still loading; releasing the startup progress surface.");
 	toastStore.show({
 		title: __("Product catalog is still loading"),
-		detail: __("You can continue using the POS while catalog data finishes loading in the background."),
-		color: "info",
+		detail: __(
+			"The catalog is not ready yet. Loading continues in the background; retry the catalog if products remain unavailable.",
+		),
+		color: "warning",
 	});
 });
 
@@ -372,7 +382,7 @@ function ensureStartupItemsReady(profile) {
 		customer,
 		priceList,
 		initialize: async () => {
-			await memoryInitPromise;
+			void startupInitPromise;
 			await itemsStore.initialize(profile, customer, priceList);
 		},
 	}).catch((error) => {
@@ -557,7 +567,7 @@ async function refreshOfflineProductCatalog() {
 	}
 
 	try {
-		await memoryInitPromise;
+		await startupInitPromise;
 		if (!itemsStore.posProfile?.name) {
 			await itemsStore.initialize(
 				profile,
@@ -829,13 +839,7 @@ watch(
 		posProfile.value?.selling_price_list || null,
 		posProfile.value?.currency || null,
 	],
-	([
-		isInitialSyncSettled,
-		areWarningsReady,
-		isNetworkOnline,
-		isServerOnline,
-		isServerConnecting,
-	]) => {
+	([isInitialSyncSettled, areWarningsReady, isNetworkOnline, isServerOnline, isServerConnecting]) => {
 		if (
 			isInitialSyncSettled &&
 			areWarningsReady &&
@@ -1005,14 +1009,14 @@ const notifyCacheCapacityIfActionable = (usage = {}) => {
 	toastStore.show({
 		title: __("Local cache usage is high"),
 		detail: offlineNow
-			? __(
-					"Reconnect online to sync {0} pending local record(s). Cache usage is {1}%.",
-					[pendingTotal, Math.round(usage.percentage || 0)],
-				)
-			: __(
-					"Sync {0} pending local record(s). Cache usage is {1}%.",
-					[pendingTotal, Math.round(usage.percentage || 0)],
-				),
+			? __("Reconnect online to sync {0} pending local record(s). Cache usage is {1}%.", [
+					pendingTotal,
+					Math.round(usage.percentage || 0),
+				])
+			: __("Sync {0} pending local record(s). Cache usage is {1}%.", [
+					pendingTotal,
+					Math.round(usage.percentage || 0),
+				]),
 		color: "warning",
 	});
 };
@@ -1030,7 +1034,12 @@ const initializeOfflineQueueReadiness = async () => {
 };
 
 const initializeData = async () => {
-	await initPromise;
+	const phase = startStartupPhase("ui.final_store_hydration");
+	await startupInitPromise;
+	void initPromise.then(
+		() => traceStartupEvent("indexeddb.full_memory_hydration", "ok"),
+		(error) => traceStartupEvent("indexeddb.full_memory_hydration", "error", { error }),
+	);
 	await initializeOfflineQueueReadiness();
 	await hydrateOfflineSyncResourceStates();
 	checkDbHealth().catch(() => {});
@@ -1075,6 +1084,10 @@ const initializeData = async () => {
 	void runStartupOfflineDataWarmup("initial_load");
 
 	markSourceLoaded("init");
+	finishStartupPhase(phase, "ok", {
+		profile: posProfile.value?.name || null,
+		openingShift: posOpeningShift.value?.name || null,
+	});
 };
 
 const setupEventListeners = () => {

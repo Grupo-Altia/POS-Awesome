@@ -69,6 +69,19 @@ class ControlledWorker extends AcknowledgingWorker {
 	}
 }
 
+class HangingWorker extends AcknowledgingWorker {
+	override postMessage(message: WorkerMessage) {
+		this.messages.push(message);
+	}
+}
+
+async function importReadyOfflineDb() {
+	const module = await import("../src/offline/db");
+	await module.startupInitPromise;
+	await Promise.resolve();
+	return module;
+}
+
 describe("offline persistence batching", () => {
 	afterEach(async () => {
 		vi.restoreAllMocks();
@@ -80,7 +93,7 @@ describe("offline persistence batching", () => {
 
 	it("coalesces repeated keys into one worker batch without JSON-normalizing values", async () => {
 		vi.stubGlobal("Worker", AcknowledgingWorker);
-		const { flushPersistQueue, persist } = await import("../src/offline/db");
+		const { flushPersistQueue, persist } = await importReadyOfflineDb();
 		const persistedAt = new Date("2026-06-15T10:00:00.000Z");
 		const stringify = vi.spyOn(JSON, "stringify");
 
@@ -118,7 +131,7 @@ describe("offline persistence batching", () => {
 
 	it("keeps lightweight localStorage mirrors on the main thread", async () => {
 		vi.stubGlobal("Worker", AcknowledgingWorker);
-		const { flushPersistQueue, persist } = await import("../src/offline/db");
+		const { flushPersistQueue, persist } = await importReadyOfflineDb();
 
 		persist("manual_offline", true);
 
@@ -129,7 +142,7 @@ describe("offline persistence batching", () => {
 
 	it("groups worker-less writes into one bulkPut per physical table", async () => {
 		vi.stubGlobal("Worker", undefined);
-		const { db, flushPersistQueue, persist } = await import("../src/offline/db");
+		const { db, flushPersistQueue, persist } = await importReadyOfflineDb();
 		await db.open();
 		await Promise.all([
 			db.table("cache").clear(),
@@ -158,7 +171,7 @@ describe("offline persistence batching", () => {
 	it("falls back to grouped main-thread writes when a worker rejects a batch", async () => {
 		vi.stubGlobal("Worker", RejectingWorker);
 		vi.spyOn(console, "error").mockImplementation(() => {});
-		const { db, flushPersistQueue, persist } = await import("../src/offline/db");
+		const { db, flushPersistQueue, persist } = await importReadyOfflineDb();
 		await db.open();
 		await db.table("cache").clear();
 		const cacheBulkPut = vi.spyOn(db.table("cache"), "bulkPut");
@@ -176,7 +189,7 @@ describe("offline persistence batching", () => {
 
 	it("serializes fallback batches so the latest write wins", async () => {
 		vi.stubGlobal("Worker", undefined);
-		const { db, flushPersistQueue, persist } = await import("../src/offline/db");
+		const { db, flushPersistQueue, persist } = await importReadyOfflineDb();
 		await db.open();
 		await db.table("cache").clear();
 		const table = db.table("cache");
@@ -213,7 +226,7 @@ describe("offline persistence batching", () => {
 	it("replays all in-flight worker batches in order after a later batch fails", async () => {
 		vi.stubGlobal("Worker", ControlledWorker);
 		vi.spyOn(console, "error").mockImplementation(() => {});
-		const { db, flushPersistQueue, persist } = await import("../src/offline/db");
+		const { db, flushPersistQueue, persist } = await importReadyOfflineDb();
 		await db.open();
 		await db.table("cache").clear();
 
@@ -234,4 +247,33 @@ describe("offline persistence batching", () => {
 			value: { version: 2 },
 		});
 	});
+
+	it("times out a hung worker after 10 seconds and durably replays on the main thread", async () => {
+		try {
+			vi.stubGlobal("Worker", HangingWorker);
+			vi.spyOn(console, "error").mockImplementation(() => {});
+			const {
+				db,
+				flushPersistQueue,
+				persist,
+				PERSIST_WORKER_TIMEOUT_MS,
+			} = await importReadyOfflineDb();
+			await db.table("cache").clear();
+
+			persist("item_details_cache", { recoveredAfterTimeout: true });
+			const flush = flushPersistQueue();
+			await Promise.resolve();
+			expect(HangingWorker.instances[0]?.messages).toHaveLength(1);
+
+			expect(PERSIST_WORKER_TIMEOUT_MS).toBe(10_000);
+			await flush;
+
+			expect(await db.table("cache").get("item_details_cache")).toEqual({
+				key: "item_details_cache",
+				value: { recoveredAfterTimeout: true },
+			});
+		} finally {
+			vi.useRealTimers();
+		}
+	}, 15_000);
 });

@@ -24,6 +24,11 @@ import {
 	type LoadItemsOptions,
 } from "./items/loadItemsRequest";
 import { resetItemLoadingCoordinator } from "../modules/items/itemLoadingCoordinator";
+import {
+	finishStartupPhase,
+	startStartupPhase,
+	traceStartupEvent,
+} from "../../utils/startupTrace";
 
 export const useItemsStore = defineStore("items", () => {
 	const SERVER_SEARCH_FALLBACK_DEBOUNCE_MS = 450;
@@ -34,6 +39,7 @@ export const useItemsStore = defineStore("items", () => {
 	const HOT_CATALOG_DEFAULT_LIMIT = 5000;
 	const HOT_CATALOG_MAX_LIMIT = 10000;
 	const HOT_CATALOG_DAYS = 120;
+	const COLD_START_CACHE_GRACE_MS = 250;
 	type OfflineModule = Record<string, any>;
 	let offlineApiPromise: Promise<OfflineModule> | null = null;
 	let serverSearchFallbackTimer: ReturnType<typeof setTimeout> | null = null;
@@ -783,19 +789,39 @@ export const useItemsStore = defineStore("items", () => {
 		cust: string | null = null,
 		priceList: string | null = null,
 	) => {
+		const phase = startStartupPhase("items.store_initialization", {
+			profile: profile?.name || null,
+			warehouse: profile?.warehouse || null,
+		});
 		posProfile.value = profile;
 		customer.value = cust;
 		customerPriceList.value = priceList;
 		lastItemCatalogSyncTime.value = getItemsLastSync();
 
-		await loadItemGroups(posProfile.value);
-		await assessCacheHealth();
-		await Promise.allSettled([
+		const itemGroupsPromise = loadItemGroups(posProfile.value);
+		const cachePreparation = Promise.allSettled([
+			assessCacheHealth(),
 			loadCachedItems(),
 			fastCounterEnabled.value
 				? loadHotCatalog({ force: true })
 				: Promise.resolve(clearHotCatalog()),
 		]);
+		let cacheSettled = false;
+		void cachePreparation.then(() => {
+			cacheSettled = true;
+		});
+		await Promise.race([
+			cachePreparation,
+			new Promise<void>((resolve) =>
+				setTimeout(resolve, COLD_START_CACHE_GRACE_MS),
+			),
+		]);
+		if (!cacheSettled) {
+			traceStartupEvent("items.cache_bootstrap", "timeout", {
+				timeoutMs: COLD_START_CACHE_GRACE_MS,
+				profile: profile?.name || null,
+			});
+		}
 
 		const needsInitialServerCatalog =
 			!itemsLoaded.value ||
@@ -803,9 +829,21 @@ export const useItemsStore = defineStore("items", () => {
 		if (needsInitialServerCatalog && !isOffline()) {
 			await loadItems({ forceServer: false });
 		}
+		await Promise.resolve(itemGroupsPromise).catch((error) => {
+			traceStartupEvent("items.profile_groups", "error", { error });
+		});
+		finishStartupPhase(phase, "ok", {
+			itemsLoaded: itemsLoaded.value,
+			itemCount: items.value.length,
+			cacheSettled,
+		});
 	};
 
 	const loadCachedItems = async () => {
+		const cacheRequestToken = requestToken.value;
+		const phase = startStartupPhase("items.indexeddb_read", {
+			scope: getStorageScope(),
+		});
 		try {
 			const cachedCount = await getStoredItemsCountByScopeCompat(
 				getStorageScope(),
@@ -813,6 +851,13 @@ export const useItemsStore = defineStore("items", () => {
 			const resolvedCount = Number.isFinite(cachedCount)
 				? cachedCount
 				: 0;
+			if (requestToken.value !== cacheRequestToken) {
+				finishStartupPhase(phase, "ok", {
+					superseded: true,
+					cachedCount: resolvedCount,
+				});
+				return;
+			}
 
 			totalItemCount.value = resolvedCount;
 
@@ -821,6 +866,7 @@ export const useItemsStore = defineStore("items", () => {
 				setItems([], { totalCount: resolvedCount });
 				itemsLoaded.value = resolvedCount > 0;
 				syncBootstrapItemReadiness(resolvedCount);
+				finishStartupPhase(phase, "ok", { cachedCount: resolvedCount });
 				return;
 			}
 
@@ -828,6 +874,7 @@ export const useItemsStore = defineStore("items", () => {
 				itemsLoaded.value = false;
 				resetCachedPagination();
 				syncBootstrapItemReadiness(0);
+				finishStartupPhase(phase, "ok", { cachedCount: 0 });
 				return;
 			}
 
@@ -841,12 +888,23 @@ export const useItemsStore = defineStore("items", () => {
 				const cachedItems = await getAllStoredItemsCompat(
 					getStorageScope(),
 				).catch(() => []);
+				if (requestToken.value !== cacheRequestToken) {
+					finishStartupPhase(phase, "ok", {
+						superseded: true,
+						cachedCount: resolvedCount,
+					});
+					return;
+				}
 				if (Array.isArray(cachedItems) && cachedItems.length) {
 					setItems(cachedItems, { totalCount: resolvedCount });
 					cachedPagination.value.offset = cachedItems.length;
 					itemsLoaded.value = true;
 					syncBootstrapItemReadiness(resolvedCount);
 				}
+				finishStartupPhase(phase, "ok", {
+					cachedCount: resolvedCount,
+					visibleCount: cachedItems.length,
+				});
 				return;
 			}
 
@@ -857,6 +915,13 @@ export const useItemsStore = defineStore("items", () => {
 				offset: 0,
 				scope: getStorageScope(),
 			});
+			if (requestToken.value !== cacheRequestToken) {
+				finishStartupPhase(phase, "ok", {
+					superseded: true,
+					cachedCount: resolvedCount,
+				});
+				return;
+			}
 
 			const safeInitial = Array.isArray(initialItems) ? initialItems : [];
 			setItems(safeInitial, { totalCount: resolvedCount });
@@ -869,8 +934,13 @@ export const useItemsStore = defineStore("items", () => {
 					: "ALL";
 			itemsLoaded.value = true;
 			syncBootstrapItemReadiness(resolvedCount);
+			finishStartupPhase(phase, "ok", {
+				cachedCount: resolvedCount,
+				visibleCount: safeInitial.length,
+			});
 		} catch (error) {
 			console.warn("Failed to load cached items:", error);
+			finishStartupPhase(phase, "error", { error });
 			itemsLoaded.value = false;
 			resetCachedPagination();
 			syncBootstrapItemReadiness(0);
@@ -1034,10 +1104,27 @@ export const useItemsStore = defineStore("items", () => {
 				return [];
 			}
 
-			const fetchedItems = await itemService.getItemsData(
-				args,
-				abortController.signal,
-			);
+			const apiPhase = startStartupPhase("items.catalog_api", {
+				endpoint: "posawesome.posawesome.api.items.get_items",
+				profile: posProfile.value?.name || null,
+				warehouse: posProfile.value?.warehouse || null,
+				priceList: effectivePriceList,
+				limit: args.limit || null,
+				search: Boolean(args.search_value),
+			});
+			let fetchedItems: Item[];
+			try {
+				fetchedItems = await itemService.getItemsData(
+					args,
+					abortController.signal,
+				);
+				finishStartupPhase(apiPhase, "ok", {
+					recordCount: fetchedItems.length,
+				});
+			} catch (error) {
+				finishStartupPhase(apiPhase, "error", { error });
+				throw error;
+			}
 
 			if (requestToken.value !== currentRequestToken) {
 				return;
@@ -1052,12 +1139,19 @@ export const useItemsStore = defineStore("items", () => {
 				commitToCatalog && !preserveExistingCatalog;
 
 			if (acceptedCatalogResponse) {
+				const hydrationPhase = startStartupPhase(
+					"items.final_store_hydration",
+					{ recordCount: fetchedItems.length },
+				);
 				cachedPagination.value.enabled = false;
 				cachedPagination.value.offset = fetchedItems.length;
 				cachedPagination.value.total = fetchedItems.length;
 				cachedPagination.value.loading = false;
 				setItems(fetchedItems);
 				itemsLoaded.value = true;
+				finishStartupPhase(hydrationPhase, "ok", {
+					visibleCount: items.value.length,
+				});
 			} else if (preserveExistingCatalog) {
 				console.warn(
 					"[POSA][Items] preserving the existing catalog after an empty reload response",

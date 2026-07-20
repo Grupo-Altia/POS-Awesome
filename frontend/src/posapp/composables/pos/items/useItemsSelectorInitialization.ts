@@ -1,6 +1,10 @@
 import { watch, type Ref, type WatchStopHandle } from "vue";
 
-import { memoryInitPromise } from "../../../../offline/index";
+import { startupInitPromise } from "../../../../offline/index";
+import {
+	finishStartupPhase,
+	startStartupPhase,
+} from "../../../../utils/startupTrace";
 import { ensureItemsReady } from "../../../modules/items/itemLoadingCoordinator";
 
 type PosProfileLike = {
@@ -73,8 +77,13 @@ export function startItemsSelectorInitialization({
 				}
 			}, timeoutMs);
 
+			const phase = startStartupPhase("items.selector_initialization", {
+				profile: newProfile.name,
+			});
 			try {
-				await memoryInitPromise;
+				// Storage hydration is not a prerequisite for the online catalog call.
+				// Keep it running so offline queues and caches become ready independently.
+				void startupInitPromise;
 
 				selectedCurrency.value = newProfile.currency || "";
 				selectedExchangeRate.value = 1;
@@ -82,8 +91,14 @@ export function startItemsSelectorInitialization({
 
 				await ensureItemsReady({
 					profile: newProfile,
-					customer: selectedCustomer.value as string | null | undefined,
-					priceList: customerPriceList.value as string | null | undefined,
+					customer: selectedCustomer.value as
+						| string
+						| null
+						| undefined,
+					priceList: customerPriceList.value as
+						| string
+						| null
+						| undefined,
 					initialize: async () =>
 						await itemsIntegration.initializeStore(
 							newProfile,
@@ -96,10 +111,12 @@ export function startItemsSelectorInitialization({
 				startItemWorker();
 				loadItemSettings();
 				startBackgroundSyncScheduler();
+				finishStartupPhase(phase, "ok");
 			} catch (err: unknown) {
 				console.error("ItemsSelector: Initialization failed", err);
 				initError.value = resolveErrorMessage(err);
 				isInitialized.value = true;
+				finishStartupPhase(phase, "error", { error: err });
 			} finally {
 				if (initTimeout.value) {
 					clearTimeout(initTimeout.value);

@@ -34,7 +34,8 @@ describe("startup loading source release", () => {
 		await vi.advanceTimersByTimeAsync(20_000);
 
 		expect(onRelease).toHaveBeenCalledOnce();
-		expect(getLoadingStatus().sources.items).toBe(100);
+		expect(getLoadingStatus().sources.items).toBe(0);
+		expect(getLoadingStatus().releasedSources.items).toBe(true);
 		expect(getLoadingStatus().sources.customers).toBe(0);
 	});
 

@@ -642,6 +642,47 @@ describe("itemsStore loadItems", () => {
 		);
 	});
 
+	it("starts the catalog API when a large or blocked IndexedDB read misses the cold-start grace", async () => {
+		vi.useFakeTimers();
+		try {
+			let releaseBlockedRead: ((value: number) => void) | undefined;
+			const blockedRead = new Promise<number>((resolve) => {
+				releaseBlockedRead = resolve;
+			});
+			let countReads = 0;
+			offlineMocks.getStoredItemsCountByScope.mockImplementation(() => {
+				countReads += 1;
+				return countReads <= 2 ? blockedRead : Promise.resolve(0);
+			});
+			const store = useItemsStore();
+			const initialization = store.initialize({
+				name: "POS-BLOCKED-IDB",
+				warehouse: "Main WH",
+				selling_price_list: "Retail",
+				currency: "PKR",
+				item_groups: [],
+				posa_use_limit_search: 0,
+			} as any);
+
+			await Promise.resolve();
+			expect(itemServiceMocks.getItemsData).not.toHaveBeenCalled();
+			await vi.advanceTimersByTimeAsync(250);
+			expect(itemServiceMocks.getItemsData).toHaveBeenCalledWith(
+				expect.objectContaining({
+					price_list: "Retail",
+					limit: 50,
+				}),
+				expect.any(AbortSignal),
+			);
+			releaseBlockedRead?.(0);
+			vi.useRealTimers();
+			await initialization;
+			expect(store.itemsLoaded).toBe(true);
+		} finally {
+			vi.useRealTimers();
+		}
+	});
+
 	it("bypasses memory result cache when scoped offline catalog is large", async () => {
 		const store = useItemsStore();
 		const profile = {
