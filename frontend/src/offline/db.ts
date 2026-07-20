@@ -477,10 +477,11 @@ type PersistWorkerBatch = {
 	entries: PersistEntry[];
 	resolve: () => void;
 	reject: (_error: unknown) => void;
-	timeout: ReturnType<typeof setTimeout>;
+	timeout: ReturnType<typeof setTimeout> | null;
 };
 
 export const PERSIST_WORKER_TIMEOUT_MS = 10_000;
+export const PERSIST_WORKER_READY_TIMEOUT_MS = 30_000;
 const pendingPersistEntries = new Map<string, unknown>();
 const inFlightWorkerBatches = new Map<number, PersistWorkerBatch>();
 const activePersistOperations = new Set<Promise<void>>();
@@ -488,6 +489,10 @@ let persistFlushScheduled = false;
 let nextPersistBatchId = 1;
 let persistWorkerHealthy = Boolean(persistWorker);
 let directPersistChain: Promise<void> = Promise.resolve();
+let persistWorkerReadyPromise: Promise<void> | null = null;
+let resolvePersistWorkerReady: (() => void) | null = null;
+let rejectPersistWorkerReady: ((_error: unknown) => void) | null = null;
+let persistWorkerReadyTimeout: ReturnType<typeof setTimeout> | null = null;
 
 export async function hydrateMemoryKeys(
 	keys: readonly string[],
@@ -765,6 +770,14 @@ function disablePersistWorker(error: unknown) {
 		return;
 	}
 	persistWorkerHealthy = false;
+	if (persistWorkerReadyTimeout) {
+		clearTimeout(persistWorkerReadyTimeout);
+		persistWorkerReadyTimeout = null;
+	}
+	rejectPersistWorkerReady?.(error);
+	resolvePersistWorkerReady = null;
+	rejectPersistWorkerReady = null;
+	persistWorkerReadyPromise = null;
 	traceStartupEvent("persistence_worker.disabled", "error", { error });
 	console.error(
 		"Persistence worker disabled; using main-thread fallback",
@@ -784,7 +797,9 @@ function settleWorkerBatch(batchId: number, error?: unknown) {
 		return;
 	}
 	inFlightWorkerBatches.delete(batchId);
-	clearTimeout(batch.timeout);
+	if (batch.timeout) {
+		clearTimeout(batch.timeout);
+	}
 
 	if (!error) {
 		batch.resolve();
@@ -806,6 +821,13 @@ function bindPersistWorker(worker: Worker) {
 	worker.onmessage = (event: MessageEvent) => {
 		const data = event.data || {};
 		if (data.type === "persistence_worker_ready") {
+			if (persistWorkerReadyTimeout) {
+				clearTimeout(persistWorkerReadyTimeout);
+				persistWorkerReadyTimeout = null;
+			}
+			resolvePersistWorkerReady?.();
+			resolvePersistWorkerReady = null;
+			rejectPersistWorkerReady = null;
 			traceStartupEvent("persistence_worker.ready", "ok", {
 				databaseVersion: data.databaseVersion,
 				openDurationMs: data.openDurationMs,
@@ -845,6 +867,22 @@ function initializePersistWorker() {
 			{ type: "classic" },
 		);
 		persistWorkerHealthy = true;
+		persistWorkerReadyPromise = new Promise<void>((resolve, reject) => {
+			resolvePersistWorkerReady = resolve;
+			rejectPersistWorkerReady = reject;
+		});
+		// The rejection is observed by every queued batch. This side handler only
+		// prevents an unhandled rejection when no persistence work was queued.
+		void persistWorkerReadyPromise.catch(() => undefined);
+		persistWorkerReadyTimeout = setTimeout(() => {
+			const error = new Error(
+				`Persistence worker did not become ready within ${PERSIST_WORKER_READY_TIMEOUT_MS} ms`,
+			);
+			traceStartupEvent("persistence_worker.ready", "timeout", {
+				timeoutMs: PERSIST_WORKER_READY_TIMEOUT_MS,
+			});
+			failAllWorkerBatches(error);
+		}, PERSIST_WORKER_READY_TIMEOUT_MS);
 		bindPersistWorker(persistWorker);
 		finishStartupPhase(phase, "ok");
 	} catch (error) {
@@ -862,49 +900,67 @@ function dispatchPersistBatch(entries: PersistEntry[]) {
 		return Promise.resolve();
 	}
 
-	if (!persistWorker || !persistWorkerHealthy) {
+	if (!persistWorker || !persistWorkerHealthy || !persistWorkerReadyPromise) {
 		return queueDirectPersist(entries);
 	}
 
+	const readyPromise = persistWorkerReadyPromise;
 	const batchId = nextPersistBatchId++;
 	const keys = entries.map((entry) => entry.key);
 	const tables = Array.from(new Set(keys.map(tableForKey)));
-	traceStartupEvent("persistence_worker.batch", "start", {
+	traceStartupEvent("persistence_worker.batch", "info", {
 		batchId,
 		keys,
 		tables,
 		recordCount: entries.length,
-		timeoutMs: PERSIST_WORKER_TIMEOUT_MS,
+		state: "queued_for_worker_ready",
 	});
 	const operation = new Promise<void>((resolve, reject) => {
-		const timeout = setTimeout(() => {
-			traceStartupEvent("persistence_worker.batch", "timeout", {
-				batchId,
-				keys,
-				tables,
-				recordCount: entries.length,
-				timeoutMs: PERSIST_WORKER_TIMEOUT_MS,
-			});
-			failAllWorkerBatches(
-				new Error(`Persistence worker batch ${batchId} timed out`),
-			);
-		}, PERSIST_WORKER_TIMEOUT_MS);
 		inFlightWorkerBatches.set(batchId, {
 			entries,
 			resolve,
 			reject,
-			timeout,
+			timeout: null,
 		});
 
-		try {
-			persistWorker?.postMessage({
-				type: "persist_batch",
-				batchId,
-				entries,
-			});
-		} catch (error) {
-			failAllWorkerBatches(error);
-		}
+		void readyPromise
+			.then(() => {
+				const batch = inFlightWorkerBatches.get(batchId);
+				if (!batch) return;
+				if (!persistWorker || !persistWorkerHealthy) {
+					throw new Error(
+						"Persistence worker became unavailable before dispatch",
+					);
+				}
+
+				traceStartupEvent("persistence_worker.batch", "start", {
+					batchId,
+					keys,
+					tables,
+					recordCount: entries.length,
+					timeoutMs: PERSIST_WORKER_TIMEOUT_MS,
+				});
+				batch.timeout = setTimeout(() => {
+					traceStartupEvent("persistence_worker.batch", "timeout", {
+						batchId,
+						keys,
+						tables,
+						recordCount: entries.length,
+						timeoutMs: PERSIST_WORKER_TIMEOUT_MS,
+					});
+					failAllWorkerBatches(
+						new Error(
+							`Persistence worker batch ${batchId} timed out`,
+						),
+					);
+				}, PERSIST_WORKER_TIMEOUT_MS);
+				persistWorker.postMessage({
+					type: "persist_batch",
+					batchId,
+					entries,
+				});
+			})
+			.catch((error) => settleWorkerBatch(batchId, error));
 	});
 
 	return operation;

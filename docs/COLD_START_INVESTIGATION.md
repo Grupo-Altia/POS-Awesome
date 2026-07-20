@@ -70,6 +70,9 @@ include batch id, logical keys, physical tables, record count, duration, and the
   cache hydration promise.
 - Preserve and replay all worker batches, in order, through grouped main-thread
   transactions after worker rejection or the 10 s timeout.
+- Queue startup persistence batches behind the worker database-ready promise.
+  The 10 s batch execution clock starts only after `persistence_worker_ready`;
+  worker database opening has a separate 30 s watchdog.
 - Do not mark a timed-out product source 100% complete. Remove it from the
   progress denominator, keep catalog readiness false, continue loading, and show
   a recoverable warning.
@@ -93,6 +96,10 @@ include batch id, logical keys, physical tables, record count, duration, and the
   state. When an endpoint requests a full rebuild, clear its watermark and finish
   the clean retry immediately so successful resource health is promoted to
   `fresh` without waiting for a later timer tick.
+- Trace every Item Price page with offset, reported next offset, row counts,
+  `has_more`, and schema. A non-empty page can safely recover a missing/stale
+  offset from its returned row count; an empty non-advancing page fails with the
+  exact diagnostics instead of an opaque pagination error.
 - Never delete a corrupt POS database automatically. Provide record-count/storage
   diagnostics and an export of invoice outbox, unified write queue, legacy queues,
   and invoice-intent journals.

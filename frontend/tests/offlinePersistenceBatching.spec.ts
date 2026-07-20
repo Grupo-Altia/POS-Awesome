@@ -17,8 +17,21 @@ class AcknowledgingWorker {
 	onerror: ((_event: ErrorEvent) => void) | null = null;
 	messages: WorkerMessage[] = [];
 
-	constructor() {
+	constructor(autoReady = true) {
 		AcknowledgingWorker.instances.push(this);
+		if (autoReady) {
+			queueMicrotask(() => this.emitReady());
+		}
+	}
+
+	emitReady(openDurationMs = 1) {
+		this.onmessage?.({
+			data: {
+				type: "persistence_worker_ready",
+				databaseVersion: 17,
+				openDurationMs,
+			},
+		} as MessageEvent);
 	}
 
 	postMessage(message: WorkerMessage) {
@@ -72,6 +85,22 @@ class ControlledWorker extends AcknowledgingWorker {
 class HangingWorker extends AcknowledgingWorker {
 	override postMessage(message: WorkerMessage) {
 		this.messages.push(message);
+	}
+}
+
+class DelayedReadyWorker extends AcknowledgingWorker {
+	constructor() {
+		super(false);
+	}
+
+	override postMessage(message: WorkerMessage) {
+		this.messages.push(message);
+		this.onmessage?.({
+			data: {
+				type: "persisted_batch",
+				batchId: message.batchId,
+			},
+		} as MessageEvent);
 	}
 }
 
@@ -276,4 +305,31 @@ describe("offline persistence batching", () => {
 			vi.useRealTimers();
 		}
 	}, 15_000);
+
+	it("starts the batch timeout only after the worker database is ready", async () => {
+		try {
+			vi.stubGlobal("Worker", DelayedReadyWorker);
+			vi.spyOn(console, "error").mockImplementation(() => {});
+			const { flushPersistQueue, persist, PERSIST_WORKER_TIMEOUT_MS } =
+				await importReadyOfflineDb();
+			vi.useFakeTimers();
+
+			persist("item_details_cache", { queuedWhileOpening: true });
+			const flush = flushPersistQueue();
+			await Promise.resolve();
+			const worker = DelayedReadyWorker
+				.instances[0] as DelayedReadyWorker;
+			expect(worker.messages).toHaveLength(0);
+
+			await vi.advanceTimersByTimeAsync(PERSIST_WORKER_TIMEOUT_MS + 1);
+			expect(worker.messages).toHaveLength(0);
+
+			worker.emitReady(8_900);
+			await vi.advanceTimersByTimeAsync(0);
+			expect(worker.messages).toHaveLength(1);
+			await flush;
+		} finally {
+			vi.useRealTimers();
+		}
+	});
 });
