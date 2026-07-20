@@ -843,26 +843,38 @@ export const useItemsStore = defineStore("items", () => {
 		});
 	};
 
-	const getInitializationKey = (
-		profile: POSProfile,
-		cust: string | null,
-		priceList: string | null,
-	) =>
+	const getInitializationKey = (profile: POSProfile) =>
 		[
 			profile?.name || "",
 			(profile as any)?.modified || "",
-			cust || "",
-			priceList || "",
+			profile?.warehouse || "",
+			profile?.selling_price_list || "",
+			String((profile as any)?.posa_use_limit_search || 0),
+			String((profile as any)?.posa_force_server_items || 0),
 		].join("::");
+
+	const updateInitializationContext = (
+		profile: POSProfile,
+		cust: string | null,
+		priceList: string | null,
+	) => {
+		posProfile.value = profile;
+		customer.value = cust;
+		customerPriceList.value = priceList;
+	};
 
 	const initialize = (
 		profile: POSProfile,
 		cust: string | null = null,
 		priceList: string | null = null,
 	): Promise<void> => {
-		const key = getInitializationKey(profile, cust, priceList);
-		if (completedInitializationKey === key) return Promise.resolve();
+		const key = getInitializationKey(profile);
+		if (completedInitializationKey === key) {
+			updateInitializationContext(profile, cust, priceList);
+			return Promise.resolve();
+		}
 		if (initializationInFlight?.key === key) {
+			updateInitializationContext(profile, cust, priceList);
 			return initializationInFlight.promise;
 		}
 		if (initializationInFlight) {

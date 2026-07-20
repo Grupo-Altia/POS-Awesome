@@ -80,11 +80,19 @@ include batch id, logical keys, physical tables, record count, duration, and the
   and identity-guarded `finally` prevent a hung check or realtime `connecting`
   event from leaving the UI permanently in "Checking" or blocking later probes.
 - Own catalog initialization deduplication inside the items store. All UI callers
-  now share one keyed in-flight promise for POS Profile revision, customer, and
-  price list instead of relying on a second module-level coordinator.
+  now share one in-flight promise keyed by the POS Profile catalog identity;
+  transient customer and selector context updates do not queue another IndexedDB
+  pass.
 - Append the current build version to the unhashed `itemWorker.js` URL in both
   worker creation paths, while preserving the optional startup-trace parameter.
   This prevents the first request after a deployment from reusing an older worker.
+- Release the startup overlay at shell/catalog usability. Boot-critical offline
+  resource refresh continues under its own `offline.initial_resource_sync` trace
+  and cannot hold an already usable catalog behind the progress surface.
+- Negotiate schema versions independently from each resource's persisted server
+  state. When an endpoint requests a full rebuild, clear its watermark and finish
+  the clean retry immediately so successful resource health is promoted to
+  `fresh` without waiting for a later timer tick.
 - Never delete a corrupt POS database automatically. Provide record-count/storage
   diagnostics and an export of invoice outbox, unified write queue, legacy queues,
   and invoice-intent journals.

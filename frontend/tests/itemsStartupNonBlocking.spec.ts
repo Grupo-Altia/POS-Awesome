@@ -1,5 +1,8 @@
 import { nextTick, ref } from "vue";
 import { describe, expect, it, vi } from "vitest";
+import { readFileSync } from "node:fs";
+import path from "node:path";
+import { fileURLToPath } from "node:url";
 
 vi.mock("../src/offline/index", () => ({
 	startupInitPromise: new Promise<void>(() => {}),
@@ -8,6 +11,24 @@ vi.mock("../src/offline/index", () => ({
 import { startItemsSelectorInitialization } from "../src/posapp/composables/pos/items/useItemsSelectorInitialization";
 
 describe("item startup critical path", () => {
+	it("releases shell hydration before starting offline resource synchronization", () => {
+		const testsDir = path.dirname(fileURLToPath(import.meta.url));
+		const source = readFileSync(
+			path.resolve(testsDir, "../src/posapp/layouts/DefaultLayout.vue"),
+			"utf8",
+		);
+		const initializeData = source.slice(
+			source.indexOf("const initializeData"),
+		);
+
+		expect(
+			initializeData.indexOf('markSourceLoaded("init")'),
+		).toBeGreaterThan(-1);
+		expect(
+			initializeData.indexOf("finishInitialOfflineResourceSync()"),
+		).toBeGreaterThan(initializeData.indexOf('markSourceLoaded("init")'));
+	});
+
 	it("starts catalog initialization without waiting for unrelated offline hydration", async () => {
 		const initializeStore = vi.fn(async () => undefined);
 		const isInitialized = ref(false);

@@ -300,6 +300,30 @@ describe("itemsStore loadItems", () => {
 		expect(itemServiceMocks.getItemsData).toHaveBeenCalledTimes(1);
 	});
 
+	it("does not repeat catalog storage work for transient startup customer contexts", async () => {
+		const store = useItemsStore();
+		const profile = {
+			name: "POS-DEDUP-CONTEXT",
+			modified: "2026-07-20 10:00:00",
+			warehouse: "Main WH",
+			selling_price_list: "Retail",
+			currency: "PKR",
+			item_groups: [],
+		} as any;
+
+		await store.initialize(profile, null, null);
+		const storageReadsAfterFirstPass =
+			offlineMocks.getStoredItemsCountByScope.mock.calls.length;
+		await store.initialize(profile, "Walk In", "Retail");
+
+		expect(itemServiceMocks.getItemsData).toHaveBeenCalledTimes(1);
+		expect(offlineMocks.getStoredItemsCountByScope).toHaveBeenCalledTimes(
+			storageReadsAfterFirstPass,
+		);
+		expect(store.customer).toBe("Walk In");
+		expect(store.customerPriceList).toBe("Retail");
+	});
+
 	it("does not replace the master catalog with scoped server search results", async () => {
 		vi.useFakeTimers();
 		try {

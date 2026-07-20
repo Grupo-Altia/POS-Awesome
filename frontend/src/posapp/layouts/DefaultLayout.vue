@@ -193,7 +193,6 @@ const instance = getCurrentInstance();
 const $theme = instance?.proxy?.$theme || { toggle: () => {}, isDark: false }; // Fallback
 const __ = instance?.proxy?.__ || ((value) => value);
 const BUILD_VERSION = typeof __BUILD_VERSION__ !== "undefined" ? __BUILD_VERSION__ : null;
-const OFFLINE_SYNC_SCHEMA_VERSION = "2026-07-08";
 const OFFLINE_SYNC_TIMER_INTERVAL_MS = 60_000;
 const PRODUCT_SYNC_SETTLE_TIMEOUT_MS = 120_000;
 const PRODUCT_SYNC_SETTLE_POLL_MS = 250;
@@ -598,7 +597,6 @@ async function runOfflineSyncResource(resource) {
 	return runSupportedOfflineSyncResource({
 		resource,
 		posProfile: profile,
-		schemaVersion: OFFLINE_SYNC_SCHEMA_VERSION,
 		getPersistedState: getSyncResourceState,
 		getRuntimeState: (resourceId) => syncCoordinator.getResourceState(resourceId),
 		callOfflineSyncMethod,
@@ -1025,6 +1023,24 @@ const initializeOfflineQueueReadiness = async () => {
 	return result.ready;
 };
 
+const finishInitialOfflineResourceSync = async () => {
+	const phase = startStartupPhase("offline.initial_resource_sync");
+	try {
+		await scheduleBootCriticalWarmSync();
+		await refreshOfflinePricingRules();
+		finishStartupPhase(phase, "ok", {
+			resources: syncCoordinator.getLastRunSummary(),
+		});
+	} catch (error) {
+		console.error("Initial offline resource sync failed", error);
+		finishStartupPhase(phase, "error", { error });
+	} finally {
+		evaluateBootstrapSnapshot({ allowPrompt: false });
+		initialBootstrapSyncSettled.value = true;
+		void runStartupOfflineDataWarmup("initial_load");
+	}
+};
+
 const initializeData = async () => {
 	const phase = startStartupPhase("ui.final_store_hydration");
 	await startupInitPromise;
@@ -1069,17 +1085,14 @@ const initializeData = async () => {
 	evaluateBootstrapSnapshot({
 		allowPrompt: manualOffline.value || !navigator.onLine,
 	});
-	await scheduleBootCriticalWarmSync();
-	await refreshOfflinePricingRules();
-	evaluateBootstrapSnapshot({ allowPrompt: false });
-	initialBootstrapSyncSettled.value = true;
-	void runStartupOfflineDataWarmup("initial_load");
-
+	// The shell and catalog are usable at this boundary. Offline resource
+	// freshness continues independently and must not hold the startup overlay.
 	markSourceLoaded("init");
 	finishStartupPhase(phase, "ok", {
 		profile: posProfile.value?.name || null,
 		openingShift: posOpeningShift.value?.name || null,
 	});
+	void finishInitialOfflineResourceSync();
 };
 
 const setupEventListeners = () => {
