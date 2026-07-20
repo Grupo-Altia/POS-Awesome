@@ -75,6 +75,16 @@ include batch id, logical keys, physical tables, record count, duration, and the
   a recoverable warning.
 - Treat the period before the first health probe resolves as "Checking", rather
   than "Server Offline".
+- Reconcile the browser and current Frappe realtime socket state when the network
+  lifecycle starts, then force a no-cache HTTP health check. A 9-second watchdog
+  and identity-guarded `finally` prevent a hung check or realtime `connecting`
+  event from leaving the UI permanently in "Checking" or blocking later probes.
+- Own catalog initialization deduplication inside the items store. All UI callers
+  now share one keyed in-flight promise for POS Profile revision, customer, and
+  price list instead of relying on a second module-level coordinator.
+- Append the current build version to the unhashed `itemWorker.js` URL in both
+  worker creation paths, while preserving the optional startup-trace parameter.
+  This prevents the first request after a deployment from reusing an older worker.
 - Never delete a corrupt POS database automatically. Provide record-count/storage
   diagnostics and an export of invoice outbox, unified write queue, legacy queues,
   and invoice-intent journals.

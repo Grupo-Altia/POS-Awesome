@@ -154,7 +154,6 @@ import { useNetworkLifecycle } from "../composables/runtime/useNetworkLifecycle"
 import { useUpdateChecks } from "../composables/runtime/useUpdateChecks";
 import { useCustomerReadiness } from "../composables/runtime/useCustomerReadiness";
 import { useQueueMetrics } from "../composables/runtime/useQueueMetrics";
-import { ensureItemsReady } from "../modules/items/itemLoadingCoordinator";
 import authService from "../services/authService.js";
 import { getValidCachedOpeningForCurrentUser } from "../utils/openingCache";
 import { formatBootstrapWarning, shouldShowBootstrapBanner } from "../utils/bootstrapWarnings";
@@ -377,15 +376,8 @@ function ensureStartupItemsReady(profile) {
 	const customer = selectedCustomer.value || profile.customer || null;
 	const priceList = profile.selling_price_list || null;
 
-	void ensureItemsReady({
-		profile,
-		customer,
-		priceList,
-		initialize: async () => {
-			void startupInitPromise;
-			await itemsStore.initialize(profile, customer, priceList);
-		},
-	}).catch((error) => {
+	void startupInitPromise;
+	void itemsStore.initialize(profile, customer, priceList).catch((error) => {
 		console.error("Failed to initialize POS item catalog", error);
 	});
 }

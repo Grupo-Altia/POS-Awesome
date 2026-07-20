@@ -43,6 +43,7 @@ import {
 	startStartupPhase,
 	traceStartupEvent,
 } from "../utils/startupTrace";
+import { buildPosWorkerUrl } from "../posapp/utils/workerUrl";
 
 type AnyRecord = Record<string, any>;
 
@@ -839,15 +840,8 @@ function initializePersistWorker() {
 		databaseVersion: db.verno,
 	});
 	try {
-		const traceQuery =
-			typeof window !== "undefined" &&
-			new URLSearchParams(window.location.search).get(
-				"posa_startup_trace",
-			) === "1"
-				? "?posa_startup_trace=1"
-				: "";
 		persistWorker = new Worker(
-			`/assets/posawesome/dist/js/posapp/workers/itemWorker.js${traceQuery}`,
+			buildPosWorkerUrl("itemWorker.js", { includeStartupTrace: true }),
 			{ type: "classic" },
 		);
 		persistWorkerHealthy = true;

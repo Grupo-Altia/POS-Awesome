@@ -5,13 +5,6 @@ vi.mock("../src/offline/index", () => ({
 	startupInitPromise: new Promise<void>(() => {}),
 }));
 
-vi.mock("../src/posapp/modules/items/itemLoadingCoordinator", () => ({
-	ensureItemsReady: vi.fn(async ({ initialize }) => {
-		await initialize();
-		return true;
-	}),
-}));
-
 import { startItemsSelectorInitialization } from "../src/posapp/composables/pos/items/useItemsSelectorInitialization";
 
 describe("item startup critical path", () => {

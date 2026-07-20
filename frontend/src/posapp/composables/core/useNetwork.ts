@@ -8,9 +8,9 @@ type NetworkVm = {
 	internetReachable: boolean;
 	isIpHost?: boolean;
 	onConnectivityRecovered?: () => void | Promise<void>;
-	checkNetworkConnectivity: (
-		_options?: { forceImmediate?: boolean },
-	) => Promise<void>;
+	checkNetworkConnectivity: (_options?: {
+		forceImmediate?: boolean;
+	}) => Promise<void>;
 	checkFrappePing: () => Promise<boolean>;
 	checkCurrentOrigin: (
 		_protocol: string,
@@ -57,7 +57,8 @@ function getPersistedStatus() {
 		return {
 			networkOnline:
 				typeof networkOnline === "boolean" ? networkOnline : true,
-			serverOnline: typeof serverOnline === "boolean" ? serverOnline : true,
+			serverOnline:
+				typeof serverOnline === "boolean" ? serverOnline : true,
 		};
 	} catch {
 		return { networkOnline: true, serverOnline: true };
@@ -110,17 +111,14 @@ export async function resolvesAnyTrue(checks: Promise<boolean>[]) {
 		};
 
 		checks.forEach((check) => {
-			Promise.resolve(check).then(
-				(result) => {
-					if (result && !settled) {
-						settled = true;
-						resolve(true);
-						return;
-					}
-					completeFalse();
-				},
-				completeFalse,
-			);
+			Promise.resolve(check).then((result) => {
+				if (result && !settled) {
+					settled = true;
+					resolve(true);
+					return;
+				}
+				completeFalse();
+			}, completeFalse);
 		});
 	});
 }
@@ -157,10 +155,13 @@ function scheduleNextCheck(vm: NetworkVm) {
 			vm.serverConnecting = true;
 			vm.$forceUpdate();
 		}
-		await vm.checkNetworkConnectivity();
-		if (shouldShowConnecting) {
-			vm.serverConnecting = false;
-			vm.$forceUpdate();
+		try {
+			await vm.checkNetworkConnectivity();
+		} finally {
+			if (shouldShowConnecting) {
+				vm.serverConnecting = false;
+				vm.$forceUpdate();
+			}
 		}
 		// If failed, increase interval (up to max)
 		if (!vm.serverOnline) {
@@ -205,7 +206,7 @@ export function setupNetworkListeners(this: NetworkVm) {
 		this.networkOnline = navigator.onLine;
 		this.serverConnecting = true;
 		this.$forceUpdate();
-		this.checkNetworkConnectivity().then(() => {
+		void this.checkNetworkConnectivity().finally(() => {
 			this.serverConnecting = false;
 			this.$forceUpdate();
 		});
@@ -229,20 +230,32 @@ export async function checkNetworkConnectivity(
 		let isConnected = false;
 		let isInternetReachable = false;
 
-		const deskRequest = fetchWithTimeout("/app", {
-			method: "HEAD",
-			cache: "no-cache",
-		}, DESK_TIMEOUT).then((r) => r.status < 500);
+		const deskRequest = fetchWithTimeout(
+			"/app",
+			{
+				method: "HEAD",
+				cache: "no-cache",
+			},
+			DESK_TIMEOUT,
+		).then((r) => r.status < 500);
 
-		const staticRequest = fetchWithTimeout("/assets/frappe/images/frappe-logo.png", {
-			method: "HEAD",
-			cache: "no-cache",
-		}, STATIC_TIMEOUT).then((r) => r.status < 500);
+		const staticRequest = fetchWithTimeout(
+			"/assets/frappe/images/frappe-logo.png",
+			{
+				method: "HEAD",
+				cache: "no-cache",
+			},
+			STATIC_TIMEOUT,
+		).then((r) => r.status < 500);
 
-		const originRequest = fetchWithTimeout(window.location.origin, {
-			method: "HEAD",
-			cache: "no-cache",
-		}, ORIGIN_TIMEOUT).then((r) => r.status < 500);
+		const originRequest = fetchWithTimeout(
+			window.location.origin,
+			{
+				method: "HEAD",
+				cache: "no-cache",
+			},
+			ORIGIN_TIMEOUT,
+		).then((r) => r.status < 500);
 
 		const localCheck = resolvesAnyTrue([
 			deskRequest,
@@ -278,8 +291,17 @@ export async function checkNetworkConnectivity(
 		if (isConnected) {
 			consecutiveSuccesses++;
 			consecutiveFailures = 0;
-			if (options.forceImmediate || consecutiveSuccesses >= SUCCESS_THRESHOLD) {
-				if (!this.networkOnline || !this.serverOnline) {
+			if (
+				options.forceImmediate ||
+				consecutiveSuccesses >= SUCCESS_THRESHOLD
+			) {
+				if (
+					options.forceImmediate ||
+					!this.networkOnline ||
+					!this.serverOnline
+				) {
+					const wasDisconnected =
+						!this.networkOnline || !this.serverOnline;
 					this.networkOnline = isConnected;
 					this.internetReachable = isInternetReachable;
 					this.serverOnline = true;
@@ -287,7 +309,10 @@ export async function checkNetworkConnectivity(
 					persistStatus(this.networkOnline, true);
 					console.log("Network: Connected");
 					this.$forceUpdate();
-					if (typeof this.onConnectivityRecovered === "function") {
+					if (
+						wasDisconnected &&
+						typeof this.onConnectivityRecovered === "function"
+					) {
 						await this.onConnectivityRecovered();
 					}
 				}
@@ -295,7 +320,10 @@ export async function checkNetworkConnectivity(
 		} else {
 			consecutiveFailures++;
 			consecutiveSuccesses = 0;
-			if (options.forceImmediate || consecutiveFailures >= FAILURE_THRESHOLD) {
+			if (
+				options.forceImmediate ||
+				consecutiveFailures >= FAILURE_THRESHOLD
+			) {
 				if (this.networkOnline || this.serverOnline) {
 					this.networkOnline = isConnected;
 					this.internetReachable = isInternetReachable;
@@ -313,7 +341,10 @@ export async function checkNetworkConnectivity(
 		console.warn("Network connectivity check failed:", resolvedError);
 		consecutiveFailures++;
 		consecutiveSuccesses = 0;
-		if (options.forceImmediate || consecutiveFailures >= FAILURE_THRESHOLD) {
+		if (
+			options.forceImmediate ||
+			consecutiveFailures >= FAILURE_THRESHOLD
+		) {
 			this.networkOnline = navigator.onLine;
 			this.internetReachable = false;
 			this.serverOnline = false;

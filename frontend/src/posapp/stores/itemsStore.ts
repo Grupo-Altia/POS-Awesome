@@ -23,7 +23,6 @@ import {
 	buildLoadItemsRequest,
 	type LoadItemsOptions,
 } from "./items/loadItemsRequest";
-import { resetItemLoadingCoordinator } from "../modules/items/itemLoadingCoordinator";
 import {
 	finishStartupPhase,
 	startStartupPhase,
@@ -40,6 +39,10 @@ export const useItemsStore = defineStore("items", () => {
 	const HOT_CATALOG_MAX_LIMIT = 10000;
 	const HOT_CATALOG_DAYS = 120;
 	const COLD_START_CACHE_GRACE_MS = 250;
+	type StoreInitialization = { key: string; promise: Promise<void> };
+	let initializationInFlight: StoreInitialization | null = null;
+	let completedInitializationKey: string | null = null;
+	let initializationGeneration = 0;
 	type OfflineModule = Record<string, any>;
 	let offlineApiPromise: Promise<OfflineModule> | null = null;
 	let serverSearchFallbackTimer: ReturnType<typeof setTimeout> | null = null;
@@ -380,7 +383,8 @@ export const useItemsStore = defineStore("items", () => {
 		isLoading.value = false;
 		cachedPagination.value.loading = false;
 		backgroundSyncState.value.running = false;
-		resetItemLoadingCoordinator();
+		completedInitializationKey = null;
+		initializationGeneration += 1;
 	};
 
 	const shouldTryServerSearchFallback = (term: string, group: string) => {
@@ -784,7 +788,7 @@ export const useItemsStore = defineStore("items", () => {
 	});
 
 	// Actions
-	const initialize = async (
+	const runInitialization = async (
 		profile: POSProfile,
 		cust: string | null = null,
 		priceList: string | null = null,
@@ -837,6 +841,51 @@ export const useItemsStore = defineStore("items", () => {
 			itemCount: items.value.length,
 			cacheSettled,
 		});
+	};
+
+	const getInitializationKey = (
+		profile: POSProfile,
+		cust: string | null,
+		priceList: string | null,
+	) =>
+		[
+			profile?.name || "",
+			(profile as any)?.modified || "",
+			cust || "",
+			priceList || "",
+		].join("::");
+
+	const initialize = (
+		profile: POSProfile,
+		cust: string | null = null,
+		priceList: string | null = null,
+	): Promise<void> => {
+		const key = getInitializationKey(profile, cust, priceList);
+		if (completedInitializationKey === key) return Promise.resolve();
+		if (initializationInFlight?.key === key) {
+			return initializationInFlight.promise;
+		}
+		if (initializationInFlight) {
+			return initializationInFlight.promise
+				.catch(() => undefined)
+				.then(() => initialize(profile, cust, priceList));
+		}
+
+		const generation = initializationGeneration;
+		let operation: Promise<void>;
+		operation = runInitialization(profile, cust, priceList)
+			.then(() => {
+				if (generation === initializationGeneration) {
+					completedInitializationKey = key;
+				}
+			})
+			.finally(() => {
+				if (initializationInFlight?.promise === operation) {
+					initializationInFlight = null;
+				}
+			});
+		initializationInFlight = { key, promise: operation };
+		return operation;
 	};
 
 	const loadCachedItems = async () => {

@@ -273,6 +273,33 @@ describe("itemsStore loadItems", () => {
 		expect(store.filteredItems).toHaveLength(1);
 	});
 
+	it("deduplicates concurrent initialization inside the store", async () => {
+		let releaseCatalog: ((items: any[]) => void) | undefined;
+		itemServiceMocks.getItemsData.mockReturnValueOnce(
+			new Promise<any[]>((resolve) => {
+				releaseCatalog = resolve;
+			}),
+		);
+		const store = useItemsStore();
+		const profile = {
+			name: "POS-DEDUP",
+			warehouse: "Main WH",
+			selling_price_list: "Retail",
+			currency: "PKR",
+			item_groups: [],
+		} as any;
+
+		const first = store.initialize(profile, "Walk In", "Retail");
+		const second = store.initialize(profile, "Walk In", "Retail");
+		await vi.waitFor(() =>
+			expect(itemServiceMocks.getItemsData).toHaveBeenCalledTimes(1),
+		);
+		releaseCatalog?.([]);
+		await Promise.all([first, second]);
+
+		expect(itemServiceMocks.getItemsData).toHaveBeenCalledTimes(1);
+	});
+
 	it("does not replace the master catalog with scoped server search results", async () => {
 		vi.useFakeTimers();
 		try {

@@ -4,6 +4,7 @@ import {
 	finishStartupPhase,
 	startStartupPhase,
 } from "../../../../utils/startupTrace";
+import { buildPosWorkerUrl } from "../../../utils/workerUrl";
 
 declare const __: (_text: string) => string;
 declare const frappe: any;
@@ -112,8 +113,9 @@ export function useItemStorageSafety() {
 		const phase = startStartupPhase("items.worker_creation");
 		try {
 			// Correct path to the worker file
-			const workerUrl =
-				"/assets/posawesome/dist/js/posapp/workers/itemWorker.js";
+			const workerUrl = buildPosWorkerUrl("itemWorker.js", {
+				includeStartupTrace: true,
+			});
 
 			try {
 				// Try initializing with classic type first (better compatibility)

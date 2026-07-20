@@ -5,7 +5,6 @@ import {
 	finishStartupPhase,
 	startStartupPhase,
 } from "../../../../utils/startupTrace";
-import { ensureItemsReady } from "../../../modules/items/itemLoadingCoordinator";
 
 type PosProfileLike = {
 	name?: string | null;
@@ -89,23 +88,11 @@ export function startItemsSelectorInitialization({
 				selectedExchangeRate.value = 1;
 				selectedConversionRate.value = 1;
 
-				await ensureItemsReady({
-					profile: newProfile,
-					customer: selectedCustomer.value as
-						| string
-						| null
-						| undefined,
-					priceList: customerPriceList.value as
-						| string
-						| null
-						| undefined,
-					initialize: async () =>
-						await itemsIntegration.initializeStore(
-							newProfile,
-							selectedCustomer.value,
-							customerPriceList.value,
-						),
-				});
+				await itemsIntegration.initializeStore(
+					newProfile,
+					selectedCustomer.value,
+					customerPriceList.value,
+				);
 
 				isInitialized.value = true;
 				startItemWorker();
