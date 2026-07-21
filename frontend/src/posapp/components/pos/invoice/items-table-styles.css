@@ -394,6 +394,16 @@
 	box-sizing: border-box;
 }
 
+.posa-cart-table td[data-column-key="item_name"] {
+	text-align: left;
+}
+
+.posa-cart-table td[data-column-key="item_name"] > .posa-cart-item-row__item-cell {
+	height: auto;
+	align-items: center;
+	justify-content: flex-start;
+}
+
 /* =================================================================
    QUANTITY COUNTER COMPONENT
    ================================================================= */

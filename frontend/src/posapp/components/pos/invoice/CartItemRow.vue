@@ -14,8 +14,8 @@
 		<template v-for="column in visibleColumns" :key="column.key">
 			<!-- Item Name Column -->
 			<td v-if="column.key === 'item_name'" v-bind="getCellAttrs('item_name', 'text-start')">
-				<div class="d-flex align-center">
-					<span>{{ item.item_name }}</span>
+				<div class="posa-cart-item-row__item-cell">
+					<span class="posa-cart-item-row__item-name">{{ item.item_name }}</span>
 					<v-chip v-if="item.is_bundle" color="secondary" size="x-small" class="ml-1">
 						{{ __("Bundle") }}
 					</v-chip>
@@ -31,38 +31,43 @@
 					>
 						{{ __("Expired") }}
 					</v-chip>
-					<v-chip
-						v-if="item.has_batch_no"
-						:color="item.batch_no ? 'info' : 'error'"
-						size="x-small"
-						variant="tonal"
-						class="ml-1 posa-cart-item-row__tracking-chip"
-						prepend-icon="mdi-package-variant-closed"
-						role="button"
-						tabindex="0"
-						@click.stop="$emit('open-batch-serial', item)"
-						@keydown.enter.stop.prevent="$emit('open-batch-serial', item)"
-						@keydown.space.stop.prevent="$emit('open-batch-serial', item)"
+					<div
+						v-if="item.has_batch_no || item.has_serial_no"
+						class="posa-cart-item-row__tracking-stack"
 					>
-						{{ item.batch_no ? `${__("Batch")}: ${item.batch_no}` : __("Select Batch") }}
-						<v-icon end size="x-small">mdi-pencil</v-icon>
-					</v-chip>
-					<v-chip
-						v-if="item.has_serial_no"
-						:color="serialSelectionComplete ? 'info' : 'error'"
-						size="x-small"
-						variant="tonal"
-						class="ml-1 posa-cart-item-row__tracking-chip"
-						prepend-icon="mdi-barcode"
-						role="button"
-						tabindex="0"
-						@click.stop="$emit('open-batch-serial', item)"
-						@keydown.enter.stop.prevent="$emit('open-batch-serial', item)"
-						@keydown.space.stop.prevent="$emit('open-batch-serial', item)"
-					>
-						{{ __("Serials") }}: {{ selectedSerialCount }}/{{ requiredSerialCount }}
-						<v-icon end size="x-small">mdi-pencil</v-icon>
-					</v-chip>
+						<v-chip
+							v-if="item.has_batch_no"
+							:color="item.batch_no ? 'info' : 'error'"
+							size="x-small"
+							variant="tonal"
+							class="posa-cart-item-row__tracking-chip"
+							prepend-icon="mdi-package-variant-closed"
+							role="button"
+							tabindex="0"
+							@click.stop="$emit('open-batch-serial', item)"
+							@keydown.enter.stop.prevent="$emit('open-batch-serial', item)"
+							@keydown.space.stop.prevent="$emit('open-batch-serial', item)"
+						>
+							{{ item.batch_no ? `${__("Batch")}: ${item.batch_no}` : __("Select Batch") }}
+							<v-icon end size="x-small">mdi-pencil</v-icon>
+						</v-chip>
+						<v-chip
+							v-if="item.has_serial_no"
+							:color="serialSelectionComplete ? 'info' : 'error'"
+							size="x-small"
+							variant="tonal"
+							class="posa-cart-item-row__tracking-chip"
+							prepend-icon="mdi-barcode"
+							role="button"
+							tabindex="0"
+							@click.stop="$emit('open-batch-serial', item)"
+							@keydown.enter.stop.prevent="$emit('open-batch-serial', item)"
+							@keydown.space.stop.prevent="$emit('open-batch-serial', item)"
+						>
+							{{ __("Serials") }}: {{ selectedSerialCount }}/{{ requiredSerialCount }}
+							<v-icon end size="x-small">mdi-pencil</v-icon>
+						</v-chip>
+					</div>
 					<v-chip
 						v-if="item.posa_is_offer || item.is_free_item"
 						color="success"
@@ -1073,7 +1078,38 @@ td {
 	color: #ffffff !important;
 }
 
+td[data-column-key="item_name"] {
+	text-align: left;
+}
+
+.posa-cart-item-row__item-cell {
+	display: flex;
+	align-items: center;
+	justify-content: flex-start;
+	flex-wrap: wrap;
+	gap: 4px;
+	width: 100%;
+	height: auto;
+	text-align: left;
+}
+
+.posa-cart-item-row__item-name {
+	min-width: 0;
+	overflow-wrap: anywhere;
+}
+
+.posa-cart-item-row__tracking-stack {
+	display: flex;
+	flex-direction: column;
+	flex: 0 0 100%;
+	order: 10;
+	align-items: flex-start;
+	gap: 4px;
+	margin-top: 2px;
+}
+
 .posa-cart-item-row__tracking-chip {
+	max-width: 100%;
 	cursor: pointer;
 }
 </style>
