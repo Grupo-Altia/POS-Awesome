@@ -15,6 +15,7 @@ import { useItemBatchSerial } from "./addition/useItemBatchSerial";
 import { useItemBundles } from "./addition/useItemBundles";
 import { collectUsedSerialsForItem } from "./addition/serialSelection";
 import { useBatchSerial } from "../shared/useBatchSerial";
+import { getRequiredStockQuantity } from "../shared/batchSerialValidation";
 
 declare const __: (_text: string, _args?: any[]) => string;
 declare const frappe: any;
@@ -118,15 +119,16 @@ export function useItemAddition() {
 	};
 
 	const getRequestedSerialQty = (item: any) => {
-		const parsedQty = Number(item?.qty);
-		const absQty = Number.isFinite(parsedQty)
-			? Math.abs(Math.trunc(parsedQty))
-			: 0;
-		return Math.max(absQty, 1);
+		const stockQty = getRequiredStockQuantity(item);
+		return Math.max(Number.isFinite(stockQty) ? Math.trunc(stockQty) : 0, 1);
 	};
 
 	const autoAssignSerials = (item: any, context: any) => {
 		if (!item?.has_serial_no) return;
+		if (item._batch_serial_assignment_source === "manual") {
+			callSetSerialNo(context, item);
+			return;
+		}
 
 		const serialRows = Array.isArray(item.serial_no_data)
 			? item.serial_no_data

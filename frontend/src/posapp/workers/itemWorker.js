@@ -350,6 +350,14 @@ self.onmessage = async (event) => {
 				actual_qty: it.actual_qty,
 				has_batch_no: it.has_batch_no,
 				has_serial_no: it.has_serial_no,
+				// Keep the complete assignment metadata for offline manual selection.
+				// The flattened arrays below remain search indexes only.
+				batch_no_data: Array.isArray(it.batch_no_data)
+					? it.batch_no_data
+					: [],
+				serial_no_data: Array.isArray(it.serial_no_data)
+					? it.serial_no_data
+					: [],
 				has_variants: !!it.has_variants,
 				...deriveItemSearchFields(it),
 				serials: Array.isArray(it.serial_no_data)

@@ -138,4 +138,45 @@ describe("useItemDetailFetcher", () => {
 		);
 		expect(item.actual_qty).toBe(8);
 	});
+
+	it("hydrates batch and serial options from cached item details", async () => {
+		getCachedItemDetails.mockResolvedValue({
+			cached: [
+				{
+					item_code: "ITEM-1",
+					actual_qty: 4,
+					has_batch_no: 1,
+					has_serial_no: 1,
+					batch_no_data: [
+						{ batch_no: "B-CACHED", batch_qty: 4 },
+					],
+					serial_no_data: [
+						{ serial_no: "S-CACHED", batch_no: "B-CACHED" },
+					],
+					item_uoms: [{ uom: "Nos", conversion_factor: 1 }],
+				},
+			],
+			missing: [],
+		});
+		const fetcher = useItemDetailFetcher();
+		fetcher.registerContext({
+			pos_profile: { name: "POS-TEST" },
+			active_price_list: "Standard Selling",
+			itemAvailability: null,
+			applyCurrencyConversionToItem: vi.fn(),
+			usesLimitSearch: false,
+			storageAvailable: false,
+		});
+		const item: any = { item_code: "ITEM-1", stock_uom: "Nos" };
+
+		await fetcher.update_items_details([item]);
+
+		expect(item.batch_no_data).toEqual([
+			{ batch_no: "B-CACHED", batch_qty: 4 },
+		]);
+		expect(item.serial_no_data).toEqual([
+			{ serial_no: "S-CACHED", batch_no: "B-CACHED" },
+		]);
+		expect((globalThis as any).frappe.call).not.toHaveBeenCalled();
+	});
 });

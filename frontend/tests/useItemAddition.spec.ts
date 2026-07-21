@@ -344,6 +344,31 @@ describe("useItemAddition new line behavior", () => {
 		expect(context.items[0].price_list_rate).toBe(7);
 	});
 
+	it("auto-assigns serials using converted stock quantity", async () => {
+		const api = useItemAddition();
+		const context = createContext(false) as any;
+		const item = {
+			...createItem(),
+			has_serial_no: 1,
+			qty: 1,
+			conversion_factor: 2,
+			item_uoms: [{ uom: "Nos", conversion_factor: 2 }],
+			serial_no_data: [
+				{ serial_no: "SER-001" },
+				{ serial_no: "SER-002" },
+			],
+		};
+
+		await api.prepareItemForCart(item, 1, context);
+		await api.addItem(item, context);
+
+		expect(context.items[0].serial_no_selected).toEqual([
+			"SER-001",
+			"SER-002",
+		]);
+		expect(context.items[0].qty).toBe(1);
+	});
+
 	it("resets return invoice type back to Invoice on clear", () => {
 		const api = useItemAddition();
 		const emit = vi.fn();
