@@ -190,6 +190,7 @@
 								:calcUom="calc_uom"
 								:setSerialNo="set_serial_no"
 								:setBatchQty="set_batch_qty"
+								:refreshBatchSerialData="refreshBatchSerialData"
 								:validateDueDate="validate_due_date"
 								:removeItem="remove_item"
 								:subtractOne="subtract_one"
@@ -777,6 +778,21 @@ export default {
 				message: item?.item_name || item?.item_code || "",
 				color: "success",
 			});
+		},
+
+		async refreshBatchSerialData(item) {
+			if (!item) return item;
+			await this.update_items_details([item]);
+			if (
+				item.has_batch_no &&
+				item.batch_no &&
+				Array.isArray(item.batch_no_data) &&
+				item.batch_no_data.length > 0
+			) {
+				this.set_batch_qty(item, item.batch_no, false);
+			}
+			this.$forceUpdate();
+			return item;
 		},
 
 		async share_last_invoice() {

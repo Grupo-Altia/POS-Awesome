@@ -383,6 +383,14 @@ export function useItemDetailFetcher() {
 					actual_qty: det.actual_qty,
 					has_batch_no: det.has_batch_no,
 					has_serial_no: det.has_serial_no,
+					// Batch/serial metadata is part of the cached item-detail contract.
+					// Otherwise an all-cached refresh returns with flags but no options.
+					batch_no_data: Array.isArray(det.batch_no_data)
+						? det.batch_no_data
+						: item.batch_no_data,
+					serial_no_data: Array.isArray(det.serial_no_data)
+						? det.serial_no_data
+						: item.serial_no_data,
 				});
 				rebaseAndReapplyReservation(item, det.actual_qty);
 				if (det.item_uoms && det.item_uoms.length > 0) {

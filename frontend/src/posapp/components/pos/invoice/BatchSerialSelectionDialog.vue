@@ -14,6 +14,12 @@
 
 			<v-divider />
 			<v-card-text>
+				<v-progress-linear
+					v-if="loading"
+					indeterminate
+					color="primary"
+					class="mb-4"
+				/>
 				<v-alert
 					v-if="errorMessage"
 					type="error"
@@ -54,7 +60,7 @@
 				</v-autocomplete>
 
 				<v-alert
-					v-if="item?.has_batch_no && batchOptions.length === 0"
+					v-if="item?.has_batch_no && !loading && batchOptions.length === 0"
 					type="warning"
 					variant="tonal"
 					density="compact"
@@ -105,7 +111,7 @@
 				</v-btn>
 				<v-spacer />
 				<v-btn variant="text" @click="cancel">{{ __("Cancel") }}</v-btn>
-				<v-btn color="primary" variant="flat" @click="save">
+				<v-btn color="primary" variant="flat" :disabled="loading" @click="save">
 					{{ __("Save Selection") }}
 				</v-btn>
 			</v-card-actions>
@@ -128,10 +134,12 @@ const props = withDefaults(
 		item: any | null;
 		cartItems?: any[];
 		isReturnInvoice?: boolean;
+		loading?: boolean;
 	}>(),
 	{
 		cartItems: () => [],
 		isReturnInvoice: false,
+		loading: false,
 	},
 );
 
