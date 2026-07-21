@@ -273,6 +273,57 @@ describe("itemsStore loadItems", () => {
 		expect(store.filteredItems).toHaveLength(1);
 	});
 
+	it("deduplicates concurrent initialization inside the store", async () => {
+		let releaseCatalog: ((items: any[]) => void) | undefined;
+		itemServiceMocks.getItemsData.mockReturnValueOnce(
+			new Promise<any[]>((resolve) => {
+				releaseCatalog = resolve;
+			}),
+		);
+		const store = useItemsStore();
+		const profile = {
+			name: "POS-DEDUP",
+			warehouse: "Main WH",
+			selling_price_list: "Retail",
+			currency: "PKR",
+			item_groups: [],
+		} as any;
+
+		const first = store.initialize(profile, "Walk In", "Retail");
+		const second = store.initialize(profile, "Walk In", "Retail");
+		await vi.waitFor(() =>
+			expect(itemServiceMocks.getItemsData).toHaveBeenCalledTimes(1),
+		);
+		releaseCatalog?.([]);
+		await Promise.all([first, second]);
+
+		expect(itemServiceMocks.getItemsData).toHaveBeenCalledTimes(1);
+	});
+
+	it("does not repeat catalog storage work for transient startup customer contexts", async () => {
+		const store = useItemsStore();
+		const profile = {
+			name: "POS-DEDUP-CONTEXT",
+			modified: "2026-07-20 10:00:00",
+			warehouse: "Main WH",
+			selling_price_list: "Retail",
+			currency: "PKR",
+			item_groups: [],
+		} as any;
+
+		await store.initialize(profile, null, null);
+		const storageReadsAfterFirstPass =
+			offlineMocks.getStoredItemsCountByScope.mock.calls.length;
+		await store.initialize(profile, "Walk In", "Retail");
+
+		expect(itemServiceMocks.getItemsData).toHaveBeenCalledTimes(1);
+		expect(offlineMocks.getStoredItemsCountByScope).toHaveBeenCalledTimes(
+			storageReadsAfterFirstPass,
+		);
+		expect(store.customer).toBe("Walk In");
+		expect(store.customerPriceList).toBe("Retail");
+	});
+
 	it("does not replace the master catalog with scoped server search results", async () => {
 		vi.useFakeTimers();
 		try {
@@ -640,6 +691,47 @@ describe("itemsStore loadItems", () => {
 			expect.anything(),
 			expect.anything(),
 		);
+	});
+
+	it("starts the catalog API when a large or blocked IndexedDB read misses the cold-start grace", async () => {
+		vi.useFakeTimers();
+		try {
+			let releaseBlockedRead: ((value: number) => void) | undefined;
+			const blockedRead = new Promise<number>((resolve) => {
+				releaseBlockedRead = resolve;
+			});
+			let countReads = 0;
+			offlineMocks.getStoredItemsCountByScope.mockImplementation(() => {
+				countReads += 1;
+				return countReads <= 2 ? blockedRead : Promise.resolve(0);
+			});
+			const store = useItemsStore();
+			const initialization = store.initialize({
+				name: "POS-BLOCKED-IDB",
+				warehouse: "Main WH",
+				selling_price_list: "Retail",
+				currency: "PKR",
+				item_groups: [],
+				posa_use_limit_search: 0,
+			} as any);
+
+			await Promise.resolve();
+			expect(itemServiceMocks.getItemsData).not.toHaveBeenCalled();
+			await vi.advanceTimersByTimeAsync(250);
+			expect(itemServiceMocks.getItemsData).toHaveBeenCalledWith(
+				expect.objectContaining({
+					price_list: "Retail",
+					limit: 50,
+				}),
+				expect.any(AbortSignal),
+			);
+			releaseBlockedRead?.(0);
+			vi.useRealTimers();
+			await initialization;
+			expect(store.itemsLoaded).toBe(true);
+		} finally {
+			vi.useRealTimers();
+		}
 	});
 
 	it("bypasses memory result cache when scoped offline catalog is large", async () => {

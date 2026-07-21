@@ -60,6 +60,7 @@
 import { refreshBootstrapSnapshotFromCaches } from "./bootstrapSnapshot";
 import { memory, persist, db, checkDbHealth } from "./db";
 import { emitBootstrapSnapshotUpdated } from "../posapp/utils/bootstrapRuntimeEvents";
+import { finishStartupPhase, startStartupPhase } from "../utils/startupTrace";
 
 const normalizeScope = (scope: unknown): string => String(scope || "");
 const hasScope = (scope: unknown): boolean => normalizeScope(scope).length > 0;
@@ -500,6 +501,10 @@ export async function stageItemCatalogRows(
 	scope: string,
 	generation: string,
 ) {
+	const transformPhase = startStartupPhase("items.transform_and_index", {
+		recordCount: items.length,
+		scope,
+	});
 	const normalizedScope = requireCatalogScope(scope);
 	if (!generation) {
 		throw new Error("Item catalog staging requires a generation id");
@@ -507,7 +512,14 @@ export async function stageItemCatalogRows(
 	await checkDbHealth();
 	if (!db.isOpen()) await db.open();
 	const rows = normalizeCatalogRows(items, normalizedScope, generation);
+	finishStartupPhase(transformPhase, "ok", { recordCount: rows.length });
+	const writePhase = startStartupPhase("items.indexeddb_write", {
+		recordCount: rows.length,
+		table: ITEM_CATALOG_ROWS_TABLE,
+		scope: normalizedScope,
+	});
 	await writeCatalogRows(rows);
+	finishStartupPhase(writePhase, "ok", { recordCount: rows.length });
 	return rows.length;
 }
 
@@ -1222,7 +1234,9 @@ async function attachOfflineBuyingFloors(profileName: string, items: any[]) {
 	const buyingPriceList = String(profile?.buying_price_list || "").trim();
 	if (!buyingPriceList) return items;
 
-	const itemCodes = new Set(items.map((item) => String(item?.item_code || "")));
+	const itemCodes = new Set(
+		items.map((item) => String(item?.item_code || "")),
+	);
 	const today = new Date().toISOString().slice(0, 10);
 	const priceRows = await db
 		.table("item_price_records")
@@ -1233,8 +1247,10 @@ async function attachOfflineBuyingFloors(profileName: string, items: any[]) {
 				itemCodes.has(String(row?.item_code || "")) &&
 				!row?.customer &&
 				!row?.supplier &&
-				(!row?.valid_from || String(row.valid_from).slice(0, 10) <= today) &&
-				(!row?.valid_upto || String(row.valid_upto).slice(0, 10) >= today),
+				(!row?.valid_from ||
+					String(row.valid_from).slice(0, 10) <= today) &&
+				(!row?.valid_upto ||
+					String(row.valid_upto).slice(0, 10) >= today),
 		)
 		.toArray();
 	if (!priceRows.length) return items;
@@ -1244,8 +1260,10 @@ async function attachOfflineBuyingFloors(profileName: string, items: any[]) {
 	);
 	const currencyRates = new Map<string, number>();
 	const toCompanyRate = async (currency: string) => {
-		if (!currency || !companyCurrency || currency === companyCurrency) return 1;
-		if (currencyRates.has(currency)) return currencyRates.get(currency) || 0;
+		if (!currency || !companyCurrency || currency === companyCurrency)
+			return 1;
+		if (currencyRates.has(currency))
+			return currencyRates.get(currency) || 0;
 		const rows = await db
 			.table("currency_rate_records")
 			.where("[profile_name+company+from_currency+to_currency]")
@@ -1257,7 +1275,9 @@ async function attachOfflineBuyingFloors(profileName: string, items: any[]) {
 			])
 			.toArray();
 		const selected = rows
-			.filter((row) => !row?.date || String(row.date).slice(0, 10) <= today)
+			.filter(
+				(row) => !row?.date || String(row.date).slice(0, 10) <= today,
+			)
 			.sort((left, right) =>
 				String(right?.date || right?.modified || "").localeCompare(
 					String(left?.date || left?.modified || ""),
@@ -1288,8 +1308,11 @@ async function attachOfflineBuyingFloors(profileName: string, items: any[]) {
 			const uom = String(row?.uom || "");
 			if (pricesByUom[uom]) continue;
 			const rate = Number(row?.price_list_rate || 0);
-			const exchangeRate = await toCompanyRate(String(row?.currency || ""));
-			if (!Number.isFinite(rate) || rate <= 0 || exchangeRate <= 0) continue;
+			const exchangeRate = await toCompanyRate(
+				String(row?.currency || ""),
+			);
+			if (!Number.isFinite(rate) || rate <= 0 || exchangeRate <= 0)
+				continue;
 			pricesByUom[uom] = {
 				price_list_rate: rate,
 				base_price_list_rate: rate * exchangeRate,
@@ -1312,7 +1335,8 @@ export async function setProfileBuyingPriceList(
 	if (!profile?.name || !buyingPriceList) return;
 	await checkDbHealth();
 	if (!db.isOpen()) await db.open();
-	const current = (await db.table("pos_profiles").get(profile.name)) || profile;
+	const current =
+		(await db.table("pos_profiles").get(profile.name)) || profile;
 	await db.table("pos_profiles").put({
 		...current,
 		buying_price_list: buyingPriceList,

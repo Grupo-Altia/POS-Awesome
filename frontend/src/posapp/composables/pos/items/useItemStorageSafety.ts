@@ -1,5 +1,10 @@
 import { ref, onUnmounted } from "vue";
 import { checkDbHealth } from "../../../../offline/index";
+import {
+	finishStartupPhase,
+	startStartupPhase,
+} from "../../../../utils/startupTrace";
+import { buildPosWorkerUrl } from "../../../utils/workerUrl";
 
 declare const __: (_text: string) => string;
 declare const frappe: any;
@@ -55,7 +60,9 @@ export function useItemStorageSafety() {
 
 		if (window.frappe) {
 			frappe.show_alert({
-				message: __("Local item storage recovered. Background sync resumed."),
+				message: __(
+					"Local item storage recovered. Background sync resumed.",
+				),
 				indicator: "green",
 			});
 		}
@@ -103,10 +110,12 @@ export function useItemStorageSafety() {
 			return;
 		}
 
+		const phase = startStartupPhase("items.worker_creation");
 		try {
 			// Correct path to the worker file
-			const workerUrl =
-				"/assets/posawesome/dist/js/posapp/workers/itemWorker.js";
+			const workerUrl = buildPosWorkerUrl("itemWorker.js", {
+				includeStartupTrace: true,
+			});
 
 			try {
 				// Try initializing with classic type first (better compatibility)
@@ -132,8 +141,10 @@ export function useItemStorageSafety() {
 			};
 
 			console.log("Item Worker started");
+			finishStartupPhase(phase, "ok");
 		} catch (e: unknown) {
 			console.error("Failed to start item worker", e);
+			finishStartupPhase(phase, "error", { error: e });
 		}
 	}
 

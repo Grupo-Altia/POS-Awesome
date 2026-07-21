@@ -102,6 +102,7 @@ import { useSyncStore } from "../stores/syncStore.js";
 import { useToastStore } from "../stores/toastStore.js";
 import { useUIStore } from "../stores/uiStore.js";
 import { useUpdateStore } from "../stores/updateStore.js";
+import { finishStartupPhase, startStartupPhase, traceStartupEvent } from "../../utils/startupTrace";
 import { useItemsStore } from "../stores/itemsStore.js";
 import { usePricingRulesStore } from "../stores/pricingRulesStore";
 import { useOfflineSyncStore } from "../stores/offlineSyncStore";
@@ -119,7 +120,7 @@ import {
 	queueHealthCheck,
 	purgeOldQueueEntries,
 	initPromise,
-	memoryInitPromise,
+	startupInitPromise,
 	ensureOfflineQueueReady,
 	toggleManualOffline,
 	isManualOffline as getIsManualOffline,
@@ -153,7 +154,6 @@ import { useNetworkLifecycle } from "../composables/runtime/useNetworkLifecycle"
 import { useUpdateChecks } from "../composables/runtime/useUpdateChecks";
 import { useCustomerReadiness } from "../composables/runtime/useCustomerReadiness";
 import { useQueueMetrics } from "../composables/runtime/useQueueMetrics";
-import { ensureItemsReady } from "../modules/items/itemLoadingCoordinator";
 import authService from "../services/authService.js";
 import { getValidCachedOpeningForCurrentUser } from "../utils/openingCache";
 import { formatBootstrapWarning, shouldShowBootstrapBanner } from "../utils/bootstrapWarnings";
@@ -193,7 +193,6 @@ const instance = getCurrentInstance();
 const $theme = instance?.proxy?.$theme || { toggle: () => {}, isDark: false }; // Fallback
 const __ = instance?.proxy?.__ || ((value) => value);
 const BUILD_VERSION = typeof __BUILD_VERSION__ !== "undefined" ? __BUILD_VERSION__ : null;
-const OFFLINE_SYNC_SCHEMA_VERSION = "2026-07-08";
 const OFFLINE_SYNC_TIMER_INTERVAL_MS = 60_000;
 const PRODUCT_SYNC_SETTLE_TIMEOUT_MS = 120_000;
 const PRODUCT_SYNC_SETTLE_POLL_MS = 250;
@@ -262,7 +261,9 @@ const offlineSyncRuntime = createOfflineSyncRuntime({
 // Network status
 const networkOnline = ref(navigator.onLine || false);
 const serverOnline = ref(false);
-const serverConnecting = ref(false);
+// Until the first health probe settles, an online browser is "Checking", not
+// "Server Offline". This avoids misclassifying a storage-bound cold start.
+const serverConnecting = ref(Boolean(navigator.onLine));
 const internetReachable = ref(false);
 const isIpHost = ref(false);
 
@@ -310,11 +311,18 @@ const eventBus = instance?.proxy?.eventBus;
 initLoadingSources(["init", "items", "customers"]);
 scheduleSourceRelease("items", PRODUCT_CATALOG_BOOTSTRAP_GRACE_MS, () => {
 	if (itemsLoaded.value) return;
+	traceStartupEvent("ui.product_catalog_progress", "timeout", {
+		progress: itemsLoadProgress.value,
+		itemCount: itemsStore.items.length,
+		backgroundLoading: itemsBackgroundLoading.value,
+	});
 	console.warn("Product catalog is still loading; releasing the startup progress surface.");
 	toastStore.show({
 		title: __("Product catalog is still loading"),
-		detail: __("You can continue using the POS while catalog data finishes loading in the background."),
-		color: "info",
+		detail: __(
+			"The catalog is not ready yet. Loading continues in the background; retry the catalog if products remain unavailable.",
+		),
+		color: "warning",
 	});
 });
 
@@ -367,15 +375,8 @@ function ensureStartupItemsReady(profile) {
 	const customer = selectedCustomer.value || profile.customer || null;
 	const priceList = profile.selling_price_list || null;
 
-	void ensureItemsReady({
-		profile,
-		customer,
-		priceList,
-		initialize: async () => {
-			await memoryInitPromise;
-			await itemsStore.initialize(profile, customer, priceList);
-		},
-	}).catch((error) => {
+	void startupInitPromise;
+	void itemsStore.initialize(profile, customer, priceList).catch((error) => {
 		console.error("Failed to initialize POS item catalog", error);
 	});
 }
@@ -557,7 +558,7 @@ async function refreshOfflineProductCatalog() {
 	}
 
 	try {
-		await memoryInitPromise;
+		await startupInitPromise;
 		if (!itemsStore.posProfile?.name) {
 			await itemsStore.initialize(
 				profile,
@@ -596,7 +597,6 @@ async function runOfflineSyncResource(resource) {
 	return runSupportedOfflineSyncResource({
 		resource,
 		posProfile: profile,
-		schemaVersion: OFFLINE_SYNC_SCHEMA_VERSION,
 		getPersistedState: getSyncResourceState,
 		getRuntimeState: (resourceId) => syncCoordinator.getResourceState(resourceId),
 		callOfflineSyncMethod,
@@ -829,13 +829,7 @@ watch(
 		posProfile.value?.selling_price_list || null,
 		posProfile.value?.currency || null,
 	],
-	([
-		isInitialSyncSettled,
-		areWarningsReady,
-		isNetworkOnline,
-		isServerOnline,
-		isServerConnecting,
-	]) => {
+	([isInitialSyncSettled, areWarningsReady, isNetworkOnline, isServerOnline, isServerConnecting]) => {
 		if (
 			isInitialSyncSettled &&
 			areWarningsReady &&
@@ -1005,14 +999,14 @@ const notifyCacheCapacityIfActionable = (usage = {}) => {
 	toastStore.show({
 		title: __("Local cache usage is high"),
 		detail: offlineNow
-			? __(
-					"Reconnect online to sync {0} pending local record(s). Cache usage is {1}%.",
-					[pendingTotal, Math.round(usage.percentage || 0)],
-				)
-			: __(
-					"Sync {0} pending local record(s). Cache usage is {1}%.",
-					[pendingTotal, Math.round(usage.percentage || 0)],
-				),
+			? __("Reconnect online to sync {0} pending local record(s). Cache usage is {1}%.", [
+					pendingTotal,
+					Math.round(usage.percentage || 0),
+				])
+			: __("Sync {0} pending local record(s). Cache usage is {1}%.", [
+					pendingTotal,
+					Math.round(usage.percentage || 0),
+				]),
 		color: "warning",
 	});
 };
@@ -1029,8 +1023,31 @@ const initializeOfflineQueueReadiness = async () => {
 	return result.ready;
 };
 
+const finishInitialOfflineResourceSync = async () => {
+	const phase = startStartupPhase("offline.initial_resource_sync");
+	try {
+		await scheduleBootCriticalWarmSync();
+		await refreshOfflinePricingRules();
+		finishStartupPhase(phase, "ok", {
+			resources: syncCoordinator.getLastRunSummary(),
+		});
+	} catch (error) {
+		console.error("Initial offline resource sync failed", error);
+		finishStartupPhase(phase, "error", { error });
+	} finally {
+		evaluateBootstrapSnapshot({ allowPrompt: false });
+		initialBootstrapSyncSettled.value = true;
+		void runStartupOfflineDataWarmup("initial_load");
+	}
+};
+
 const initializeData = async () => {
-	await initPromise;
+	const phase = startStartupPhase("ui.final_store_hydration");
+	await startupInitPromise;
+	void initPromise.then(
+		() => traceStartupEvent("indexeddb.full_memory_hydration", "ok"),
+		(error) => traceStartupEvent("indexeddb.full_memory_hydration", "error", { error }),
+	);
 	await initializeOfflineQueueReadiness();
 	await hydrateOfflineSyncResourceStates();
 	checkDbHealth().catch(() => {});
@@ -1068,13 +1085,14 @@ const initializeData = async () => {
 	evaluateBootstrapSnapshot({
 		allowPrompt: manualOffline.value || !navigator.onLine,
 	});
-	await scheduleBootCriticalWarmSync();
-	await refreshOfflinePricingRules();
-	evaluateBootstrapSnapshot({ allowPrompt: false });
-	initialBootstrapSyncSettled.value = true;
-	void runStartupOfflineDataWarmup("initial_load");
-
+	// The shell and catalog are usable at this boundary. Offline resource
+	// freshness continues independently and must not hold the startup overlay.
 	markSourceLoaded("init");
+	finishStartupPhase(phase, "ok", {
+		profile: posProfile.value?.name || null,
+		openingShift: posOpeningShift.value?.name || null,
+	});
+	void finishInitialOfflineResourceSync();
 };
 
 const setupEventListeners = () => {

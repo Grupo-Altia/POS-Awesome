@@ -172,10 +172,8 @@ import { clearAllCaches } from "../../utils/clearAllCaches";
 import { isOffline } from "../../offline/index";
 import { useRtl } from "../composables/core/useRtl";
 import { withRequestTimeout } from "../utils/requestTimeout";
-import {
-	loadCachedTerminalEmployees,
-	saveCachedTerminalEmployees,
-} from "../utils/terminalEmployeeCache";
+import { finishStartupPhase, startStartupPhase } from "../../utils/startupTrace";
+import { loadCachedTerminalEmployees, saveCachedTerminalEmployees } from "../utils/terminalEmployeeCache";
 
 const TERMINAL_SECURITY_REQUEST_TIMEOUT_MS = 20_000;
 
@@ -603,6 +601,11 @@ export default {
 
 			const sessionUser = String(frappe.session?.user || "").trim();
 			const cachedEmployees = loadCachedTerminalEmployees(sessionUser, profileName);
+			const phase = startStartupPhase("cashier.employee_loading", {
+				profile: profileName,
+				cachedCount: cachedEmployees.length,
+				timeoutMs: TERMINAL_SECURITY_REQUEST_TIMEOUT_MS,
+			});
 			this.employeeStore.beginTerminalEmployeesLoad(profileName, cachedEmployees);
 			const employeesRequest = withRequestTimeout(
 				Promise.resolve().then(() =>
@@ -668,6 +671,17 @@ export default {
 				console.error("Failed to load authoritative terminal state", stateResult.reason);
 				this.employeeStore.applyTerminalState(null);
 			}
+			finishStartupPhase(
+				phase,
+				employeesResult.status === "fulfilled" && stateResult.status === "fulfilled" ? "ok" : "error",
+				{
+					employeeCount:
+						employeesResult.status === "fulfilled" &&
+						Array.isArray(employeesResult.value?.message)
+							? employeesResult.value.message.length
+							: 0,
+				},
+			);
 		},
 		openEmployeeSwitch() {
 			this.employeeStore.openEmployeeSwitch();
