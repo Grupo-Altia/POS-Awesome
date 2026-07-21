@@ -1,6 +1,10 @@
 import { describe, expect, it } from "vitest";
 
-import { applyLocalPricingRules, computeFreeItems } from "../src/lib/pricingEngine.ts";
+import {
+	applyLocalPricingRules,
+	computeFreeItems,
+	evaluateTransactionPricingRules,
+} from "../src/lib/pricingEngine.ts";
 
 const buildIndexes = (config = {}) => {
 	return {
@@ -412,28 +416,20 @@ describe("pricingEngine - computeFreeItems", () => {
 		};
 		const indexes = buildIndexes({ general: [rule] });
 
-		const belowMinimum = computeFreeItems({
-			item: { item_code: "ITEM-AMT", qty: 1 },
-			qty: 1,
-			docQty: 1,
-			docAmount: 40,
+		const belowMinimum = evaluateTransactionPricingRules({
 			cartAmount: 40,
-			baseRate: 40,
+			cartQty: 1,
 			ctx: {},
 			indexes,
-		});
+		}).freebies;
 		expect(belowMinimum).toHaveLength(0);
 
-		const qualified = computeFreeItems({
-			item: { item_code: "ITEM-AMT", qty: 1 },
-			qty: 1,
-			docQty: 1,
-			docAmount: 40,
+		const qualified = evaluateTransactionPricingRules({
 			cartAmount: 120,
-			baseRate: 40,
+			cartQty: 1,
 			ctx: {},
 			indexes,
-		});
+		}).freebies;
 		expect(qualified).toHaveLength(1);
 		expect(qualified[0].item_code).toBe("BONUS");
 	});
@@ -528,5 +524,66 @@ describe("pricingEngine - computeFreeItems", () => {
 		expect(freeLine.discount_amount).toBe(15);
 		expect(freeLine.base_discount_amount).toBe(15);
 		expect(freeLine.discount_percentage).toBeCloseTo(37.5);
+	});
+
+	it("applies a transaction fixed discount once to the whole cart", () => {
+		const rule = {
+			name: "TXN-AMOUNT-20",
+			apply_on: "Transaction",
+			price_or_discount: "Price",
+			discount_type: "Amount",
+			rate_or_discount_type: "Discount Amount",
+			rate_or_discount: 20,
+			min_amt: 100,
+			specificity: 0,
+			priority: 10,
+		};
+		const indexes = buildIndexes({ general: [rule] });
+
+		const result = evaluateTransactionPricingRules({
+			cartAmount: 150,
+			cartQty: 4,
+			ctx: {},
+			indexes,
+		});
+
+		expect(result.pricing.rate).toBe(130);
+		expect(result.pricing.discountPerUnit).toBe(20);
+		expect(result.pricing.applied.map((entry) => entry.name)).toEqual([
+			"TXN-AMOUNT-20",
+		]);
+	});
+
+	it("uses cart totals for transaction quantity and amount thresholds", () => {
+		const rule = {
+			name: "TXN-PERCENT-10",
+			apply_on: "Transaction",
+			price_or_discount: "Price",
+			discount_type: "Rate",
+			rate_or_discount_type: "Discount Percentage",
+			rate_or_discount: 10,
+			min_qty: 3,
+			min_amt: 100,
+			specificity: 0,
+			priority: 10,
+		};
+		const indexes = buildIndexes({ general: [rule] });
+
+		const below = evaluateTransactionPricingRules({
+			cartAmount: 90,
+			cartQty: 3,
+			ctx: {},
+			indexes,
+		});
+		const qualified = evaluateTransactionPricingRules({
+			cartAmount: 120,
+			cartQty: 3,
+			ctx: {},
+			indexes,
+		});
+
+		expect(below.pricing.applied).toHaveLength(0);
+		expect(qualified.pricing.rate).toBe(108);
+		expect(qualified.pricing.discountPerUnit).toBe(12);
 	});
 });

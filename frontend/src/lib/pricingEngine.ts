@@ -534,6 +534,7 @@ export const evaluatePricingRules = ({
 	baseRate,
 	ctx,
 	indexes,
+	evaluationScope = "line",
 }: {
 	item: AnyRecord;
 	qty?: number | string;
@@ -543,6 +544,7 @@ export const evaluatePricingRules = ({
 	baseRate?: number;
 	ctx?: AnyRecord;
 	indexes?: PricingRuleIndexBundle;
+	evaluationScope?: "line" | "transaction";
 }): {
 	pricing: {
 		rate: number;
@@ -596,7 +598,11 @@ export const evaluatePricingRules = ({
 		cartAmount !== undefined ? resolvePositiveAmount(cartAmount) : lineAmount;
 
 	// Optimization: collect candidates once
-	const candidates = collectCandidates(item, indexes);
+	const candidates = collectCandidates(item, indexes).filter((rule) => {
+		const isTransaction =
+			String(rule?.apply_on || "").toLowerCase() === "transaction";
+		return evaluationScope === "transaction" ? isTransaction : !isTransaction;
+	});
 
 	const pricingRules: AnyRecord[] = [];
 	const freeRules: AnyRecord[] = [];
@@ -711,6 +717,42 @@ export const evaluatePricingRules = ({
 	}
 
 	return { pricing, freebies };
+};
+
+/**
+ * Evaluates rules whose ERPNext scope is the whole transaction exactly once.
+ * Transaction rules are header-level rules: their quantity and amount thresholds
+ * use cart totals and a fixed discount amount must not be repeated per item/qty.
+ */
+export const evaluateTransactionPricingRules = ({
+	cartAmount,
+	cartQty,
+	ctx,
+	indexes,
+}: {
+	cartAmount?: number | string;
+	cartQty?: number | string;
+	ctx?: AnyRecord;
+	indexes?: PricingRuleIndexBundle;
+}) => {
+	const transactionRules = (indexes?.general || []).filter(
+		(rule) => String(rule?.apply_on || "").toLowerCase() === "transaction",
+	);
+
+	return evaluatePricingRules({
+		item: {},
+		qty: cartQty,
+		docQty: cartQty,
+		docAmount: cartAmount,
+		cartAmount,
+		baseRate: resolvePositiveAmount(cartAmount),
+		ctx,
+		indexes: {
+			general: transactionRules,
+			preSorted: indexes?.preSorted,
+		},
+		evaluationScope: "transaction",
+	});
 };
 
 // Deprecated: Wrappers for backward compatibility

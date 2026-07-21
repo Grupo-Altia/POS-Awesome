@@ -1,11 +1,21 @@
 import { isOffline } from "../../../../offline/index";
 import { usePricingRulesStore } from "../../../stores/pricingRulesStore.js";
 import { useItemsStore } from "../../../stores/itemsStore.js";
-import { evaluatePricingRules } from "../../../../lib/pricingEngine";
+import {
+	evaluatePricingRules,
+	evaluateTransactionPricingRules,
+} from "../../../../lib/pricingEngine";
 import { _syncAutoFreeLines } from "./free_items";
 
 declare const __: (_text: string, _args?: any[]) => string;
 declare const frappe: any;
+
+const isEnabledFlag = (value: unknown) =>
+	value === true || value === 1 || value === "1";
+
+export function isPricingRulesIgnored(context: any) {
+	return isEnabledFlag(context?.pos_profile?.ignore_pricing_rule);
+}
 
 /**
  * Pricing Utils
@@ -64,6 +74,7 @@ export function _getPricingContext(context: any) {
 	const customerInfo = context.customer_info || {};
 
 	return {
+		pos_profile: context.pos_profile?.name || doc.pos_profile || null,
 		company: context.pos_profile?.company || doc.company || null,
 		price_list:
 			priceList || context.pos_profile?.selling_price_list || null,
@@ -166,6 +177,27 @@ export function _resolveCartPricingAmount(context: any) {
 			return total;
 		}
 		return total + _resolvePricingAmount(context, item);
+	}, 0);
+}
+
+export function _resolveCartNetPricingAmount(context: any) {
+	if (!Array.isArray(context?.items)) {
+		return 0;
+	}
+	return context.items.reduce((total, item) => {
+		if (!item || item.is_free_item || item.auto_free_source) {
+			return total;
+		}
+		const qty = Math.abs(Number.parseFloat(String(item.qty ?? 0)) || 0);
+		const explicitBaseRate = Number.parseFloat(String(item.base_rate ?? ""));
+		const baseRate = Number.isFinite(explicitBaseRate)
+			? Math.abs(explicitBaseRate)
+			: Math.abs(
+					context._toBaseCurrency
+						? context._toBaseCurrency(item.rate || 0)
+						: Number(item.rate || 0),
+				);
+		return total + qty * baseRate;
 	}, 0);
 }
 
@@ -375,6 +407,10 @@ export async function applyPricingRulesForCart(context: any, force = false) {
 	if (context.isReturnInvoice) {
 		return;
 	}
+	if (isPricingRulesIgnored(context)) {
+		_clearPricingRuleEffects(context);
+		return;
+	}
 	if (context._applyingPricingRules) {
 		context._pendingPricingRules = true;
 		return;
@@ -404,6 +440,10 @@ export async function applyPricingRulesForCart(context: any, force = false) {
 
 export async function _applyLocalPricingRules(context: any, force = false) {
 	try {
+		if (isPricingRulesIgnored(context)) {
+			_clearPricingRuleEffects(context);
+			return;
+		}
 		const { store, ctx } = await _ensurePricingRules(context, force);
 		if (!store) {
 			return;
@@ -411,13 +451,36 @@ export async function _applyLocalPricingRules(context: any, force = false) {
 		const indexes = store.getIndexes ? store.getIndexes() : {};
 		const freebiesMap = new Map();
 		const cartAmount = _resolveCartPricingAmount(context);
+		let cartQty = 0;
 
 		for (const item of context.items) {
 			if (!item || item.is_free_item) {
 				continue;
 			}
-			_applyPricingToLine(context, item, ctx, indexes, freebiesMap, cartAmount);
+			cartQty += Math.abs(_resolvePricingQty(context, item));
+			_applyPricingToLine(
+				context,
+				item,
+				ctx,
+				indexes,
+				freebiesMap,
+				cartAmount,
+			);
 		}
+
+		const transactionCartAmount = _resolveCartNetPricingAmount(context);
+		const transactionResult = evaluateTransactionPricingRules({
+			cartAmount: transactionCartAmount,
+			cartQty,
+			ctx,
+			indexes,
+		});
+		_applyTransactionPricing(
+			context,
+			transactionResult,
+			transactionCartAmount,
+			freebiesMap,
+		);
 
 		syncAutoFreeLines(context, freebiesMap);
 		refreshInvoiceTotals(context);
@@ -427,6 +490,98 @@ export async function _applyLocalPricingRules(context: any, force = false) {
 	} catch (error) {
 		console.error("Failed to apply pricing rules locally", error);
 	}
+}
+
+function _applyTransactionPricing(
+	context: any,
+	result: any,
+	baseCartAmount: number,
+	freebiesMap: Map<string, any>,
+) {
+	const applied = Array.isArray(result?.pricing?.applied)
+		? result.pricing.applied
+		: [];
+	const baseDiscount = Math.max(
+		0,
+		Math.min(Number(result?.pricing?.discountPerUnit || 0), baseCartAmount),
+	);
+	const displayDiscount = context._fromBaseCurrency
+		? context._fromBaseCurrency(baseDiscount)
+		: baseDiscount;
+
+	if (applied.length) {
+		context.additional_discount = context.flt
+			? context.flt(displayDiscount, context.currency_precision)
+			: displayDiscount;
+		context.discount_amount = context.additional_discount;
+		context.additional_discount_percentage = baseCartAmount
+			? context.flt
+				? context.flt(
+						(baseDiscount / baseCartAmount) * 100,
+						context.float_precision,
+					)
+				: (baseDiscount / baseCartAmount) * 100
+			: 0;
+		context._pricing_rule_transaction_discount = true;
+		const names = applied.map((detail) => detail.name).filter(Boolean);
+		if (context.invoice_doc) {
+			context.invoice_doc.pricing_rules = JSON.stringify(names);
+			context.invoice_doc.apply_discount_on = "Net Total";
+		}
+	} else if (context._pricing_rule_transaction_discount) {
+		context.additional_discount = 0;
+		context.discount_amount = 0;
+		context.additional_discount_percentage = 0;
+		context._pricing_rule_transaction_discount = false;
+		if (context.invoice_doc) {
+			context.invoice_doc.pricing_rules = null;
+		}
+	}
+
+	for (const entry of result?.freebies || []) {
+		const key = `${entry.rule}::${entry.item_code}::transaction`;
+		freebiesMap.set(key, {
+			...entry,
+			parentRowId: null,
+		});
+	}
+}
+
+export function _clearPricingRuleEffects(context: any) {
+	for (const item of context?.items || []) {
+		const hadPricingRule = Boolean(
+			item?.pricing_rule_badge ||
+			item?.pricing_rules ||
+			(Array.isArray(item?.pricing_rule_details) &&
+				item.pricing_rule_details.length),
+		);
+		if (
+			hadPricingRule &&
+			!item._manual_rate_set &&
+			!item.locked_price &&
+			!item.posa_offer_applied
+		) {
+			const baseRate = _resolveBaseRate(context, item);
+			item.base_rate = baseRate;
+			item.base_discount_amount = 0;
+			item.discount_percentage = 0;
+			item.discount_amount = 0;
+			item.rate = context._fromBaseCurrency
+				? context._fromBaseCurrency(baseRate)
+				: baseRate;
+			item.amount = item.rate * Number(item.qty || 0);
+			item.base_amount = baseRate * Number(item.qty || 0);
+		}
+		_updatePricingBadge(context, item, []);
+	}
+	if (context._pricing_rule_transaction_discount) {
+		context.additional_discount = 0;
+		context.discount_amount = 0;
+		context.additional_discount_percentage = 0;
+		context._pricing_rule_transaction_discount = false;
+	}
+	syncAutoFreeLines(context, new Map());
+	refreshInvoiceTotals(context);
 }
 
 export async function _applyServerPricingRules(context: any, ctx: any = {}) {
