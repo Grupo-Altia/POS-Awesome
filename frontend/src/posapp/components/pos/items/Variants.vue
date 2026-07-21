@@ -1,6 +1,6 @@
 <template>
 	<v-row justify="center">
-		<v-dialog v-model="dialogVisible" max-width="600px">
+		<v-dialog v-model="dialogVisible" max-width="920px">
 			<v-card min-height="500px">
 				<v-card-title>
 					<span class="text-h5 text-primary">{{ __("Select Item") }}</span>
@@ -38,15 +38,13 @@
 							<v-divider class="p-0 m-0"></v-divider>
 						</div>
 						<div>
-							<v-row density="default" class="overflow-y-auto" style="max-height: 500px">
+							<v-row density="default" class="variant-grid overflow-y-auto">
 								<v-col
 									v-for="(item, idx) in displayItems"
-									:key="idx"
-									xl="2"
-									lg="3"
+									:key="item.item_code || idx"
 									md="4"
-									sm="4"
-									cols="6"
+									sm="6"
+									cols="12"
 									min-height="50"
 								>
 									<v-card
@@ -62,7 +60,7 @@
 											:src="item.image || placeholderImage"
 											class="text-white align-end"
 											gradient="to bottom, rgba(0,0,0,.2), rgba(0,0,0,.7)"
-											height="100px"
+											height="132px"
 										>
 											<v-card-text
 												v-text="item.item_name"
@@ -78,29 +76,37 @@
 												}}
 												{{ item.currency || "" }}
 											</div>
-											<div class="variant-meta-row">
-												<v-icon size="x-small">mdi-barcode</v-icon>
-												<span class="variant-meta-label">{{ __("Barcode") }}:</span>
-												<span
-													class="variant-meta-value"
-													:title="variantBarcode(item) || ''"
-												>
-													{{ variantBarcode(item) || "—" }}
-												</span>
-											</div>
-											<div class="variant-meta-row">
-												<v-icon size="x-small">mdi-package-variant-closed</v-icon>
-												<span class="variant-meta-label"
-													>{{ __("Available Qty") }}:</span
-												>
-												<span class="variant-meta-value">
-													{{ formatAvailableQty(item) }}
-													{{
-														variantAvailableQty(item) === null
-															? ""
-															: item.stock_uom || ""
-													}}
-												</span>
+											<div class="variant-meta-panel">
+												<div class="variant-meta-row">
+													<v-icon size="x-small">mdi-barcode</v-icon>
+													<div class="variant-meta-copy">
+														<span class="variant-meta-label">{{
+															__("Barcode")
+														}}</span>
+														<span
+															class="variant-meta-value variant-barcode-value"
+															:title="variantBarcode(item) || ''"
+														>
+															{{ variantBarcode(item) || "—" }}
+														</span>
+													</div>
+												</div>
+												<div class="variant-meta-row">
+													<v-icon size="x-small">mdi-package-variant-closed</v-icon>
+													<div class="variant-meta-copy">
+														<span class="variant-meta-label">{{
+															__("Available Qty")
+														}}</span>
+														<span class="variant-meta-value">
+															{{ formatAvailableQty(item) }}
+															{{
+																variantAvailableQty(item) === null
+																	? ""
+																	: item.stock_uom || ""
+															}}
+														</span>
+													</div>
+												</div>
 											</div>
 											<div v-if="isUnavailable(item)" class="variant-out-of-stock">
 												{{ __("Out of Stock") }}
@@ -459,33 +465,66 @@ export default {
 <style scoped>
 .variant-card {
 	height: 100%;
+	min-height: 270px;
+}
+
+.variant-grid {
+	max-height: min(68vh, 640px);
 }
 
 .variant-price {
 	font-weight: 600;
-	margin-bottom: 4px;
+	font-size: 0.86rem;
+	margin-bottom: 8px;
+}
+
+.variant-meta-panel {
+	display: grid;
+	grid-template-columns: repeat(2, minmax(0, 1fr));
+	gap: 8px;
+	padding: 8px;
+	border: 1px solid rgba(var(--v-theme-on-surface), 0.12);
+	border-radius: 8px;
+	background: rgba(var(--v-theme-on-surface), 0.045);
 }
 
 .variant-meta-row {
-	display: flex;
-	align-items: center;
-	gap: 4px;
+	display: grid;
+	grid-template-columns: 18px minmax(0, 1fr);
+	align-items: start;
+	gap: 6px;
 	min-width: 0;
-	font-size: 0.72rem;
 	line-height: 1.35;
 	color: rgba(var(--v-theme-on-surface), 0.72);
 }
 
+.variant-meta-copy {
+	display: flex;
+	flex-direction: column;
+	min-width: 0;
+}
+
 .variant-meta-label {
-	flex: 0 0 auto;
 	font-weight: 600;
+	font-size: 0.66rem;
+	letter-spacing: 0.03em;
+	text-transform: uppercase;
+	color: rgba(var(--v-theme-on-surface), 0.62);
 }
 
 .variant-meta-value {
-	min-width: 0;
-	overflow: hidden;
-	text-overflow: ellipsis;
-	white-space: nowrap;
+	display: block;
+	min-height: 1.25rem;
+	font-size: 0.82rem;
+	font-weight: 700;
+	color: rgb(var(--v-theme-on-surface));
+	overflow-wrap: anywhere;
+}
+
+.variant-barcode-value {
+	font-family: ui-monospace, "Cascadia Mono", "Segoe UI Mono", monospace;
+	font-size: 0.76rem;
+	letter-spacing: 0.02em;
 }
 
 .variant-card--unavailable {
@@ -495,9 +534,15 @@ export default {
 }
 
 .variant-out-of-stock {
-	margin-top: 4px;
+	margin-top: 8px;
 	font-size: 0.7rem;
 	font-weight: 700;
 	color: rgb(var(--v-theme-error));
+}
+
+@media (max-width: 700px) {
+	.variant-card {
+		min-height: 250px;
+	}
 }
 </style>
