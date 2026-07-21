@@ -284,6 +284,8 @@ export function _applyPricingToLine(
 	indexes: any,
 	freebiesMap: Map<string, any>,
 	cartAmount?: number,
+	aggregateItemQty?: number,
+	isAggregateOwner = true,
 ) {
 	if (!item) {
 		return;
@@ -294,12 +296,15 @@ export function _applyPricingToLine(
 		!item.locked_price && !item.posa_offer_applied && !manualOverride;
 	const rawDocQty = Number.parseFloat(item.qty || 0);
 	const signedDocQty = Number.isFinite(rawDocQty) ? rawDocQty : 0;
-	const docQty = Math.abs(signedDocQty);
+	const lineDocQty = Math.abs(signedDocQty);
 	const rawPricingQty = _resolvePricingQty(context, item);
 	const pricingQty = Number.isFinite(rawPricingQty)
 		? rawPricingQty
 		: signedDocQty;
 	const qty = Math.abs(pricingQty);
+	const docQty = Number.isFinite(aggregateItemQty)
+		? Math.max(lineDocQty, Math.abs(Number(aggregateItemQty)))
+		: lineDocQty;
 
 	if (docQty === 0 && qty === 0) {
 		return;
@@ -382,7 +387,7 @@ export function _applyPricingToLine(
 			: baseAmount;
 	}
 
-	if (Array.isArray(freebies)) {
+	if (isAggregateOwner && Array.isArray(freebies)) {
 		freebies.forEach((entry) => {
 			const key = `${entry.rule}::${entry.item_code}::${item.posa_row_id}`;
 			const existing = freebiesMap.get(key) || { qty: 0 };
@@ -452,12 +457,28 @@ export async function _applyLocalPricingRules(context: any, force = false) {
 		const freebiesMap = new Map();
 		const cartAmount = _resolveCartPricingAmount(context);
 		let cartQty = 0;
+		const itemQtyTotals = new Map<string, number>();
+		for (const item of context.items) {
+			if (!item || item.is_free_item || item.auto_free_source) continue;
+			const itemCode = String(item.item_code || "");
+			if (!itemCode) continue;
+			const resolvedQty = Math.abs(_resolvePricingQty(context, item));
+			itemQtyTotals.set(
+				itemCode,
+				(itemQtyTotals.get(itemCode) || 0) + resolvedQty,
+			);
+		}
+		const evaluatedFreebieScopes = new Set<string>();
 
 		for (const item of context.items) {
 			if (!item || item.is_free_item) {
 				continue;
 			}
-			cartQty += Math.abs(_resolvePricingQty(context, item));
+			const resolvedQty = Math.abs(_resolvePricingQty(context, item));
+			cartQty += resolvedQty;
+			const itemCode = String(item.item_code || "");
+			const isAggregateOwner = !evaluatedFreebieScopes.has(itemCode);
+			if (itemCode) evaluatedFreebieScopes.add(itemCode);
 			_applyPricingToLine(
 				context,
 				item,
@@ -465,6 +486,8 @@ export async function _applyLocalPricingRules(context: any, force = false) {
 				indexes,
 				freebiesMap,
 				cartAmount,
+				itemQtyTotals.get(itemCode),
+				isAggregateOwner,
 			);
 		}
 

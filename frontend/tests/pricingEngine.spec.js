@@ -37,6 +37,32 @@ describe("pricingEngine - applyLocalPricingRules", () => {
 		expect(result.discountPerUnit).toBeCloseTo(10);
 	});
 
+	it("applies an item rule when aggregate cart quantity meets min_qty", () => {
+		const rule = {
+			name: "ITEM-MIN-QTY-5",
+			price_or_discount: "Discount",
+			discount_type: "Rate",
+			rate_or_discount: 10,
+			min_qty: 5,
+			specificity: 3,
+			priority: 10,
+		};
+		const indexes = buildIndexes({ items: { "ITEM-1": [rule] } });
+		const result = applyLocalPricingRules({
+			item: { item_code: "ITEM-1", qty: 2, stock_qty: 2 },
+			qty: 2,
+			docQty: 5,
+			baseRate: 100,
+			ctx: {},
+			indexes,
+		});
+
+		expect(result.rate).toBe(90);
+		expect(result.applied.map((entry) => entry.name)).toEqual([
+			"ITEM-MIN-QTY-5",
+		]);
+	});
+
 	it("applies amount discounts", () => {
 		const rule = {
 			name: "DISC-AMT",
