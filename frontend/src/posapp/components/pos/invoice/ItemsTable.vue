@@ -88,11 +88,20 @@
 					@reset-item-name="resetItemName"
 					@toggle-offer="toggleOffer"
 					@toggle-expand="openItemHistory(item)"
+					@open-batch-serial="openBatchSerialSelector"
 					@remove-item="removeItem"
 					@click="handleRowClick($event, item)"
 				/>
 			</template>
 		</v-data-table-virtual>
+
+		<BatchSerialSelectionDialog
+			v-model="batchSerialDialog"
+			:item="batchSerialTarget"
+			:cart-items="items"
+			:is-return-invoice="isReturnInvoice"
+			@save="commitBatchSerialSelection"
+		/>
 
 		<ItemSalesHistoryModal
 			v-model="itemHistoryDialog"
@@ -147,6 +156,7 @@
 <script setup lang="ts">
 import { ref, computed, nextTick, onBeforeUnmount, onMounted, watch, getCurrentInstance } from "vue";
 import { useInvoiceStore } from "../../../stores/invoiceStore";
+import BatchSerialSelectionDialog from "./BatchSerialSelectionDialog.vue";
 import { loadItemSelectorSettings } from "../../../utils/itemSelectorSettings";
 import { logComponentRender } from "../../../utils/perf";
 import CartItemRow from "./CartItemRow.vue";
@@ -228,6 +238,7 @@ const emit = defineEmits<{
 	"show-drop-feedback": [val: boolean];
 	"item-dropped": [val: boolean];
 	"edit-item": [item: any];
+	"batch-serial-changed": [item: any];
 }>();
 
 const { proxy } = getCurrentInstance() as any;
@@ -244,6 +255,8 @@ const selectedRowIndex = ref(-1);
 const selectedRowId = ref<string | null>(null);
 const itemHistoryDialog = ref(false);
 const itemHistoryTarget = ref<any | null>(null);
+const batchSerialDialog = ref(false);
+const batchSerialTarget = ref<any | null>(null);
 const pendingHistoryEditItem = ref<any | null>(null);
 const counterGridEntryQuery = ref("");
 const COUNTER_GRID_ENTRY_ID = "__counter_grid_entry__";
@@ -676,6 +689,44 @@ const openItemHistory = (item: any) => {
 	return true;
 };
 
+const openBatchSerialSelector = (itemOrRowId: any) => {
+	const item =
+		typeof itemOrRowId === "string"
+			? items.value.find((line: any) => line?.posa_row_id === itemOrRowId)
+			: itemOrRowId;
+	if (!item || (!item.has_batch_no && !item.has_serial_no)) return false;
+	rememberSelectedRow(getItemIndex(item));
+	batchSerialTarget.value = item;
+	batchSerialDialog.value = true;
+	deactivateKeyboardGrid();
+	return true;
+};
+
+const commitBatchSerialSelection = (selection: {
+	batchNo: string | null;
+	serials: string[];
+}) => {
+	const target = batchSerialTarget.value;
+	if (!target?.posa_row_id) return;
+	const updated = invoiceStore.updateItemWithTotals(
+		target.posa_row_id,
+		(item: any) => {
+			if (item.has_batch_no && selection.batchNo) {
+				props.setBatchQty(item, selection.batchNo);
+			}
+			if (item.has_serial_no) {
+				item.serial_no_selected = [...selection.serials];
+				props.setSerialNo(item);
+			}
+			item._batch_serial_assignment_source = "manual";
+		},
+	);
+	if (updated) {
+		invoiceStore.recalculateTotals();
+		emit("batch-serial-changed", updated);
+	}
+};
+
 const openSelectedItemWorkspace = () => {
 	const item =
 		getActiveGridItem() || getSelectedGridItem() || items.value?.[items.value.length - 1] || null;
@@ -1083,9 +1134,11 @@ onMounted(() => {
 	logComponentRender({ $el: tableContainer.value }, "ItemsTable", "mounted", {
 		rows: items.value?.length || 0,
 	});
+	eventBus?.on?.("open_batch_serial_selector", openBatchSerialSelector);
 });
 
 onBeforeUnmount(() => {
+	eventBus?.off?.("open_batch_serial_selector", openBatchSerialSelector);
 	merge.clearMergeCache();
 });
 

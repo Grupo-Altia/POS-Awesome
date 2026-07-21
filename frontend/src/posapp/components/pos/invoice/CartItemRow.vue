@@ -32,13 +32,36 @@
 						{{ __("Expired") }}
 					</v-chip>
 					<v-chip
-						v-if="item.has_batch_no && item.batch_no"
-						color="info"
+						v-if="item.has_batch_no"
+						:color="item.batch_no ? 'info' : 'error'"
 						size="x-small"
 						variant="tonal"
-						class="ml-1"
+						class="ml-1 posa-cart-item-row__tracking-chip"
+						prepend-icon="mdi-package-variant-closed"
+						role="button"
+						tabindex="0"
+						@click.stop="$emit('open-batch-serial', item)"
+						@keydown.enter.stop.prevent="$emit('open-batch-serial', item)"
+						@keydown.space.stop.prevent="$emit('open-batch-serial', item)"
 					>
-						{{ __("Batch") }}: {{ item.batch_no }}
+						{{ item.batch_no ? `${__("Batch")}: ${item.batch_no}` : __("Select Batch") }}
+						<v-icon end size="x-small">mdi-pencil</v-icon>
+					</v-chip>
+					<v-chip
+						v-if="item.has_serial_no"
+						:color="serialSelectionComplete ? 'info' : 'error'"
+						size="x-small"
+						variant="tonal"
+						class="ml-1 posa-cart-item-row__tracking-chip"
+						prepend-icon="mdi-barcode"
+						role="button"
+						tabindex="0"
+						@click.stop="$emit('open-batch-serial', item)"
+						@keydown.enter.stop.prevent="$emit('open-batch-serial', item)"
+						@keydown.space.stop.prevent="$emit('open-batch-serial', item)"
+					>
+						{{ __("Serials") }}: {{ selectedSerialCount }}/{{ requiredSerialCount }}
+						<v-icon end size="x-small">mdi-pencil</v-icon>
 					</v-chip>
 					<v-chip
 						v-if="item.posa_is_offer || item.is_free_item"
@@ -477,6 +500,7 @@ const emit = defineEmits([
 	"rate-edit-submitted",
 	"toggle-offer",
 	"toggle-expand",
+	"open-batch-serial",
 	"remove-item",
 ]);
 
@@ -522,6 +546,12 @@ const memoDeps = computed(() => {
 		props.item.pricing_rule_badge,
 		props.item.batch_no_is_expired,
 		props.item.batch_no,
+		props.item.has_batch_no,
+		props.item.has_serial_no,
+		props.item.serial_no,
+		Array.isArray(props.item.serial_no_selected)
+			? props.item.serial_no_selected.join("|")
+			: "",
 		props.item.posa_is_offer,
 		props.item.posa_offer_applied,
 		props.item.is_free_item,
@@ -542,6 +572,26 @@ const memoDeps = computed(() => {
 });
 
 const qtyLength = computed(() => String(Math.abs(props.item.qty || 0)).replace(".", "").length);
+
+const requiredSerialCount = computed(() => {
+	const qty = Number(props.item.qty || 0);
+	const conversionFactor = Number(props.item.conversion_factor || 1);
+	return Math.abs(qty * (Number.isFinite(conversionFactor) ? conversionFactor : 1));
+});
+
+const selectedSerialCount = computed(() => {
+	if (Array.isArray(props.item.serial_no_selected)) {
+		return props.item.serial_no_selected.filter(Boolean).length;
+	}
+	return String(props.item.serial_no || "")
+		.split("\n")
+		.map((serial) => serial.trim())
+		.filter(Boolean).length;
+});
+
+const serialSelectionComplete = computed(
+	() => selectedSerialCount.value === requiredSerialCount.value,
+);
 
 const rowDomId = computed(() => (props.rowIndex >= 0 ? getCartGridRowId(props.rowIndex) : undefined));
 
@@ -1021,5 +1071,9 @@ td {
 .posa-cart-item-row--loss-risk .posa-cart-item-cell--keyboard-active {
 	background: #174a70 !important;
 	color: #ffffff !important;
+}
+
+.posa-cart-item-row__tracking-chip {
+	cursor: pointer;
 }
 </style>

@@ -199,6 +199,7 @@
 								:isNegative="isNegative"
 								:counter-grid="isCounterGridPresentation"
 								@update:expanded="handleExpandedUpdate"
+								@batch-serial-changed="handleBatchSerialChanged"
 								@reorder-items="handleItemReorder"
 								@add-item-from-drag="handleItemDrop"
 								@show-drop-feedback="
@@ -760,6 +761,22 @@ export default {
 
 		handleExpandedUpdate(ids) {
 			this.expanded = Array.isArray(ids) ? ids.slice(-1) : [];
+		},
+
+		handleBatchSerialChanged(item) {
+			if (this._mergeIndexCache) {
+				this._mergeIndexCache.signature = -1;
+				this._mergeIndexCache.lastItems = null;
+				this._mergeIndexCache.lastOrder = null;
+			}
+			this.invoiceStore?.recalculateTotals?.();
+			this.triggerBackgroundFlush?.();
+			this.$forceUpdate();
+			this.toastStore.show({
+				title: __("Batch and serial selection updated"),
+				message: item?.item_name || item?.item_code || "",
+				color: "success",
+			});
 		},
 
 		async share_last_invoice() {

@@ -37,13 +37,13 @@ export async function show_payment(context: any) {
 			return;
 		}
 
+		if (context.ensure_auto_batch_selection) await context.ensure_auto_batch_selection();
+
 		const isValid = context.validate ? await context.validate() : true;
 
 		if (!isValid) {
 			return;
 		}
-
-		if (context.ensure_auto_batch_selection) await context.ensure_auto_batch_selection();
 
 		// Capture the transient refundable cap before process_invoice()/backend
 		// reload, which return a doc stripped of non-DocType fields. It is
