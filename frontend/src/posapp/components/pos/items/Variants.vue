@@ -49,7 +49,15 @@
 									cols="6"
 									min-height="50"
 								>
-									<v-card hover="hover" @click="add_item(item)">
+									<v-card
+										:hover="!isUnavailable(item)"
+										:disabled="isUnavailable(item)"
+										:aria-disabled="isUnavailable(item)"
+										:title="isUnavailable(item) ? __('Out of Stock') : item.item_name"
+										class="variant-card"
+										:class="{ 'variant-card--unavailable': isUnavailable(item) }"
+										@click="add_item(item)"
+									>
 										<v-img
 											:src="item.image || placeholderImage"
 											class="text-white align-end"
@@ -62,11 +70,40 @@
 											></v-card-text>
 										</v-img>
 										<v-card-text class="text--primary pa-1">
-											<div class="text-caption text-primary text-accent-3">
+											<div
+												class="text-caption text-primary text-accent-3 variant-price"
+											>
 												{{
 													formatCurrencySafe(item.price_list_rate ?? item.rate ?? 0)
 												}}
 												{{ item.currency || "" }}
+											</div>
+											<div class="variant-meta-row">
+												<v-icon size="x-small">mdi-barcode</v-icon>
+												<span class="variant-meta-label">{{ __("Barcode") }}:</span>
+												<span
+													class="variant-meta-value"
+													:title="variantBarcode(item) || ''"
+												>
+													{{ variantBarcode(item) || "—" }}
+												</span>
+											</div>
+											<div class="variant-meta-row">
+												<v-icon size="x-small">mdi-package-variant-closed</v-icon>
+												<span class="variant-meta-label"
+													>{{ __("Available Qty") }}:</span
+												>
+												<span class="variant-meta-value">
+													{{ formatAvailableQty(item) }}
+													{{
+														variantAvailableQty(item) === null
+															? ""
+															: item.stock_uom || ""
+													}}
+												</span>
+											</div>
+											<div v-if="isUnavailable(item)" class="variant-out-of-stock">
+												{{ __("Out of Stock") }}
 											</div>
 										</v-card-text>
 									</v-card>
@@ -88,6 +125,11 @@ import placeholderImage from "../placeholder-image.png";
 import { getCurrentInstance } from "vue";
 import { useUIStore } from "../../../stores/uiStore.js";
 import { useInvoiceStore } from "../../../stores/invoiceStore.js";
+import {
+	getVariantCardAvailableQty,
+	getVariantCardBarcode,
+	isVariantCardUnavailable,
+} from "../../../utils/variantCard";
 export default {
 	setup() {
 		const { proxy } = getCurrentInstance();
@@ -226,6 +268,28 @@ export default {
 				minimumFractionDigits: 0,
 				maximumFractionDigits: 2,
 			}).format(val);
+		},
+		variantBarcode(item) {
+			return getVariantCardBarcode(item);
+		},
+		variantAvailableQty(item) {
+			return getVariantCardAvailableQty(item);
+		},
+		formatAvailableQty(item) {
+			const quantity = this.variantAvailableQty(item);
+			if (quantity === null) return "—";
+
+			const mixinFn =
+				this.$options.mixins &&
+				this.$options.mixins[0] &&
+				this.$options.mixins[0].methods &&
+				this.$options.mixins[0].methods.formatFloat;
+			if (mixinFn) return mixinFn.call(this, quantity);
+
+			return new Intl.NumberFormat(undefined, { maximumFractionDigits: 4 }).format(quantity);
+		},
+		isUnavailable(item) {
+			return isVariantCardUnavailable(item, this.pos_profile, this.uiStore.stockSettings);
 		},
 		applyCurrencyConversionToItem(item) {
 			if (!item) return;
@@ -369,6 +433,7 @@ export default {
 			}
 		},
 		async add_item(item) {
+			if (this.isUnavailable(item)) return;
 			await this.fetchVariantRate(item);
 			const payload = { ...item, code: item.item_code };
 			// Using event bus to trigger logic-heavy add_item in Invoice.vue
@@ -390,3 +455,49 @@ export default {
 	},
 };
 </script>
+
+<style scoped>
+.variant-card {
+	height: 100%;
+}
+
+.variant-price {
+	font-weight: 600;
+	margin-bottom: 4px;
+}
+
+.variant-meta-row {
+	display: flex;
+	align-items: center;
+	gap: 4px;
+	min-width: 0;
+	font-size: 0.72rem;
+	line-height: 1.35;
+	color: rgba(var(--v-theme-on-surface), 0.72);
+}
+
+.variant-meta-label {
+	flex: 0 0 auto;
+	font-weight: 600;
+}
+
+.variant-meta-value {
+	min-width: 0;
+	overflow: hidden;
+	text-overflow: ellipsis;
+	white-space: nowrap;
+}
+
+.variant-card--unavailable {
+	filter: grayscale(0.8);
+	opacity: 0.58;
+	cursor: not-allowed;
+}
+
+.variant-out-of-stock {
+	margin-top: 4px;
+	font-size: 0.7rem;
+	font-weight: 700;
+	color: rgb(var(--v-theme-error));
+}
+</style>
