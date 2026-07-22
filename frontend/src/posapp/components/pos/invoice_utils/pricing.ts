@@ -1061,13 +1061,13 @@ export async function _applyServerPricingRules(context: any, ctx: any = {}) {
 			return;
 		}
 
-		const baseRate =
+		let baseRate =
 			Number.parseFloat(update.base_rate ?? item.base_rate ?? 0) || 0;
 		const basePriceListRate =
 			Number.parseFloat(
 				update.base_price_list_rate ?? item.base_price_list_rate ?? 0,
 			) || 0;
-		const baseDiscount =
+		let baseDiscount =
 			Number.parseFloat(
 				update.base_discount_amount ?? item.base_discount_amount ?? 0,
 			) || 0;
@@ -1075,6 +1075,19 @@ export async function _applyServerPricingRules(context: any, ctx: any = {}) {
 			Number.parseFloat(
 				update.discount_percentage ?? item.discount_percentage ?? 0,
 			) || 0;
+		const pricingEpsilon = 1e-6;
+		// ERPNext percentage rules do not always include a final rate/amount.
+		// Normalize only the inconsistent full-rate response so reconciliation
+		// cannot undo a valid quantity-threshold discount already shown locally.
+		if (
+			discountPercentage > 0 &&
+			basePriceListRate > 0 &&
+			baseDiscount <= pricingEpsilon &&
+			Math.abs(baseRate - basePriceListRate) <= pricingEpsilon
+		) {
+			baseDiscount = (basePriceListRate * discountPercentage) / 100;
+			baseRate = basePriceListRate - baseDiscount;
+		}
 
 		const priceLocked =
 			item.locked_price === true ||

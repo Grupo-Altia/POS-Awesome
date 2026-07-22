@@ -645,6 +645,66 @@ describe("invoiceItemMethods._syncAutoFreeLines", () => {
 });
 
 describe("invoiceItemMethods._applyServerPricingRules", () => {
+	it("derives the discounted rate when a percentage-only server result keeps the full rate", async () => {
+		const item = {
+			posa_row_id: "ROW-PERCENTAGE",
+			item_code: "ITEM-PERCENTAGE",
+			qty: 5,
+			rate: 100,
+			base_rate: 100,
+			price_list_rate: 100,
+			base_price_list_rate: 100,
+			discount_amount: 0,
+			base_discount_amount: 0,
+			discount_percentage: 0,
+			locked_price: 0,
+		};
+
+		const context = {
+			...createContext(),
+			items: [item],
+			_syncAutoFreeLines: vi.fn(),
+			_updatePricingBadge: vi.fn(),
+			invoiceStore: { recalculateTotals: vi.fn() },
+			$forceUpdate: vi.fn(),
+		};
+		context._fromBaseCurrency = invoiceItemMethods._fromBaseCurrency;
+		context._toBaseCurrency = invoiceItemMethods._toBaseCurrency;
+		context._resolvePricingQty = invoiceItemMethods._resolvePricingQty;
+
+		global.frappe = {
+			call: vi.fn(async () => ({
+				message: {
+					updates: [
+						{
+							row_id: item.posa_row_id,
+							base_rate: 100,
+							base_price_list_rate: 100,
+							base_discount_amount: 0,
+							discount_percentage: 10,
+							pricing_rules: ["RULE-QTY-5"],
+						},
+					],
+					free_lines: [],
+				},
+			})),
+		};
+
+		await invoiceItemMethods._applyServerPricingRules.call(context, {
+			company: "Test Co",
+			price_list: "Standard",
+			currency: "USD",
+		});
+
+		expect(item.rate).toBeCloseTo(90);
+		expect(item.base_rate).toBeCloseTo(90);
+		expect(item.discount_amount).toBeCloseTo(10);
+		expect(item.base_discount_amount).toBeCloseTo(10);
+		expect(item.discount_percentage).toBeCloseTo(10);
+
+		delete global.frappe;
+	});
+
 	it("does not override manual rate overrides from server responses", async () => {
 		const manualItem = {
 			posa_row_id: "ROW-1",
@@ -919,6 +979,49 @@ describe("invoiceItemMethods._applyServerPricingRules", () => {
 		const freebiesArg = context._syncAutoFreeLines.mock.calls[0][0];
 		const serverEntries = Array.from(freebiesArg.values());
 		expect(serverEntries[0].same_item).toBe(1);
+
+		delete global.frappe;
+	});
+});
+
+describe("invoiceItemMethods.applyPricingRulesForCart", () => {
+	it("clears rule effects and skips reconciliation when POS Profile ignores pricing rules", async () => {
+		const item = {
+			posa_row_id: "ROW-IGNORED",
+			item_code: "ITEM-IGNORED",
+			qty: 2,
+			rate: 90,
+			base_rate: 90,
+			price_list_rate: 100,
+			base_price_list_rate: 100,
+			discount_amount: 10,
+			base_discount_amount: 10,
+			discount_percentage: 10,
+			pricing_rules: '["RULE-IGNORED"]',
+			pricing_rule_details: [{ name: "RULE-IGNORED" }],
+			pricing_rule_badge: { label: "Pricing Rule: RULE-IGNORED" },
+		};
+		const context = {
+			...createContext(),
+			pos_profile: { ignore_pricing_rule: "1" },
+			items: [item],
+			_syncAutoFreeLines: vi.fn(),
+			invoiceStore: { recalculateTotals: vi.fn() },
+		};
+		context._fromBaseCurrency = invoiceItemMethods._fromBaseCurrency;
+
+		global.frappe = { call: vi.fn() };
+
+		await invoiceItemMethods.applyPricingRulesForCart.call(context);
+
+		expect(global.frappe.call).not.toHaveBeenCalled();
+		expect(item.rate).toBeCloseTo(100);
+		expect(item.base_rate).toBeCloseTo(100);
+		expect(item.discount_amount).toBe(0);
+		expect(item.base_discount_amount).toBe(0);
+		expect(item.discount_percentage).toBe(0);
+		expect(item.pricing_rules).toBeNull();
+		expect(item.pricing_rule_badge).toBeUndefined();
 
 		delete global.frappe;
 	});
