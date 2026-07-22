@@ -262,6 +262,20 @@ class TestCustomerCreditPrintFields(unittest.TestCase):
             }
         )
 
+    def test_profile_controls_invoice_ignore_pricing_rule_policy(self):
+        self.assertEqual(
+            self.creation._profile_ignore_pricing_rule(
+                AttrDict(ignore_pricing_rule="1")
+            ),
+            1,
+        )
+        self.assertEqual(
+            self.creation._profile_ignore_pricing_rule(
+                AttrDict(ignore_pricing_rule=0)
+            ),
+            0,
+        )
+
     def test_customer_credit_print_fields_store_used_and_remaining_amounts(self):
         invoice_doc = FakeDoc(doctype="Sales Invoice", grand_total=100)
         data = {

@@ -10,13 +10,6 @@ import { _syncAutoFreeLines } from "./free_items";
 declare const __: (_text: string, _args?: any[]) => string;
 declare const frappe: any;
 
-const isEnabledFlag = (value: unknown) =>
-	value === true || value === 1 || value === "1";
-
-export function isPricingRulesIgnored(context: any) {
-	return isEnabledFlag(context?.pos_profile?.ignore_pricing_rule);
-}
-
 /**
  * Pricing Utils
  * Handles pricing rule application, validation and calculation.
@@ -412,10 +405,9 @@ export async function applyPricingRulesForCart(context: any, force = false) {
 	if (context.isReturnInvoice) {
 		return;
 	}
-	if (isPricingRulesIgnored(context)) {
-		_clearPricingRuleEffects(context);
-		return;
-	}
+	// POS Profile.ignore_pricing_rule is a document persistence policy: it lets
+	// explicit cashier rates survive ERPNext validation. It must not disable the
+	// cart rule engine; `_manual_rate_set` protects only lines the cashier edits.
 	if (context._applyingPricingRules) {
 		context._pendingPricingRules = true;
 		return;
@@ -445,10 +437,6 @@ export async function applyPricingRulesForCart(context: any, force = false) {
 
 export async function _applyLocalPricingRules(context: any, force = false) {
 	try {
-		if (isPricingRulesIgnored(context)) {
-			_clearPricingRuleEffects(context);
-			return;
-		}
 		const { store, ctx } = await _ensurePricingRules(context, force);
 		if (!store) {
 			return;
@@ -568,43 +556,6 @@ function _applyTransactionPricing(
 			parentRowId: null,
 		});
 	}
-}
-
-export function _clearPricingRuleEffects(context: any) {
-	for (const item of context?.items || []) {
-		const hadPricingRule = Boolean(
-			item?.pricing_rule_badge ||
-			item?.pricing_rules ||
-			(Array.isArray(item?.pricing_rule_details) &&
-				item.pricing_rule_details.length),
-		);
-		if (
-			hadPricingRule &&
-			!item._manual_rate_set &&
-			!item.locked_price &&
-			!item.posa_offer_applied
-		) {
-			const baseRate = _resolveBaseRate(context, item);
-			item.base_rate = baseRate;
-			item.base_discount_amount = 0;
-			item.discount_percentage = 0;
-			item.discount_amount = 0;
-			item.rate = context._fromBaseCurrency
-				? context._fromBaseCurrency(baseRate)
-				: baseRate;
-			item.amount = item.rate * Number(item.qty || 0);
-			item.base_amount = baseRate * Number(item.qty || 0);
-		}
-		_updatePricingBadge(context, item, []);
-	}
-	if (context._pricing_rule_transaction_discount) {
-		context.additional_discount = 0;
-		context.discount_amount = 0;
-		context.additional_discount_percentage = 0;
-		context._pricing_rule_transaction_discount = false;
-	}
-	syncAutoFreeLines(context, new Map());
-	refreshInvoiceTotals(context);
 }
 
 export async function _applyServerPricingRules(context: any, ctx: any = {}) {

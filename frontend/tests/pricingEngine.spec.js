@@ -63,6 +63,35 @@ describe("pricingEngine - applyLocalPricingRules", () => {
 		]);
 	});
 
+	it("applies the DIS-WATER fixed rate immediately at quantity 25", () => {
+		const rule = {
+			name: "DIS-WATER-QTY-25",
+			price_or_discount: "Price",
+			discount_type: "Rate",
+			rate_or_discount_type: "Rate",
+			rate_or_discount: 15,
+			min_qty: 25,
+			specificity: 3,
+			priority: 10,
+		};
+		const indexes = buildIndexes({ items: { "DIS-WATER": [rule] } });
+
+		const result = applyLocalPricingRules({
+			item: { item_code: "DIS-WATER", qty: 25, stock_qty: 25 },
+			qty: 25,
+			docQty: 25,
+			baseRate: 18,
+			ctx: {},
+			indexes,
+		});
+
+		expect(result.rate).toBe(15);
+		expect(result.discountPerUnit).toBe(3);
+		expect(result.applied.map((entry) => entry.name)).toEqual([
+			"DIS-WATER-QTY-25",
+		]);
+	});
+
 	it("applies amount discounts", () => {
 		const rule = {
 			name: "DISC-AMT",

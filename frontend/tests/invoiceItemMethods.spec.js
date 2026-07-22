@@ -13,6 +13,10 @@ vi.mock("../src/lib/pricingEngine.ts", () => ({
 		pricing: { rate: 110, discountPerUnit: -10, applied: [] },
 		freebies: [],
 	})),
+	evaluateTransactionPricingRules: vi.fn(() => ({
+		pricing: { rate: 0, discountPerUnit: 0, applied: [] },
+		freebies: [],
+	})),
 }));
 
 import invoiceItemMethods from "../src/posapp/components/pos/invoice/invoiceItemMethods.ts";
@@ -985,43 +989,53 @@ describe("invoiceItemMethods._applyServerPricingRules", () => {
 });
 
 describe("invoiceItemMethods.applyPricingRulesForCart", () => {
-	it("clears rule effects and skips reconciliation when POS Profile ignores pricing rules", async () => {
-		const item = {
+	it("still applies rules while preserving manual rates when the profile sends ignore_pricing_rule", async () => {
+		const rulePricedItem = {
 			posa_row_id: "ROW-IGNORED",
 			item_code: "ITEM-IGNORED",
-			qty: 2,
-			rate: 90,
-			base_rate: 90,
-			price_list_rate: 100,
-			base_price_list_rate: 100,
-			discount_amount: 10,
-			base_discount_amount: 10,
-			discount_percentage: 10,
-			pricing_rules: '["RULE-IGNORED"]',
-			pricing_rule_details: [{ name: "RULE-IGNORED" }],
-			pricing_rule_badge: { label: "Pricing Rule: RULE-IGNORED" },
+			qty: 25,
+			stock_qty: 25,
+			rate: 120,
+			base_rate: 120,
+			price_list_rate: 120,
+			base_price_list_rate: 120,
+			discount_amount: 0,
+			base_discount_amount: 0,
+			discount_percentage: 0,
+		};
+		const manualItem = {
+			...rulePricedItem,
+			posa_row_id: "ROW-MANUAL",
+			item_code: "ITEM-MANUAL",
+			rate: 75,
+			base_rate: 75,
+			_manual_rate_set: true,
 		};
 		const context = {
 			...createContext(),
 			pos_profile: { ignore_pricing_rule: "1" },
-			items: [item],
+			items: [rulePricedItem, manualItem],
+			_pricingRulesStore: {
+				ensureActiveRules: vi.fn(),
+				getIndexes: vi.fn(() => ({})),
+			},
+			_getPricingContext: vi.fn(() => ({})),
+			_toBaseCurrency: (value) => Number(value),
 			_syncAutoFreeLines: vi.fn(),
 			invoiceStore: { recalculateTotals: vi.fn() },
 		};
-		context._fromBaseCurrency = invoiceItemMethods._fromBaseCurrency;
+		context._fromBaseCurrency = (value) => Number(value);
 
 		global.frappe = { call: vi.fn() };
 
 		await invoiceItemMethods.applyPricingRulesForCart.call(context);
 
 		expect(global.frappe.call).not.toHaveBeenCalled();
-		expect(item.rate).toBeCloseTo(100);
-		expect(item.base_rate).toBeCloseTo(100);
-		expect(item.discount_amount).toBe(0);
-		expect(item.base_discount_amount).toBe(0);
-		expect(item.discount_percentage).toBe(0);
-		expect(item.pricing_rules).toBeNull();
-		expect(item.pricing_rule_badge).toBeUndefined();
+		expect(rulePricedItem.rate).toBeCloseTo(110);
+		expect(rulePricedItem.base_rate).toBeCloseTo(110);
+		expect(rulePricedItem.discount_amount).toBeCloseTo(10);
+		expect(manualItem.rate).toBeCloseTo(75);
+		expect(manualItem.base_rate).toBeCloseTo(75);
 
 		delete global.frappe;
 	});
