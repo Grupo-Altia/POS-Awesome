@@ -101,7 +101,12 @@ const SCHEMA_V17 = {
 		"&[profile_scope+catalog_generation+item_code],[profile_scope+catalog_generation],profile_scope,catalog_generation,item_code,item_name,item_group,item_code_lc,item_name_lc,*barcodes,*barcodes_lc,*name_keywords,*name_keywords_lc,*serials,*batches",
 	item_catalog_state: "&profile_scope,active_generation,updated_at",
 };
-const OFFLINE_DB_SCHEMA_SIGNATURE = JSON.stringify(SCHEMA_V17);
+const SCHEMA_V18 = {
+	...SCHEMA_V17,
+	customers:
+		"&name,customer_name,mobile_no,email_id,tax_id,*_mobile_search_keys",
+};
+const OFFLINE_DB_SCHEMA_SIGNATURE = JSON.stringify(SCHEMA_V18);
 
 export const KEY_TABLE_MAP: Record<string, string> = {
 	offline_invoices: "queue",
@@ -306,6 +311,34 @@ db.version(17)
 			value: OFFLINE_DB_SCHEMA_SIGNATURE,
 		}),
 	);
+db.version(18)
+	.stores(SCHEMA_V18)
+	.upgrade(async (tx) => {
+		await tx
+			.table("customers")
+			.toCollection()
+			.modify((customer) => {
+				const digits = String(customer.mobile_no || "").replace(
+					/\D/g,
+					"",
+				);
+				const keys = new Set(digits ? [digits] : []);
+				if (digits.startsWith("00") && digits.length > 2)
+					keys.add(digits.slice(2));
+				if (digits.startsWith("0") && digits.length > 1)
+					keys.add(digits.slice(1));
+				for (const length of [10, 9, 8]) {
+					if (digits.length > length) keys.add(digits.slice(-length));
+				}
+				customer._mobile_search_keys = Array.from(keys).filter(
+					(key) => key.length >= 4,
+				);
+			});
+		await tx.table("settings").put({
+			key: "schema_signature",
+			value: OFFLINE_DB_SCHEMA_SIGNATURE,
+		});
+	});
 
 // The persistence worker is deliberately started only after the main Dexie
 // connection has opened. Starting two schema owners at module import allowed an

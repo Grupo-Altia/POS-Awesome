@@ -25,6 +25,31 @@ def _assert_customer_write_allowed(pos_profile_doc=None, company=None):
     return assert_pos_profile_write_allowed(pos_profile_doc, company=company)
 
 
+def _mobile_search_keys(value):
+    digits = "".join(character for character in cstr(value or "") if character.isdigit())
+    if not digits:
+        return []
+    keys = {digits}
+    if digits.startswith("00") and len(digits) > 2:
+        keys.add(digits[2:])
+    if digits.startswith("0") and len(digits) > 1:
+        keys.add(digits[1:])
+    for tail_length in (10, 9, 8):
+        if len(digits) > tail_length:
+            keys.add(digits[-tail_length:])
+    return [key for key in keys if len(key) >= 4]
+
+
+def _mobile_matches_search(mobile_no, search_term):
+    customer_keys = _mobile_search_keys(mobile_no)
+    search_keys = _mobile_search_keys(search_term)
+    return any(
+        search_key in customer_key or customer_key in search_key
+        for search_key in search_keys
+        for customer_key in customer_keys
+    )
+
+
 def _find_duplicate_customer_records(
     customer_name=None,
     mobile_no=None,
@@ -221,6 +246,55 @@ def get_customer_names(pos_profile, limit=None, offset=None, start_after=None, m
         return __get_customer_names(pos_profile, limit, offset, start_after, modified_after)
     else:
         return _get_customer_names(pos_profile, limit, offset, start_after, modified_after)
+
+
+@frappe.whitelist()
+def search_customers(pos_profile, search_term, limit=200):
+    """Find mobile-number matches that may not have reached the local POS cache yet."""
+    profile = _load_json_arg(pos_profile) or {}
+    search_keys = _mobile_search_keys(search_term)
+    if not search_keys:
+        return []
+
+    try:
+        result_limit = max(1, min(int(limit or 200), 200))
+    except (TypeError, ValueError):
+        result_limit = 200
+
+    digits = max(search_keys, key=len)
+    fragment = digits[-4:]
+    filters = {
+        "disabled": 0,
+        "mobile_no": ["like", f"%{fragment}%"],
+    }
+    customer_groups = get_customer_groups(profile)
+    if customer_groups:
+        filters["customer_group"] = ["in", customer_groups]
+
+    candidates = frappe.get_all(
+        "Customer",
+        filters=filters,
+        fields=[
+            "name",
+            "modified",
+            "mobile_no",
+            "email_id",
+            "tax_id",
+            "customer_name",
+            "loyalty_program",
+            "default_price_list",
+            "customer_group",
+            "territory",
+            "primary_address",
+        ],
+        order_by="name",
+        limit_page_length=max(result_limit * 5, 500),
+    )
+    return [
+        customer
+        for customer in candidates
+        if _mobile_matches_search(customer.get("mobile_no"), search_term)
+    ][:result_limit]
 
 
 @frappe.whitelist()

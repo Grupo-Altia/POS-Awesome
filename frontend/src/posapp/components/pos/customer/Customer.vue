@@ -244,6 +244,7 @@ import { storeToRefs } from "pinia";
 import _ from "lodash";
 import UpdateCustomer from "../dialogs/customer/UpdateCustomer.vue";
 import { useCustomersStore } from "../../../stores/customersStore.js";
+import { customerMatchesSearchTerm } from "../../../stores/customers/customerSearch";
 import { useOnlineStatus } from "../../../composables/core/useOnlineStatus";
 import { useToastStore } from "../../../stores/toastStore.js";
 import { useUIStore } from "../../../stores/uiStore.js";
@@ -480,14 +481,12 @@ export default {
 			searchDebounce(term, customerSearchInputRequestId);
 		};
 
-		const handleEnter = (event) => {
-			const inputText = event.target.value?.toLowerCase() || "";
-			const matched = customers.value.find((cust) => {
-				return (
-					cust.customer_name?.toLowerCase().includes(inputText) ||
-					cust.name?.toLowerCase().includes(inputText)
-				);
-			});
+		const handleEnter = async (event) => {
+			const inputText = event.target.value || "";
+			await searchDebounce.flush();
+			const matched = customers.value.find((customer) =>
+				customerMatchesSearchTerm(customer, inputText),
+			);
 
 			if (!matched) {
 				return;

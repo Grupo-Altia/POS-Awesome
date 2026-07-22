@@ -13,6 +13,58 @@ export function normalizeCustomerSearchTerm(
 	return term.trim();
 }
 
+export function normalizeCustomerMobile(
+	value: string | null | undefined,
+): string {
+	return String(value ?? "").replace(/\D/g, "");
+}
+
+export function isCustomerMobileSearchTerm(
+	term: string | null | undefined,
+): boolean {
+	const normalized = normalizeCustomerSearchTerm(term);
+	return Boolean(normalized) && /^[\d\s()+.-]+$/.test(normalized);
+}
+
+export function buildCustomerMobileSearchKeys(
+	value: string | null | undefined,
+): string[] {
+	const digits = normalizeCustomerMobile(value);
+	if (!digits) {
+		return [];
+	}
+
+	const keys = new Set([digits]);
+	if (digits.startsWith("00") && digits.length > 2) {
+		keys.add(digits.slice(2));
+	}
+	if (digits.startsWith("0") && digits.length > 1) {
+		keys.add(digits.slice(1));
+	}
+	for (const tailLength of [10, 9, 8]) {
+		if (digits.length > tailLength) {
+			keys.add(digits.slice(-tailLength));
+		}
+	}
+
+	return Array.from(keys).filter((key) => key.length >= 4);
+}
+
+export function customerMobileMatchesSearch(
+	mobile: string | null | undefined,
+	term: string | null | undefined,
+): boolean {
+	const customerKeys = buildCustomerMobileSearchKeys(mobile);
+	const searchKeys = buildCustomerMobileSearchKeys(term);
+	return searchKeys.some((searchKey) =>
+		customerKeys.some(
+			(customerKey) =>
+				customerKey.includes(searchKey) ||
+				searchKey.includes(customerKey),
+		),
+	);
+}
+
 export function buildCustomerSearchParts(
 	term: string | null | undefined,
 ): string[] {
@@ -35,6 +87,7 @@ export function buildCustomerSearchText(
 		customer.mobile_no,
 		customer.email_id,
 		(customer as CustomerSummary & { tax_id?: unknown }).tax_id,
+		normalizeCustomerMobile(customer.mobile_no),
 	]
 		.filter((value) => value !== null && value !== undefined)
 		.map((value) => String(value).toLowerCase())
@@ -64,6 +117,9 @@ export function customerMatchesSearchTerm(
 	customer: CustomerSummary | null | undefined,
 	term: string | null | undefined,
 ): boolean {
+	if (isCustomerMobileSearchTerm(term)) {
+		return customerMobileMatchesSearch(customer?.mobile_no, term);
+	}
 	return customerMatchesSearchParts(customer, buildCustomerSearchParts(term));
 }
 

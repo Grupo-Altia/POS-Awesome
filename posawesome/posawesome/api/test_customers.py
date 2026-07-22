@@ -157,6 +157,44 @@ class TestCustomersApi(unittest.TestCase):
         self.assertEqual(matches[0]["name"], "CUST-EXISTING")
         self.assertEqual(matches[0]["matching_fields"], ["mobile_no", "email_id"])
 
+    def test_mobile_search_matches_local_and_country_code_formats(self):
+        self.assertTrue(
+            self.module._mobile_matches_search("+92 300-1234567", "03001234567")
+        )
+        self.assertFalse(
+            self.module._mobile_matches_search("+92 300-1234567", "03111234567")
+        )
+
+    def test_server_mobile_search_respects_profile_filters_and_normalizes_numbers(self):
+        def get_all(doctype, **kwargs):
+            if doctype != "Customer":
+                return []
+            self.assertEqual(kwargs["filters"]["disabled"], 0)
+            self.assertEqual(kwargs["filters"]["mobile_no"], ["like", "%4567%"])
+            self.assertEqual(
+                kwargs["filters"]["customer_group"], ["in", ["Retail"]]
+            )
+            return [
+                AttrDict(
+                    name="CUST-EXISTING",
+                    customer_name="Existing Customer",
+                    mobile_no="+92 300-1234567",
+                ),
+                AttrDict(
+                    name="CUST-OTHER",
+                    customer_name="Other Customer",
+                    mobile_no="+92 311-1234567",
+                ),
+            ]
+
+        self.module.frappe.get_all = get_all
+        self.module.get_customer_groups = lambda profile: ["Retail"]
+        matches = self.module.search_customers(
+            json.dumps({"name": "POS-TEST"}), "03001234567"
+        )
+
+        self.assertEqual([match["name"] for match in matches], ["CUST-EXISTING"])
+
 
 if __name__ == "__main__":
     unittest.main()

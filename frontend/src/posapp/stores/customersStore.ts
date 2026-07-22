@@ -11,8 +11,11 @@ import type {
 } from "../types/models";
 import {
 	buildCustomerSearchParts,
+	buildCustomerMobileSearchKeys,
+	customerMobileMatchesSearch,
 	customerMatchesSearchParts,
 	getCustomerDuplicateFields,
+	isCustomerMobileSearchTerm,
 	normalizeCustomerSearchTerm,
 } from "./customers/customerSearch";
 import { resetCustomerLoadingCoordinator } from "../modules/customers/customerLoadingCoordinator";
@@ -360,7 +363,86 @@ export const useCustomersStore = defineStore("customers", () => {
 		syncBootstrapCustomerReadiness(0);
 	}
 
-	async function performSearch({ append = false } = {}) {
+	async function fetchServerMobileMatches(
+		term: string,
+	): Promise<CustomerSummary[]> {
+		if (!posProfile.value || isOffline()) {
+			return [];
+		}
+		const serializedProfile = getSerializedProfile(posProfile.value);
+		if (!serializedProfile) {
+			return [];
+		}
+
+		return new Promise((resolve) => {
+			frappe.call({
+				method: "posawesome.posawesome.api.customers.search_customers",
+				args: {
+					pos_profile: serializedProfile,
+					search_term: term,
+					limit: PAGE_SIZE,
+				},
+				callback: (response: any) => resolve(response.message || []),
+				error: (error: any) => {
+					console.error(
+						"Failed to search customers on the server",
+						error,
+					);
+					resolve([]);
+				},
+			});
+		});
+	}
+
+	async function searchIndexedMobileCustomers(
+		term: string,
+		requestedPage: number,
+	): Promise<CustomerSummary[]> {
+		const searchKeys = buildCustomerMobileSearchKeys(term);
+		if (!searchKeys.length) {
+			return [];
+		}
+		const requestedLimit = (requestedPage + 1) * PAGE_SIZE;
+		const mobilePages = await Promise.all(
+			searchKeys.map((key) =>
+				db
+					.table("customers")
+					.where("_mobile_search_keys")
+					.startsWith(key)
+					.limit(requestedLimit)
+					.toArray(),
+			),
+		);
+		const identifierPages = await Promise.all(
+			["name", "customer_name"].map((field) =>
+				db
+					.table("customers")
+					.where(field)
+					.startsWith(term)
+					.limit(requestedLimit)
+					.toArray(),
+			),
+		);
+		const uniqueMatches = new Map<string, CustomerSummary>();
+		mobilePages.flat().forEach((customer: CustomerSummary) => {
+			if (
+				customer?.name &&
+				customerMobileMatchesSearch(customer.mobile_no, term)
+			) {
+				uniqueMatches.set(customer.name, customer);
+			}
+		});
+		identifierPages.flat().forEach((customer: CustomerSummary) => {
+			if (customer?.name) {
+				uniqueMatches.set(customer.name, customer);
+			}
+		});
+		return Array.from(uniqueMatches.values())
+			.sort((left, right) => left.name.localeCompare(right.name))
+			.slice(requestedPage * PAGE_SIZE, requestedLimit);
+	}
+
+	async function performSearch({ append = false, allowRemote = false } = {}) {
 		const requestId = ++customerSearchRequestId;
 		const requestedTerm = normalizeCustomerSearchTerm(searchTerm.value);
 		const requestedPage = page.value;
@@ -370,18 +452,44 @@ export const useCustomersStore = defineStore("customers", () => {
 
 		try {
 			await ensureDatabase();
-			let collection = db.table("customers");
-			if (requestedTerm) {
-				const searchParts = buildCustomerSearchParts(requestedTerm);
-				collection = collection.filter((customer: CustomerSummary) =>
-					customerMatchesSearchParts(customer, searchParts),
+			let results: CustomerSummary[];
+			const isMobileSearch =
+				isCustomerMobileSearchTerm(requestedTerm) &&
+				buildCustomerMobileSearchKeys(requestedTerm).length > 0;
+			if (isMobileSearch) {
+				results = await searchIndexedMobileCustomers(
+					requestedTerm,
+					requestedPage,
 				);
+			} else {
+				let collection = db.table("customers");
+				if (requestedTerm) {
+					const searchParts = buildCustomerSearchParts(requestedTerm);
+					collection = collection.filter(
+						(customer: CustomerSummary) =>
+							customerMatchesSearchParts(customer, searchParts),
+					);
+				}
+				const offset = requestedPage * PAGE_SIZE;
+				results = await collection
+					.offset(offset)
+					.limit(PAGE_SIZE)
+					.toArray();
 			}
-			const offset = requestedPage * PAGE_SIZE;
-			const results = await collection
-				.offset(offset)
-				.limit(PAGE_SIZE)
-				.toArray();
+
+			if (
+				!append &&
+				allowRemote &&
+				isMobileSearch &&
+				results.length === 0
+			) {
+				const remoteResults =
+					await fetchServerMobileMatches(requestedTerm);
+				if (remoteResults.length) {
+					await setCustomerStorage(remoteResults);
+					results = remoteResults;
+				}
+			}
 
 			// IndexedDB searches can overlap while the cashier is typing or while a
 			// background sync publishes a new batch. Only the latest request may
@@ -412,18 +520,22 @@ export const useCustomersStore = defineStore("customers", () => {
 		}
 	}
 
-	async function searchCustomers(term = "", append = false) {
+	async function searchCustomers(
+		term = "",
+		append = false,
+		allowRemote = false,
+	) {
 		if (!append) {
 			searchTerm.value = normalizeCustomerSearchTerm(term);
 			page.value = 0;
 			hasMore.value = true;
 		}
-		return performSearch({ append });
+		return performSearch({ append, allowRemote });
 	}
 
 	async function queueSearch(term: string) {
 		const normalized = normalizeCustomerSearchTerm(term);
-		return searchCustomers(normalized, false);
+		return searchCustomers(normalized, false, true);
 	}
 
 	async function findLocalDuplicateCustomers(

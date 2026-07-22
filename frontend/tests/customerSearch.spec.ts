@@ -2,6 +2,8 @@ import { describe, expect, it } from "vitest";
 import {
 	buildCustomerSearchParts,
 	buildCustomerSearchText,
+	buildCustomerMobileSearchKeys,
+	customerMobileMatchesSearch,
 	customerMatchesSearchParts,
 	customerMatchesSearchTerm,
 	getCustomerDuplicateFields,
@@ -37,6 +39,21 @@ describe("customer search helpers", () => {
 		expect(customerMatchesSearchTerm(customer, "jane 0101 tin")).toBe(true);
 		expect(customerMatchesSearchTerm(customer, "jane missing")).toBe(false);
 		expect(customerMatchesSearchTerm(customer, "   ")).toBe(true);
+	});
+
+	it("matches mobile numbers across punctuation and country-code formats", () => {
+		expect(buildCustomerMobileSearchKeys("+92 300-1234567")).toContain(
+			"3001234567",
+		);
+		expect(
+			customerMobileMatchesSearch("+92 300-1234567", "0300 123 4567"),
+		).toBe(true);
+		expect(
+			customerMatchesSearchTerm(
+				{ name: "CUST-001", mobile_no: "+92 300-1234567" },
+				"03001234567",
+			),
+		).toBe(true);
 	});
 
 	it("uses persisted normalized search text when available", () => {
