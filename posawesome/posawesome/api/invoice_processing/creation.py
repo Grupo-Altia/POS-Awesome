@@ -88,6 +88,12 @@ def _request_profile_name(value):
     return str(value or "").strip()
 
 
+def _profile_ignore_pricing_rule(profile_doc):
+    """Return the authoritative manual-rate persistence policy for this POS Profile."""
+
+    return cint(profile_doc.get("ignore_pricing_rule") or 0) if profile_doc else 0
+
+
 def _resolve_authorized_invoice_profile(*payloads):
     """Resolve one canonical profile/company from mutually consistent request payloads."""
 
@@ -1457,6 +1463,9 @@ def update_invoice(data):
     profile_doc = _resolve_authorized_invoice_profile(data)
     pos_profile = profile_doc.get("name")
     company = profile_doc.get("company")
+    ignore_pricing_rule = _profile_ignore_pricing_rule(profile_doc)
+    # Never trust a stale/client-edited copy of this POS Profile setting.
+    data["ignore_pricing_rule"] = ignore_pricing_rule
     _validate_invoice_opening_shift(profile_doc, data, required=True)
     forced_doctype = data.pop("_force_invoice_doctype", None)
     doctype = "Sales Invoice"
@@ -1553,8 +1562,8 @@ def update_invoice(data):
                     "is_free_item": d.get("is_free_item"),
                 }
 
-    invoice_doc.ignore_pricing_rule = 1
-    invoice_doc.flags.ignore_pricing_rule = True
+    invoice_doc.ignore_pricing_rule = ignore_pricing_rule
+    invoice_doc.flags.ignore_pricing_rule = bool(ignore_pricing_rule)
 
     _deduplicate_free_items(invoice_doc)
 
