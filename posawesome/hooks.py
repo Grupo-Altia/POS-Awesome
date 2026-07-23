@@ -194,6 +194,19 @@ override_doctype_class = {
     "POS Invoice Merge Log": "posawesome.posawesome.overrides.pos_invoice_merge_log.CustomPOSInvoiceMergeLog",
 }
 
+# ERPNext v16 calls SalesInvoice.is_subcontracted() with an empty Sales Order
+# filter for ordinary invoices and returns whose items are not linked to an
+# order.  Extend both invoice controllers so the shared compatibility guard is
+# applied to Sales Invoice and to POS Invoice (which inherits Sales Invoice).
+extend_doctype_class = {
+    "Sales Invoice": [
+        "posawesome.posawesome.overrides.sales_invoice_subcontracting.SalesInvoiceSubcontractingGuardMixin"
+    ],
+    "POS Invoice": [
+        "posawesome.posawesome.overrides.sales_invoice_subcontracting.SalesInvoiceSubcontractingGuardMixin"
+    ],
+}
+
 # exempt linked doctypes from being automatically cancelled
 #
 # auto_cancel_exempted_doctypes = ["Auto Repeat"]
