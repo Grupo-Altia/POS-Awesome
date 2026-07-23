@@ -536,6 +536,17 @@ export const useInvoiceStore = defineStore("invoice", () => {
 		return item;
 	};
 
+	/** Moves an existing row to the top without changing item data or totals. */
+	const moveRowToTop = (rowId: string) => {
+		if (!rowId) return;
+		const idx = itemOrder.value.indexOf(rowId);
+		if (idx > 0) {
+			itemOrder.value.splice(idx, 1);
+			itemOrder.value.unshift(rowId);
+			touch();
+		}
+	};
+
 	/**
 	 * Removes the item identified by `rowId` from both `itemsData` and `itemOrder`,
 	 * then recalculates totals immediately.
@@ -682,6 +693,7 @@ export const useInvoiceStore = defineStore("invoice", () => {
 		upsertItem,
 		updateItemWithTotals,
 		triggerUpdateTotals,
+		moveRowToTop,
 		removeItemByRowId,
 		clearItems,
 		setPackedItems,

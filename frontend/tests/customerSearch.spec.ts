@@ -2,8 +2,12 @@ import { describe, expect, it } from "vitest";
 import {
 	buildCustomerSearchParts,
 	buildCustomerSearchText,
+	buildCustomerMobileSearchKeys,
+	customerMobileMatchesSearch,
 	customerMatchesSearchParts,
 	customerMatchesSearchTerm,
+	getCustomerDuplicateFields,
+	normalizeCustomerDuplicateValue,
 	normalizeCustomerSearchTerm,
 } from "../src/posapp/stores/customers/customerSearch";
 import type { CustomerSummary } from "../src/posapp/types/models";
@@ -37,6 +41,21 @@ describe("customer search helpers", () => {
 		expect(customerMatchesSearchTerm(customer, "   ")).toBe(true);
 	});
 
+	it("matches mobile numbers across punctuation and country-code formats", () => {
+		expect(buildCustomerMobileSearchKeys("+92 300-1234567")).toContain(
+			"3001234567",
+		);
+		expect(
+			customerMobileMatchesSearch("+92 300-1234567", "0300 123 4567"),
+		).toBe(true);
+		expect(
+			customerMatchesSearchTerm(
+				{ name: "CUST-001", mobile_no: "+92 300-1234567" },
+				"03001234567",
+			),
+		).toBe(true);
+	});
+
 	it("uses persisted normalized search text when available", () => {
 		const customer = {
 			name: "CUST-001",
@@ -51,5 +70,35 @@ describe("customer search helpers", () => {
 		expect(customerMatchesSearchParts(customer, ["jane", "tin-99"])).toBe(
 			true,
 		);
+	});
+
+	it("normalizes duplicate identifiers consistently", () => {
+		expect(
+			normalizeCustomerDuplicateValue("mobile_no", "+92 300-123 4567"),
+		).toBe("923001234567");
+		expect(
+			normalizeCustomerDuplicateValue("email_id", " User@Example.COM "),
+		).toBe("user@example.com");
+		expect(normalizeCustomerDuplicateValue("tax_id", " TAX  99 ")).toBe(
+			"tax99",
+		);
+	});
+
+	it("detects duplicate customer identifiers without requiring the same formatting", () => {
+		const customer: CustomerSummary = {
+			name: "CUST-001",
+			customer_name: "Jane Doe",
+			mobile_no: "+92 300-1234567",
+			email_id: "jane@example.com",
+			tax_id: "TIN 99",
+		};
+
+		expect(
+			getCustomerDuplicateFields(customer, {
+				customer_name: "Different Name",
+				mobile_no: "923001234567",
+				tax_id: "tin99",
+			}),
+		).toEqual(["mobile_no", "tax_id"]);
 	});
 });

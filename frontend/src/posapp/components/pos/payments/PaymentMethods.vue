@@ -1,6 +1,13 @@
 <template>
 	<div v-if="payments && payments.length" class="payment-methods">
-		<div v-for="payment in payments" :key="payment.name" class="payment-method-card">
+		<div
+			v-for="(payment, paymentIndex) in payments"
+			:key="payment.name"
+			class="payment-method-card"
+			:data-payment-shortcut-index="
+				showKeyboardShortcuts && paymentIndex < 9 ? paymentIndex + 1 : undefined
+			"
+		>
 			<div class="payment-method-card__header">
 				<div>
 					<p class="payment-method-card__label">{{ frappe._("Method") }}</p>
@@ -16,6 +23,12 @@
 					<span v-if="payment.default === 1" class="payment-method-card__badge">
 						{{ __("Default") }}
 					</span>
+					<kbd
+						v-if="showKeyboardShortcuts && paymentIndex < 9"
+						class="payment-method-card__shortcut"
+					>
+						Ctrl/⌘+{{ paymentIndex + 1 }}
+					</kbd>
 				</div>
 			</div>
 
@@ -23,6 +36,7 @@
 				<v-col cols="12" md="7" v-if="!isMpesaC2bPayment(payment)">
 					<v-text-field
 						data-pos-keyboard-target="payment-amount"
+						:data-testid="`payment-amount-${payment.mode_of_payment}`"
 						density="compact"
 						variant="solo"
 						:color="isReturn ? 'error' : 'primary'"
@@ -48,6 +62,11 @@
 							class="payment-method-action-btn"
 							data-pos-keyboard-target="payment-action"
 							:data-test="`payment-method-action-${payment.mode_of_payment}`"
+							:aria-keyshortcuts="
+								showKeyboardShortcuts && paymentIndex < 9
+									? `Control+${paymentIndex + 1} Meta+${paymentIndex + 1}`
+									: undefined
+							"
 							@click="handlePrimaryAction(payment)"
 						>
 							{{ isGiftCardPayment(payment) ? __("Redeem / Scan") : payment.mode_of_payment }}
@@ -87,6 +106,11 @@
 						variant="flat"
 						class="payment-method-action-btn payment-method-action-btn--success"
 						data-pos-keyboard-target="payment-action"
+						:aria-keyshortcuts="
+							showKeyboardShortcuts && paymentIndex < 9
+								? `Control+${paymentIndex + 1} Meta+${paymentIndex + 1}`
+								: undefined
+						"
 						@click="$emit('mpesa-dialog', payment)"
 					>
 						{{ __("Get Payments") }}
@@ -134,6 +158,7 @@ const props = defineProps({
 		type: Function,
 		default: () => false,
 	},
+	showKeyboardShortcuts: Boolean,
 });
 
 const emit = defineEmits([
@@ -211,16 +236,30 @@ const blurTarget = (event) => {
 .payment-method-card__badge {
 	padding: 6px 10px;
 	border-radius: 999px;
-	background: rgba(var(--v-theme-primary), 0.12);
-	color: rgb(var(--v-theme-primary));
+	background: #174a70;
+	color: #ffffff;
 	font-size: 0.78rem;
 	font-weight: 700;
 	white-space: nowrap;
 }
 
 .payment-method-card__badge--refund {
-	background: rgba(var(--v-theme-error), 0.12);
-	color: rgb(var(--v-theme-error));
+	background: #9f1239;
+	color: #ffffff;
+}
+
+.payment-method-card__shortcut {
+	padding: 4px 7px;
+	border: 1px solid var(--pos-border);
+	border-bottom-width: 2px;
+	border-radius: 3px;
+	background: var(--pos-surface);
+	color: var(--pos-text-secondary);
+	font: inherit;
+	font-size: 0.68rem;
+	font-weight: 800;
+	line-height: 1;
+	white-space: nowrap;
 }
 
 :deep(.pos-themed-input--refund input) {
@@ -239,7 +278,7 @@ const blurTarget = (event) => {
 		box-shadow 0.18s ease,
 		background-color 0.18s ease,
 		transform 0.18s ease !important;
-	background-color: rgb(var(--v-theme-primary)) !important;
+	background-color: #0b5cab !important;
 	color: #ffffff !important;
 }
 
@@ -253,7 +292,7 @@ const blurTarget = (event) => {
 .payment-method-action-btn:active {
 	box-shadow: 0 4px 10px rgba(0, 0, 0, 0.18) !important;
 	transform: translateY(-1px);
-	background-color: rgba(var(--v-theme-primary), 0.9) !important;
+	background-color: #084d96 !important;
 }
 
 .payment-method-action-btn:active {
@@ -266,8 +305,12 @@ const blurTarget = (event) => {
 	background: transparent !important;
 }
 
+:deep(.payment-method-action-btn .v-btn__content) {
+	color: #ffffff !important;
+}
+
 .payment-method-action-btn--success {
-	background: rgb(var(--v-theme-success)) !important;
+	background: #047857 !important;
 	color: #ffffff !important;
 }
 
@@ -275,19 +318,19 @@ const blurTarget = (event) => {
 .payment-method-action-btn--success:focus,
 .payment-method-action-btn--success:focus-visible,
 .payment-method-action-btn--success:active {
-	background-color: rgba(var(--v-theme-success), 0.9) !important;
+	background-color: #065f46 !important;
 }
 
 .payment-method-action-btn--secondary {
-	background: rgba(var(--v-theme-success), 0.14) !important;
-	color: rgb(var(--v-theme-success)) !important;
+	background: #047857 !important;
+	color: #ffffff !important;
 }
 
 .payment-method-action-btn--secondary:hover,
 .payment-method-action-btn--secondary:focus,
 .payment-method-action-btn--secondary:focus-visible,
 .payment-method-action-btn--secondary:active {
-	background-color: rgba(var(--v-theme-success), 0.2) !important;
+	background-color: #065f46 !important;
 }
 
 .payment-denominations {

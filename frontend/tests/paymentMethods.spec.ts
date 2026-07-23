@@ -94,8 +94,14 @@ describe("PaymentMethods", () => {
 		expect(wrapper.text()).toContain("500");
 		expect(wrapper.text()).toContain("1000");
 
-		expect(wrapper.find('[data-test="payment-method-exact-Cash"]').exists()).toBe(false);
-		expect(wrapper.find('[data-test="payment-method-remaining-Cash"]').exists()).toBe(false);
+		expect(
+			wrapper.find('[data-test="payment-method-exact-Cash"]').exists(),
+		).toBe(false);
+		expect(
+			wrapper
+				.find('[data-test="payment-method-remaining-Cash"]')
+				.exists(),
+		).toBe(false);
 	});
 
 	it("marks payment amounts as keyboard targets and blurs them on Enter", async () => {
@@ -131,11 +137,62 @@ describe("PaymentMethods", () => {
 			},
 		});
 
-		const input = wrapper.get('input[data-pos-keyboard-target="payment-amount"]');
+		const input = wrapper.get(
+			'input[data-pos-keyboard-target="payment-amount"]',
+		);
 		const blurSpy = vi.spyOn(input.element as HTMLInputElement, "blur");
 
 		await input.trigger("keydown", { key: "Enter" });
 
 		expect(blurSpy).toHaveBeenCalledTimes(1);
+	});
+
+	it("shows Counter Grid accelerator hints in POS Profile payment order", () => {
+		const wrapper = mount(PaymentMethods, {
+			props: {
+				payments: [
+					{
+						name: "PAY-1",
+						mode_of_payment: "Cash",
+						type: "Cash",
+						amount: 0,
+					},
+					{
+						name: "PAY-2",
+						mode_of_payment: "Card",
+						type: "Bank",
+						amount: 0,
+					},
+				],
+				currency: "PKR",
+				isReturn: false,
+				requestPaymentField: false,
+				currencySymbol: () => "Rs ",
+				formatCurrency: (value: number) => String(value),
+				isNumber: () => true,
+				getVisibleDenominations: () => [],
+				isCashLikePayment: () => true,
+				isMpesaC2bPayment: () => false,
+				isGiftCardPayment: () => false,
+				showKeyboardShortcuts: true,
+			},
+			global: {
+				components: {
+					VRow: BoxStub,
+					VCol: BoxStub,
+					VBtn: VBtnStub,
+					VTextField: VTextFieldStub,
+				},
+			},
+		});
+
+		expect(wrapper.text()).toContain("Ctrl/⌘+1");
+		expect(wrapper.text()).toContain("Ctrl/⌘+2");
+		expect(
+			wrapper.get('[data-payment-shortcut-index="1"]').text(),
+		).toContain("Cash");
+		expect(
+			wrapper.get('[data-payment-shortcut-index="2"]').text(),
+		).toContain("Card");
 	});
 });

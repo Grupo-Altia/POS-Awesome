@@ -76,6 +76,26 @@ describe("useItemAddition new line behavior", () => {
 		expect(context.items[0].qty).toBe(2);
 	});
 
+	it("uses the selector quantity even when the catalog row carries a stale qty", async () => {
+		const api = useItemAddition();
+		const context = createContext(false);
+		const item = { ...createItem(), qty: "1" } as any;
+
+		await api.prepareItemForCart(item, 5, context);
+
+		expect(item.qty).toBe(5);
+	});
+
+	it("preserves an embedded barcode quantity instead of the selector quantity", async () => {
+		const api = useItemAddition();
+		const context = createContext(false);
+		const item = { ...createItem(), qty: 2.5, _barcode_qty: true } as any;
+
+		await api.prepareItemForCart(item, 5, context);
+
+		expect(item.qty).toBe(2.5);
+	});
+
 	it("refreshes line amount when a repeated click merges quantity", async () => {
 		const api = useItemAddition();
 		const context = createContext(false);
@@ -216,6 +236,30 @@ describe("useItemAddition new line behavior", () => {
 		expect(invoiceStore.recalculateTotals).toHaveBeenCalled();
 	});
 
+	it("merges an unresolved batch click into the existing batched row", async () => {
+		const api = useItemAddition();
+		const context = createContext(false) as any;
+		context.items.push({
+			...createItem(),
+			posa_row_id: "batch-row",
+			has_batch_no: 1,
+			batch_no: "B-FEFO",
+			qty: 1,
+		});
+
+		const incoming = {
+			...createItem(),
+			has_batch_no: 1,
+			batch_no: null,
+			batch_no_data: [],
+		};
+		await api.prepareItemForCart(incoming, 1, context);
+		await api.addItem(incoming, context);
+
+		expect(context.items).toHaveLength(1);
+		expect(context.items[0].qty).toBe(2);
+	});
+
 	it("keeps grouped merge quantities numeric when incoming qty is a string", () => {
 		const { groupAndAddItem } = useItemMerging() as any;
 		const items = [{ item_code: "ITEM-001", uom: "Nos", rate: 10, qty: "1", amount: 10 }];
@@ -242,6 +286,38 @@ describe("useItemAddition new line behavior", () => {
 		expect(context.items).toHaveLength(2);
 		expect(context.items[0].qty).toBe(1);
 		expect(context.items[1].qty).toBe(1);
+	});
+
+	it("appends distinct Counter Grid items in entry order", async () => {
+		const api = useItemAddition();
+		const invoiceStore = useInvoiceStore();
+		const context = {
+			...createContext(false),
+			invoiceStore,
+			appendNewItems: true,
+			currency_precision: 2,
+			flt: (value: any) => Number(value),
+		} as any;
+		Object.defineProperty(context, "items", {
+			get: () => invoiceStore.items,
+		});
+
+		const first = createItem();
+		await api.prepareItemForCart(first, 1, context);
+		await api.addItem(first, context);
+
+		const second = {
+			...createItem(),
+			item_code: "ITEM-002",
+			item_name: "Second Item",
+		};
+		await api.prepareItemForCart(second, 1, context);
+		await api.addItem(second, context);
+
+		expect(invoiceStore.items.map((item) => item.item_code)).toEqual([
+			"ITEM-001",
+			"ITEM-002",
+		]);
 	});
 
 	it("auto-selects the FEFO batch and applies its batch price on add", async () => {
@@ -286,6 +362,31 @@ describe("useItemAddition new line behavior", () => {
 		expect(context.items[0].batch_no).toBe("B-FEFO");
 		expect(context.items[0].rate).toBe(7);
 		expect(context.items[0].price_list_rate).toBe(7);
+	});
+
+	it("auto-assigns serials using converted stock quantity", async () => {
+		const api = useItemAddition();
+		const context = createContext(false) as any;
+		const item = {
+			...createItem(),
+			has_serial_no: 1,
+			qty: 1,
+			conversion_factor: 2,
+			item_uoms: [{ uom: "Nos", conversion_factor: 2 }],
+			serial_no_data: [
+				{ serial_no: "SER-001" },
+				{ serial_no: "SER-002" },
+			],
+		};
+
+		await api.prepareItemForCart(item, 1, context);
+		await api.addItem(item, context);
+
+		expect(context.items[0].serial_no_selected).toEqual([
+			"SER-001",
+			"SER-002",
+		]);
+		expect(context.items[0].qty).toBe(1);
 	});
 
 	it("resets return invoice type back to Invoice on clear", () => {

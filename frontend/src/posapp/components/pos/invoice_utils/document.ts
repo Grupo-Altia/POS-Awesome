@@ -159,7 +159,12 @@ export function get_invoice_doc(context: any) {
 		posProfile: context.pos_profile,
 	});
 	doc.is_pos = 1;
-	doc.ignore_pricing_rule = 0;
+	doc.ignore_pricing_rule =
+		context.pos_profile?.ignore_pricing_rule === true ||
+		context.pos_profile?.ignore_pricing_rule === 1 ||
+		context.pos_profile?.ignore_pricing_rule === "1"
+			? 1
+			: 0;
 	doc.company = doc.company || context.pos_profile?.company || null;
 	doc.pos_profile = doc.pos_profile || context.pos_profile?.name || null;
 	doc.posa_show_custom_name_marker_on_print =
@@ -283,6 +288,10 @@ export function get_invoice_doc(context: any) {
 	}
 
 	doc.additional_discount_percentage = discountPercentage;
+	doc.apply_discount_on =
+		sourceDoc.apply_discount_on ||
+		(context._pricing_rule_transaction_discount ? "Net Total" : null);
+	doc.pricing_rules = sourceDoc.pricing_rules || null;
 
 	// Calculate grand total with correct sign for returns
 	let grandTotal = context.subtotal;
@@ -438,7 +447,12 @@ export function get_invoice_doc(context: any) {
 	}
 
 	// Add flags to ensure proper rate handling
-	doc.ignore_pricing_rule = 0;
+	doc.ignore_pricing_rule =
+		context.pos_profile?.ignore_pricing_rule === true ||
+		context.pos_profile?.ignore_pricing_rule === 1 ||
+		context.pos_profile?.ignore_pricing_rule === "1"
+			? 1
+			: 0;
 
 	// Preserve the real price list currency
 	doc.price_list_currency = context.price_list_currency;
