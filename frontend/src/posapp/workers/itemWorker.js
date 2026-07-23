@@ -53,7 +53,12 @@ const SCHEMA_V17 = {
 	item_catalog_state: "&profile_scope,active_generation,updated_at",
 };
 
-const SCHEMA_SIGNATURE = JSON.stringify(SCHEMA_V17);
+const SCHEMA_V18 = {
+	...SCHEMA_V17,
+	customers: "&name,customer_name,mobile_no,email_id,tax_id,*_mobile_search_keys",
+};
+
+const SCHEMA_SIGNATURE = JSON.stringify(SCHEMA_V18);
 
 const normalizeSearchValue = (value) =>
 	String(value || "")
@@ -116,7 +121,7 @@ const workerTrace = (phase, status, details = {}) => {
 
 const dbReady = (async () => {
 	const openStartedAt = workerNow();
-	workerTrace("persistence_worker.indexeddb_open", "start", { requestedVersion: 17 });
+	workerTrace("persistence_worker.indexeddb_open", "start", { requestedVersion: 18 });
 	let DexieLib;
 	try {
 		importScripts("/assets/posawesome/dist/js/libs/dexie.min.js?v=1");
@@ -142,6 +147,14 @@ const dbReady = (async () => {
 	db.version(16).stores(SCHEMA_V16);
 	db.version(17)
 		.stores(SCHEMA_V17)
+		.upgrade((tx) =>
+			tx.table("settings").put({
+				key: "schema_signature",
+				value: SCHEMA_SIGNATURE,
+			}),
+		);
+	db.version(18)
+		.stores(SCHEMA_V18)
 		.upgrade((tx) =>
 			tx.table("settings").put({
 				key: "schema_signature",

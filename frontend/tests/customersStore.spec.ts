@@ -16,12 +16,22 @@ vi.mock("../src/offline/index", () => ({
 	db: {
 		isOpen: () => true,
 		open: vi.fn(async () => undefined),
-		table: vi.fn(() => ({
-			filter: vi.fn().mockReturnThis(),
-			offset: vi.fn().mockReturnThis(),
-			limit: vi.fn().mockReturnThis(),
-			toArray: (...args: any[]) => customerTableToArrayMock(...args),
-		})),
+		table: vi.fn(() => {
+			const collection = {
+				where: vi.fn(),
+				startsWith: vi.fn(),
+				filter: vi.fn(),
+				offset: vi.fn(),
+				limit: vi.fn(),
+				toArray: (...args: any[]) => customerTableToArrayMock(...args),
+			};
+			collection.where.mockReturnValue(collection);
+			collection.startsWith.mockReturnValue(collection);
+			collection.filter.mockReturnValue(collection);
+			collection.offset.mockReturnValue(collection);
+			collection.limit.mockReturnValue(collection);
+			return collection;
+		}),
 	},
 	checkDbHealth: vi.fn(async () => undefined),
 	setCustomerStorage: (...args: any[]) => setCustomerStorageMock(...args),
@@ -114,6 +124,52 @@ describe("customersStore profile and customer dto handling", () => {
 		expect(customerTableToArrayMock).toHaveBeenCalledOnce();
 		expect(store.customers).toEqual([
 			{ name: "CUST-001", customer_name: "Jane Doe" },
+		]);
+	});
+
+	it("uses normalized indexed mobile search while background sync is running", async () => {
+		const store = useCustomersStore();
+		store.isCustomerBackgroundLoading = true;
+		customerTableToArrayMock.mockResolvedValue([
+			{
+				name: "CUST-001",
+				customer_name: "Jane Doe",
+				mobile_no: "+92 300-1234567",
+			},
+		]);
+
+		await store.queueSearch("03001234567");
+
+		expect(store.customers).toEqual([
+			expect.objectContaining({ name: "CUST-001" }),
+		]);
+	});
+
+	it("falls back to the server when a mobile match is not in the local cache", async () => {
+		const store = useCustomersStore();
+		store.setPosProfile({ name: "Main POS", company: "Test Co" });
+		customerTableToArrayMock.mockResolvedValue([]);
+		(globalThis as any).frappe.call = vi.fn((request: any) => {
+			if (request.method.endsWith("search_customers")) {
+				request.callback?.({
+					message: [
+						{
+							name: "CUST-REMOTE",
+							customer_name: "Remote Customer",
+							mobile_no: "+92 300-1234567",
+						},
+					],
+				});
+			}
+		});
+
+		await store.queueSearch("03001234567");
+
+		expect(store.customers).toEqual([
+			expect.objectContaining({ name: "CUST-REMOTE" }),
+		]);
+		expect(setCustomerStorageMock).toHaveBeenCalledWith([
+			expect.objectContaining({ name: "CUST-REMOTE" }),
 		]);
 	});
 

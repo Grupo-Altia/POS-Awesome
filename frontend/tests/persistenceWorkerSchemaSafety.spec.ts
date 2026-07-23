@@ -17,8 +17,8 @@ describe("persistence worker schema safety", () => {
 	});
 
 	it("declares the current schema and limits upgrades to the schema signature", () => {
-		expect(workerSource).toContain("db.version(17)");
+		expect(workerSource).toContain("db.version(18)");
 		expect(workerSource).toContain('tx.table("settings").put({');
-		expect(workerSource.match(/\.upgrade\(/g)).toHaveLength(1);
+		expect(workerSource.match(/\.upgrade\(/g)).toHaveLength(2);
 	});
 });
