@@ -2,6 +2,8 @@ import frappe
 
 from posawesome.posawesome.api.offline_sync.common import (
     _build_response as _build_common_response,
+    _coerce_limit,
+    _coerce_offset,
     _max_timestamp,
     _resolve_profile,
 )
@@ -30,14 +32,6 @@ def _build_response(**kwargs):
     response = _build_common_response(**kwargs)
     response["schema_version"] = SYNC_SCHEMA_VERSION
     return response
-
-
-def _coerce_int(value, default, minimum=0, maximum=2000):
-    try:
-        resolved = int(value if value is not None else default)
-    except (TypeError, ValueError):
-        resolved = default
-    return max(minimum, min(resolved, maximum))
 
 
 def _profile_price_lists(profile):
@@ -111,8 +105,8 @@ def sync_item_prices(
         }
         return response
 
-    resolved_offset = _coerce_int(offset, 0)
-    resolved_limit = _coerce_int(limit, 500, minimum=1)
+    resolved_offset = _coerce_offset(offset)
+    resolved_limit = _coerce_limit(limit, 500)
     filters = {"price_list": ("in", price_lists)}
     if watermark:
         filters["modified"] = [">", watermark]

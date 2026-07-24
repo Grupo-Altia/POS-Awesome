@@ -70,6 +70,7 @@ ITEM_PRICE_ROWS = [
         "modified": "2026-06-01T10:02:00",
     },
 ]
+ITEM_PRICE_QUERY_STARTS = []
 
 
 def _install_stubs():
@@ -94,6 +95,7 @@ def _install_stubs():
                 {"name": "Export", "selling": 1},
             ]
         if doctype == "Item Price":
+            ITEM_PRICE_QUERY_STARTS.append(kwargs.get("start"))
             filters = kwargs.get("filters") or {}
             rows = [
                 row
@@ -200,6 +202,18 @@ class TestOfflineSyncItemPrices(unittest.TestCase):
         self.assertIsNone(second["next_watermark"])
         self.assertFalse(third["has_more"])
         self.assertEqual(third["next_watermark"], "2026-06-01T10:02:00")
+
+    def test_large_pagination_offset_is_not_clamped_to_page_size_limit(self):
+        ITEM_PRICE_QUERY_STARTS.clear()
+
+        response = self.module.sync_item_prices(
+            pos_profile="POS-TEST",
+            watermark=None,
+            offset=994000,
+        )
+
+        self.assertEqual(ITEM_PRICE_QUERY_STARTS, [994000])
+        self.assertFalse(response["has_more"])
 
 
 if __name__ == "__main__":
