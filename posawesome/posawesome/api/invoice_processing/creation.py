@@ -1428,9 +1428,15 @@ def _guard_return_cash_refund(invoice_doc):
     if refund <= 0:
         return
 
-    original_paid = flt(
-        frappe.db.get_value(invoice_doc.doctype, return_against, "paid_amount")
+    # Cap the refund at the cash the customer can still get back on this original,
+    # computed by the single shared rule (see compute_original_refundable_cash):
+    # grand_total - outstanding_amount - returns already issued. NOT paid_amount,
+    # which stays 0 for a credit invoice settled later via a Payment Entry.
+    from posawesome.posawesome.api.invoice_processing.returns import (
+        compute_original_refundable_cash,
     )
+
+    original_paid = compute_original_refundable_cash(invoice_doc.doctype, return_against)
     tolerance = 1.0 / (10 ** (cint(invoice_doc.precision("paid_amount")) or 2))
     if refund > original_paid + tolerance:
         frappe.throw(
