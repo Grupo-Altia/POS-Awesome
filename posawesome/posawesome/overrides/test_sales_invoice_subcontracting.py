@@ -28,17 +28,41 @@ class _Invoice(SalesInvoiceSubcontractingGuardMixin, _ERPNextInvoice):
 
 
 class TestSalesInvoiceSubcontractingGuard(TestCase):
-    def test_concrete_invoice_controllers_are_registered(self):
-        self.assertEqual(
-            hooks.override_doctype_class["Sales Invoice"],
-            "posawesome.posawesome.overrides.sales_invoice.CustomSalesInvoice",
+    def test_sales_invoice_guard_is_registered_as_controller_extension(self):
+        extension = (
+            "posawesome.posawesome.overrides.sales_invoice_subcontracting."
+            "SalesInvoiceSubcontractingGuardMixin"
         )
+
+        self.assertNotIn("Sales Invoice", hooks.override_doctype_class)
+        self.assertEqual(hooks.extend_doctype_class["Sales Invoice"], [extension])
+
+    def test_pos_invoice_concrete_controller_is_registered(self):
         self.assertEqual(
             hooks.override_doctype_class["POS Invoice"],
             "posawesome.posawesome.overrides.pos_invoice.CustomPOSInvoice",
         )
 
-    def test_registered_controllers_place_guard_before_erpnext(self):
+    def test_sales_invoice_extension_composes_after_an_existing_override(self):
+        class OtherAppSalesInvoice(_ERPNextInvoice):
+            pass
+
+        extended_controller = type(
+            "ExtendedSalesInvoice",
+            (SalesInvoiceSubcontractingGuardMixin, OtherAppSalesInvoice),
+            {},
+        )
+        invoice = extended_controller()
+        invoice.items = []
+        invoice.has_subcontracted = False
+        invoice.update_stock = 1
+        invoice.erpnext_calls = 0
+
+        self.assertFalse(invoice.is_subcontracted())
+        self.assertEqual(invoice.erpnext_calls, 0)
+        self.assertIn(OtherAppSalesInvoice, extended_controller.__mro__)
+
+    def test_pos_invoice_controller_places_guard_before_erpnext(self):
         module_stubs = {}
         for name in (
             "erpnext",
@@ -71,23 +95,10 @@ class TestSalesInvoiceSubcontractingGuard(TestCase):
         invoice_api_module.validate_shift = lambda _doc: None
         module_stubs[invoice_api_module.__name__] = invoice_api_module
 
-        controller_modules = (
-            "posawesome.posawesome.overrides.sales_invoice",
-            "posawesome.posawesome.overrides.pos_invoice",
-        )
+        controller_module = "posawesome.posawesome.overrides.pos_invoice"
         with patch.dict(sys.modules, module_stubs):
-            for module_name in controller_modules:
-                sys.modules.pop(module_name, None)
-
-            sales_controller = importlib.import_module(controller_modules[0])
-            pos_controller = importlib.import_module(controller_modules[1])
-
-            self.assertLess(
-                sales_controller.CustomSalesInvoice.__mro__.index(
-                    SalesInvoiceSubcontractingGuardMixin
-                ),
-                sales_controller.CustomSalesInvoice.__mro__.index(_ERPNextInvoice),
-            )
+            sys.modules.pop(controller_module, None)
+            pos_controller = importlib.import_module(controller_module)
             self.assertLess(
                 pos_controller.CustomPOSInvoice.__mro__.index(
                     SalesInvoiceSubcontractingGuardMixin
@@ -95,8 +106,7 @@ class TestSalesInvoiceSubcontractingGuard(TestCase):
                 pos_controller.CustomPOSInvoice.__mro__.index(_ERPNextPOSInvoice),
             )
 
-        for module_name in controller_modules:
-            sys.modules.pop(module_name, None)
+        sys.modules.pop(controller_module, None)
 
     def test_skips_erpnext_lookup_when_no_sales_order_is_linked(self):
         invoice = _Invoice(
