@@ -190,9 +190,18 @@ doc_events = {
 
 # Override standard DocTypes with custom classes
 override_doctype_class = {
-    "Sales Invoice": "posawesome.posawesome.overrides.sales_invoice.CustomSalesInvoice",
     "POS Invoice": "posawesome.posawesome.overrides.pos_invoice.CustomPOSInvoice",
     "POS Invoice Merge Log": "posawesome.posawesome.overrides.pos_invoice_merge_log.CustomPOSInvoiceMergeLog",
+}
+
+# ERPNext v16 calls SalesInvoice.is_subcontracted() with an empty Sales Order
+# filter for ordinary invoices and returns whose items are not linked to an
+# order. Extend the standard Sales Invoice controller after Frappe resolves any
+# concrete override so this compatibility guard composes with other apps.
+extend_doctype_class = {
+    "Sales Invoice": [
+        "posawesome.posawesome.overrides.sales_invoice_subcontracting.SalesInvoiceSubcontractingGuardMixin"
+    ],
 }
 
 # exempt linked doctypes from being automatically cancelled
