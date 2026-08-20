@@ -170,6 +170,65 @@ def normalize_invoice_payment_currencies(invoice_doc, profile_doc=None, rate_cac
     return invoice_doc
 
 
+def set_multi_currency_change_amounts(invoice_doc):
+    """Derive invoice and company change from their matching currency totals."""
+
+    payments = invoice_doc.get("payments") or []
+    multi_currency_rows = [
+        payment
+        for payment in payments
+        if payment.get("posa_payment_currency")
+        and payment.get("posa_original_amount") not in (None, "")
+        and flt(payment.get("posa_company_exchange_rate")) > 0
+    ]
+    if not multi_currency_rows or invoice_doc.get("is_return"):
+        return invoice_doc
+
+    if not any(payment.get("type") == "Cash" for payment in payments):
+        return invoice_doc
+
+    invoice_total = flt(
+        invoice_doc.get("rounded_total") or invoice_doc.get("grand_total")
+    )
+    if flt(invoice_doc.get("paid_amount")) > invoice_total:
+        invoice_doc.change_amount = flt(
+            flt(invoice_doc.get("paid_amount")) - invoice_total,
+            _precision(invoice_doc, "change_amount"),
+        )
+
+    base_invoice_total = flt(
+        invoice_doc.get("base_rounded_total")
+        or invoice_doc.get("base_grand_total")
+    )
+    invoice_doc.base_change_amount = flt(
+        max(flt(invoice_doc.get("base_paid_amount")) - base_invoice_total, 0),
+        _precision(invoice_doc, "base_change_amount"),
+    )
+    return invoice_doc
+
+
+def preserve_multi_currency_payment_amounts(invoice_doc, method=None):
+    """Restore original-tender values after the ERPNext v16 before-save logic.
+
+    Frappe document hooks run after the controller method for the same event.
+    This therefore prevents v16 from persisting ``amount * conversion_rate`` as
+    the base value after the authoritative tender normalization has already run.
+    """
+
+    payments = invoice_doc.get("payments") or []
+    if not cint(invoice_doc.get("is_pos")) or not any(
+        payment.get("posa_payment_currency")
+        and payment.get("posa_original_amount") not in (None, "")
+        for payment in payments
+    ):
+        return invoice_doc
+
+    normalize_invoice_payment_currencies(invoice_doc)
+    set_multi_currency_change_amounts(invoice_doc)
+    normalize_change_returns(invoice_doc)
+    return invoice_doc
+
+
 def normalize_change_returns(invoice_doc, profile_doc=None, rate_cache=None):
     profile_doc = _profile(invoice_doc, profile_doc)
     rows = invoice_doc.get("posa_change_returns") or []

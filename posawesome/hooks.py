@@ -110,12 +110,14 @@ doc_events = {
     },
     "Sales Invoice": {
         "validate": "posawesome.posawesome.api.invoice.validate",
+        "before_save": "posawesome.posawesome.api.payment_currency.preserve_multi_currency_payment_amounts",
         "before_submit": "posawesome.posawesome.api.invoice.before_submit",
         "before_cancel": "posawesome.posawesome.api.invoice.before_cancel",
         "on_cancel": "posawesome.posawesome.api.invoice.on_cancel",
     },
     "POS Invoice": {
         "validate": "posawesome.posawesome.api.invoice.validate",
+        "before_save": "posawesome.posawesome.api.payment_currency.preserve_multi_currency_payment_amounts",
         "before_submit": "posawesome.posawesome.api.invoice.before_submit",
         "before_cancel": "posawesome.posawesome.api.invoice.before_cancel",
         "on_cancel": "posawesome.posawesome.api.invoice.on_cancel",

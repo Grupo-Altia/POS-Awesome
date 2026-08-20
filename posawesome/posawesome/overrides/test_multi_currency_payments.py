@@ -121,6 +121,7 @@ class TestMultiCurrencyPOSPaymentsMixin(TestCase):
         accounts_settings_meta = MagicMock()
         accounts_settings_meta.has_field.return_value = None
         fake_frappe = ModuleType("frappe")
+        fake_frappe._ = lambda value: value
         fake_frappe.get_meta = MagicMock(return_value=accounts_settings_meta)
         fake_frappe.db = MagicMock()
         fake_utils = ModuleType("frappe.utils")
@@ -129,10 +130,16 @@ class TestMultiCurrencyPOSPaymentsMixin(TestCase):
             float(value or 0),
             precision if precision is not None else 6,
         )
+        fake_utils.getdate = lambda value=None: value or "2026-08-20"
+        fake_utils.nowdate = lambda: "2026-08-20"
         fake_erpnext = ModuleType("erpnext")
         fake_accounts = ModuleType("erpnext.accounts")
         fake_accounts_utils = ModuleType("erpnext.accounts.utils")
         fake_accounts_utils.get_account_currency = lambda _account: "PKR"
+        fake_invoice_utils = ModuleType(
+            "posawesome.posawesome.api.invoice_processing.utils"
+        )
+        fake_invoice_utils.get_latest_rate = MagicMock()
 
         with patch.dict(
             sys.modules,
@@ -142,6 +149,7 @@ class TestMultiCurrencyPOSPaymentsMixin(TestCase):
                 "erpnext": fake_erpnext,
                 "erpnext.accounts": fake_accounts,
                 "erpnext.accounts.utils": fake_accounts_utils,
+                "posawesome.posawesome.api.invoice_processing.utils": fake_invoice_utils,
             },
         ):
             invoice.before_save()
@@ -157,3 +165,110 @@ class TestMultiCurrencyPOSPaymentsMixin(TestCase):
         self.assertEqual(cash_entry["debit"], 28.5)
         self.assertEqual(cash_entry["debit_in_account_currency"], 28.5)
         self.assertAlmostEqual(cash_entry["debit_in_transaction_currency"], 0.1)
+
+    def test_before_save_hook_restores_v16_overwrite_from_original_tenders(self):
+        class Row(dict):
+            __getattr__ = dict.get
+            __setattr__ = dict.__setitem__
+
+            def precision(self, _fieldname):
+                return 2
+
+        class Invoice(Row):
+            def precision(self, _fieldname):
+                return 2
+
+        profile = Row(
+            name="POS-PROFILE-TEST",
+            posa_enable_multi_currency_payments=1,
+            posa_allow_manual_payment_exchange_rate=0,
+            posa_allowed_currencies=[
+                Row(currency="PKR", allow_for_payments=1),
+                Row(currency="USD", allow_for_payments=1),
+            ],
+        )
+        invoice = Invoice(
+            is_pos=1,
+            is_return=0,
+            company="Test Company",
+            currency="USD",
+            posting_date="2026-08-20",
+            pos_profile=profile.name,
+            conversion_rate=285,
+            rounded_total=0.42,
+            grand_total=0.42,
+            base_rounded_total=119.70,
+            base_grand_total=119.70,
+            paid_amount=0.43,
+            base_paid_amount=122.55,
+            change_amount=0.01,
+            base_change_amount=2.85,
+            posa_change_returns=[],
+            payments=[
+                Row(
+                    type="Cash",
+                    account="Cash - TC",
+                    amount=0.11,
+                    base_amount=31.35,
+                    posa_payment_currency="PKR",
+                    posa_original_amount=29.93,
+                    posa_exchange_rate=0.003508772,
+                    posa_company_exchange_rate=1,
+                ),
+                Row(
+                    type="Bank",
+                    account="Bank - TC",
+                    amount=0.32,
+                    base_amount=91.20,
+                    posa_payment_currency="USD",
+                    posa_original_amount=0.32,
+                    posa_exchange_rate=1,
+                    posa_company_exchange_rate=285,
+                ),
+            ],
+        )
+
+        fake_frappe = ModuleType("frappe")
+        fake_frappe._ = lambda value: value
+        fake_frappe.get_cached_doc = MagicMock(return_value=profile)
+        fake_frappe.get_cached_value = MagicMock(
+            side_effect=lambda doctype, _name, fieldname: (
+                "PKR" if doctype in {"Company", "Account"} else None
+            )
+        )
+        fake_utils = ModuleType("frappe.utils")
+        fake_utils.cint = lambda value: int(value or 0)
+        fake_utils.flt = lambda value, precision=None: round(
+            float(value or 0), precision if precision is not None else 6
+        )
+        fake_utils.getdate = lambda value=None: value or "2026-08-20"
+        fake_utils.nowdate = lambda: "2026-08-20"
+        fake_invoice_utils = ModuleType(
+            "posawesome.posawesome.api.invoice_processing.utils"
+        )
+        fake_invoice_utils.get_latest_rate = lambda from_currency, to_currency, **_kwargs: (
+            (0.003508772, "2026-08-20")
+            if (from_currency, to_currency) == ("PKR", "USD")
+            else (285, "2026-08-20")
+        )
+
+        with patch.dict(
+            sys.modules,
+            {
+                "frappe": fake_frappe,
+                "frappe.utils": fake_utils,
+                "posawesome.posawesome.api.invoice_processing.utils": fake_invoice_utils,
+            },
+        ):
+            sys.modules.pop("posawesome.posawesome.api.payment_currency", None)
+            from posawesome.posawesome.api.payment_currency import (
+                preserve_multi_currency_payment_amounts,
+            )
+
+            preserve_multi_currency_payment_amounts(invoice)
+
+        self.assertEqual(invoice.payments[0].base_amount, 29.93)
+        self.assertEqual(invoice.base_paid_amount, 121.13)
+        self.assertEqual(invoice.base_change_amount, 1.43)
+        self.assertEqual(invoice.paid_amount, 0.43)
+        self.assertEqual(invoice.change_amount, 0.01)

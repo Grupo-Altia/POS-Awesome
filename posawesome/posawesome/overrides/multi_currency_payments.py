@@ -45,37 +45,11 @@ class MultiCurrencyPOSPaymentsMixin:
         self.base_paid_amount = base_paid_amount
 
     def set_multi_currency_change_amounts(self):
-        from frappe.utils import flt
-
-        multi_currency_rows = [
-            payment
-            for payment in self.payments
-            if payment.get("posa_payment_currency")
-            and payment.get("posa_original_amount") not in (None, "")
-            and flt(payment.get("posa_company_exchange_rate")) > 0
-        ]
-        if not multi_currency_rows or self.get("is_return"):
-            return
-
-        has_cash = any(payment.get("type") == "Cash" for payment in self.payments)
-        if not has_cash:
-            return
-
-        invoice_total = flt(self.get("rounded_total") or self.get("grand_total"))
-        if flt(self.get("paid_amount")) > invoice_total:
-            self.change_amount = flt(
-                flt(self.get("paid_amount")) - invoice_total,
-                self.precision("change_amount"),
-            )
-
-        base_invoice_total = flt(
-            self.get("base_rounded_total") or self.get("base_grand_total")
+        from posawesome.posawesome.api.payment_currency import (
+            set_multi_currency_change_amounts,
         )
-        base_change = max(flt(self.get("base_paid_amount")) - base_invoice_total, 0)
-        self.base_change_amount = flt(
-            base_change,
-            self.precision("base_change_amount"),
-        )
+
+        return set_multi_currency_change_amounts(self)
 
     def make_pos_gl_entries(self, gl_entries):
         import frappe
