@@ -36,8 +36,21 @@ class MultiCurrencyPOSPaymentsMixin:
         if not cint(self.is_pos):
             return
 
-        skip_change_gl_entries = not cint(
-            frappe.db.get_single_value("Accounts Settings", "post_change_gl_entries")
+        # ``post_change_gl_entries`` is not available in every supported
+        # ERPNext schema.  A direct read makes invoice submission fail on those
+        # versions before any GL entry can be posted.  Absence of the opt-in
+        # field is equivalent to its legacy/default disabled state.
+        accounts_settings_meta = frappe.get_meta("Accounts Settings")
+        post_change_field = accounts_settings_meta.has_field(
+            "post_change_gl_entries"
+        )
+        skip_change_gl_entries = not (
+            post_change_field
+            and cint(
+                frappe.db.get_single_value(
+                    "Accounts Settings", "post_change_gl_entries"
+                )
+            )
         )
         for payment_mode in self.payments:
             if skip_change_gl_entries and payment_mode.account == self.account_for_change_amount:
