@@ -1,6 +1,6 @@
 import frappe
 from frappe import _
-from frappe.exceptions import TimestampMismatchError
+from frappe.exceptions import QueryDeadlockError, TimestampMismatchError
 from frappe.utils import (
     cint,
     flt,
@@ -74,6 +74,7 @@ AUTHORITATIVE_CASHIER_FIELD = "posa_cashier"
 CLIENT_CASHIER_KEYS = {AUTHORITATIVE_CASHIER_FIELD, "_posa_authoritative_cashier"}
 TRUSTED_SHIFT_AUDIT_KEY = "_posa_shift_reassignment_audit"
 TRUSTED_SHIFT_SOURCES = {"offline_sync", "submitted_amendment"}
+DEADLOCK_RETRY_DELAYS = (0.08, 0.2)
 
 RETURN_OUTSTANDING_MESSAGE_MARKERS = (
     "Updating the outstanding to this invoice.",
@@ -1713,8 +1714,32 @@ def update_invoice(data):
     return response
 
 
+def _run_with_deadlock_retry(operation, delays=DEADLOCK_RETRY_DELAYS):
+    """Retry a whole transaction after MySQL/Frappe invalidates it.
+
+    Retrying only the failed statement is unsafe: by the time ERPNext updates
+    Company monthly sales, stock and GL work has already happened in the same
+    transaction.  A rollback plus an idempotent replay is the only safe retry.
+    """
+
+    for attempt in range(len(delays) + 1):
+        try:
+            return operation()
+        except QueryDeadlockError:
+            frappe.db.rollback()
+            if attempt >= len(delays):
+                raise
+            time.sleep(delays[attempt])
+
+
 @frappe.whitelist()
 def submit_invoice(invoice, data, submit_in_background=False):
+    return _run_with_deadlock_retry(
+        lambda: _submit_invoice_once(invoice, data, submit_in_background)
+    )
+
+
+def _submit_invoice_once(invoice, data, submit_in_background=False):
     data = json.loads(data)
     invoice = json.loads(invoice)
     invoice.pop(TRUSTED_SHIFT_AUDIT_KEY, None)
@@ -2176,6 +2201,25 @@ def submit_invoice(invoice, data, submit_in_background=False):
     }
 
 
+def _record_background_submission_failure(invoice, error, kwargs, user):
+    error_msg = str(error)
+    ledger_name = kwargs.get("ledger_name")
+    if ledger_name:
+        try:
+            ledger_doc = _get_submission_ledger_by_name(ledger_name)
+            if ledger_doc:
+                _mark_ledger_failed(ledger_doc, error_msg)
+        except Exception:
+            pass
+    frappe.log_error(f"POS Background Submission Failed for {invoice}: {error_msg}")
+    if hasattr(frappe, "publish_realtime"):
+        frappe.publish_realtime(
+            "pos_invoice_submit_error",
+            {"invoice": invoice, "error": error_msg},
+            user=user,
+        )
+
+
 def submit_in_background_job(kwargs):
     invoice = kwargs.get("invoice")
     previous_owned_ledger = getattr(frappe.flags, "posa_owned_submission_ledger", None)
@@ -2312,23 +2356,18 @@ def submit_in_background_job(kwargs):
             ledger_name,
         )
 
+    except QueryDeadlockError as error:
+        frappe.db.rollback()
+        retry_attempt = cint(kwargs.get("_deadlock_retry_attempt"))
+        if retry_attempt < len(DEADLOCK_RETRY_DELAYS):
+            retry_kwargs = dict(kwargs)
+            retry_kwargs["_deadlock_retry_attempt"] = retry_attempt + 1
+            time.sleep(DEADLOCK_RETRY_DELAYS[retry_attempt])
+            return submit_in_background_job(retry_kwargs)
+        _record_background_submission_failure(invoice, error, kwargs, user)
     except Exception as e:
         frappe.db.rollback()
-        error_msg = str(e)
-        ledger_name = kwargs.get("ledger_name")
-        if ledger_name:
-            try:
-                ledger_doc = _get_submission_ledger_by_name(ledger_name)
-                if ledger_doc:
-                    _mark_ledger_failed(ledger_doc, error_msg)
-            except Exception:
-                pass
-        frappe.log_error(f"POS Background Submission Failed for {invoice}: {error_msg}")
-        frappe.publish_realtime(
-            "pos_invoice_submit_error",
-            {"invoice": invoice, "error": error_msg},
-            user=user,
-        )
+        _record_background_submission_failure(invoice, e, kwargs, user)
     finally:
         for key, previous in (
             ("posa_owned_submission_ledger", previous_owned_ledger),

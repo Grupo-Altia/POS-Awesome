@@ -104,6 +104,9 @@ def _install_framework_stubs():
     class TimestampMismatchError(Exception):
         pass
 
+    class QueryDeadlockError(Exception):
+        pass
+
     frappe_utils.cint = lambda value: int(value or 0)
     frappe_utils.flt = lambda value, precision=None: round(float(value or 0), precision or 2)
     frappe_utils.getdate = lambda value: value
@@ -133,6 +136,7 @@ def _install_framework_stubs():
     frappe_module.session = types.SimpleNamespace(user="test@example.com")
 
     frappe_exceptions.TimestampMismatchError = TimestampMismatchError
+    frappe_exceptions.QueryDeadlockError = QueryDeadlockError
     enqueue_calls = []
 
     def _enqueue(*args, **kwargs):
@@ -3012,6 +3016,38 @@ class TestInvoiceIdempotency(unittest.TestCase):
         self.assertEqual(invoice_doc.docstatus, 1)
         self.assertEqual(ledger_doc.state, "FAILED")
         self.assertIn("post submit failed", ledger_doc.error_message)
+
+
+class TestInvoiceDeadlockRetry(unittest.TestCase):
+    @classmethod
+    def setUpClass(cls):
+        cls.frappe, cls.enqueue_calls = _install_framework_stubs()
+        _install_dependency_stubs()
+        _install_package_stubs()
+        cls.creation = _load_module()
+
+    def test_retries_whole_transaction_after_query_deadlock(self):
+        attempts = []
+        rollback = Mock()
+        sleep = Mock()
+        self.creation.frappe.db.rollback = rollback
+        self.creation.time.sleep = sleep
+
+        def operation():
+            attempts.append(len(attempts) + 1)
+            if len(attempts) < 3:
+                raise self.creation.QueryDeadlockError("tabCompany conflict")
+            return {"docstatus": 1}
+
+        result = self.creation._run_with_deadlock_retry(
+            operation,
+            delays=(0.01, 0.02),
+        )
+
+        self.assertEqual(result, {"docstatus": 1})
+        self.assertEqual(attempts, [1, 2, 3])
+        self.assertEqual(rollback.call_count, 2)
+        self.assertEqual([call.args[0] for call in sleep.call_args_list], [0.01, 0.02])
 
 
 if __name__ == "__main__":
