@@ -1660,6 +1660,9 @@ class TestManualPostingDatePreservation(unittest.TestCase):
         self.creation.frappe.get_doc = lambda *args: invoice_doc
         self.creation._apply_invoice_gift_card_settlement = lambda *args, **kwargs: None
         self.creation._process_post_submit_payments = lambda *args, **kwargs: None
+        # This test isolates sign normalization; refundable-balance validation
+        # has dedicated coverage in the return-processing tests.
+        self.creation._guard_return_cash_refund = lambda *args, **kwargs: None
 
         def assert_return_payments_are_negative_before_save(doc):
             self.assertEqual(doc.payments[0].amount, -90)

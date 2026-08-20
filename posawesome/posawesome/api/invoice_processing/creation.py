@@ -29,6 +29,11 @@ from posawesome.posawesome.api.tax_contracts import apply_pos_tax_inclusion_cont
 from posawesome.posawesome.api.payment_processing.utils import get_bank_cash_account as get_bank_account
 from posawesome.posawesome.api.utilities import ensure_child_doctype, set_batch_nos_for_bundels
 from posawesome.posawesome.api.payments import redeeming_customer_credit
+from posawesome.posawesome.api.payment_currency import (
+    PAYMENT_CURRENCY_FIELDS,
+    normalize_change_returns,
+    normalize_invoice_payment_currencies,
+)
 from posawesome.posawesome.api.idempotency import (
     assert_invoice_request_scope,
     extract_invoice_client_request_id,
@@ -1301,6 +1306,9 @@ def _normalize_return_payment_rows(invoice_doc, conversion_rate=1):
         )
         payment.amount = -abs(resolved_amount)
         payment.base_amount = -abs(resolved_base_amount)
+        if payment.get("posa_payment_currency"):
+            payment.posa_original_amount = -abs(flt(payment.get("posa_original_amount")))
+            payment.posa_account_amount = -abs(flt(payment.get("posa_account_amount")))
 
     invoice_doc.paid_amount = flt(sum(p.amount for p in invoice_doc.payments or []))
     invoice_doc.base_paid_amount = flt(sum(p.base_amount for p in invoice_doc.payments or []))
@@ -1340,6 +1348,9 @@ def _reapply_incoming_payment_amounts(invoice_doc, incoming_rows):
             payment.amount = flt(incoming.get("amount"), payment.precision("amount"))
         if incoming.get("base_amount") is not None:
             payment.base_amount = flt(incoming.get("base_amount"), payment.precision("base_amount"))
+        for fieldname in PAYMENT_CURRENCY_FIELDS:
+            if incoming.get(fieldname) is not None:
+                payment.set(fieldname, incoming.get(fieldname))
 
     for row in incoming_rows or []:
         mode = str(row.get("mode_of_payment") or "").strip()
@@ -1357,6 +1368,7 @@ def _reapply_incoming_payment_amounts(invoice_doc, incoming_rows):
             "conversion_rate",
             "reference_no",
             "clearance_date",
+            *PAYMENT_CURRENCY_FIELDS,
         ):
             if row.get(fieldname) is not None:
                 payment.set(fieldname, row.get(fieldname))
@@ -1649,6 +1661,13 @@ def update_invoice(data):
 
     for payment in invoice_doc.payments:
         payment.amount, payment.base_amount = _resolve_payment_amounts(payment, conversion_rate)
+
+    normalize_invoice_payment_currencies(
+        invoice_doc,
+        profile_doc=profile_doc,
+        rate_cache=currency_cache,
+    )
+    normalize_change_returns(invoice_doc, profile_doc=profile_doc, rate_cache=currency_cache)
 
     invoice_doc.base_total = flt(flt(invoice_doc.total) * conversion_rate, invoice_doc.precision("base_total"))
     invoice_doc.base_net_total = flt(
@@ -2035,6 +2054,8 @@ def submit_invoice(invoice, data, submit_in_background=False):
 
     _apply_invoice_gift_card_settlement(invoice_doc, data)
     _apply_customer_credit_print_fields(invoice_doc, data)
+    normalize_invoice_payment_currencies(invoice_doc, profile_doc=profile_doc)
+    normalize_change_returns(invoice_doc, profile_doc=profile_doc)
     _normalize_return_payment_rows(invoice_doc, invoice_doc.get("conversion_rate") or 1)
     _apply_return_outstanding_policy(invoice_doc)
 
@@ -2063,6 +2084,8 @@ def submit_invoice(invoice, data, submit_in_background=False):
         invoice_doc,
         lambda: _save_draft_with_latest_timestamp(invoice_doc),
     )
+    normalize_invoice_payment_currencies(invoice_doc, profile_doc=profile_doc)
+    normalize_change_returns(invoice_doc, profile_doc=profile_doc)
     _normalize_return_payment_rows(invoice_doc, invoice_doc.get("conversion_rate") or 1)
 
     if data.get("due_date"):

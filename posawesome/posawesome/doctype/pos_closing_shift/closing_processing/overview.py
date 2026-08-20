@@ -116,6 +116,7 @@ def get_closing_shift_overview(pos_opening_shift):
 
     def resolve_payment_currency(payment_row, invoice_currency):
         for fieldname in (
+            "posa_payment_currency",
             "currency",
             "account_currency",
             "payment_currency",
@@ -466,7 +467,7 @@ def get_closing_shift_overview(pos_opening_shift):
         for payment in invoice.get("payments", []):
             mode = payment.get("mode_of_payment")
             payment_currency = resolve_payment_currency(payment, invoice_currency)
-            amount = flt(payment.get("amount") or 0)
+            amount = flt(payment.get("posa_original_amount") or payment.get("amount") or 0)
             base_amount = get_base_value(payment, "amount", "base_amount", conversion_rate)
             accumulate_payment(
                 payments_by_mode,

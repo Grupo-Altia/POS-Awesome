@@ -200,6 +200,7 @@ override_doctype_class = {
 # concrete override so this compatibility guard composes with other apps.
 extend_doctype_class = {
     "Sales Invoice": [
+        "posawesome.posawesome.overrides.multi_currency_payments.MultiCurrencyPOSPaymentsMixin",
         "posawesome.posawesome.overrides.sales_invoice_subcontracting.SalesInvoiceSubcontractingGuardMixin"
     ],
 }
@@ -442,6 +443,27 @@ fixtures = [
                 [
                     "POS Profile-posa_allow_multi_currency",
                     "POS Profile-posa_decimal_precision",
+                    "POS Profile-posa_enable_multi_currency_payments",
+                    "POS Profile-posa_allowed_currencies",
+                    "POS Profile-posa_allow_payment_currency_selection",
+                    "POS Profile-posa_allow_manual_payment_exchange_rate",
+                    "POS Profile-posa_default_payment_currency",
+                    "POS Profile-posa_enable_multi_currency_change",
+                    "POS Payment Method-posa_default_payment_currency",
+                    "Sales Invoice Payment-posa_payment_currency",
+                    "Sales Invoice Payment-posa_original_amount",
+                    "Sales Invoice Payment-posa_exchange_rate",
+                    "Sales Invoice Payment-posa_company_exchange_rate",
+                    "Sales Invoice Payment-posa_rate_date",
+                    "Sales Invoice Payment-posa_rate_source",
+                    "Sales Invoice Payment-posa_account_currency",
+                    "Sales Invoice Payment-posa_account_amount",
+                    "Sales Invoice-posa_change_returns",
+                    "Sales Invoice-posa_change_returned",
+                    "Sales Invoice-posa_remaining_change",
+                    "POS Invoice-posa_change_returns",
+                    "POS Invoice-posa_change_returned",
+                    "POS Invoice-posa_remaining_change",
                 ],
             ]
         ],

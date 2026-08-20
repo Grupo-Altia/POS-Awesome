@@ -45,6 +45,18 @@
 							@show-paid-change="showPaidChange"
 							@update-credit-change="handleCreditChangeUpdate"
 						/>
+						<ChangeCurrencyHelper
+							:enabled="changeCurrencyEnabled"
+							:change-due="change_due"
+							:remaining="remainingChange"
+							:rows="changeReturnRows"
+							:currencies="allowedChangeCurrencies"
+							:format-currency="(value) => formatCurrency(value, invoice_doc.currency)"
+							@add-row="addChangeReturnRow"
+							@remove-row="removeChangeReturnRow"
+							@update-amount="handleChangeReturnAmount"
+							@update-currency="handleChangeReturnCurrency"
+						/>
 					</section>
 
 					<section
@@ -59,6 +71,10 @@
 							:currency="invoice_doc.currency"
 							:isReturn="invoice_doc.is_return"
 							:requestPaymentField="request_payment_field"
+							:multi-currency-enabled="multiCurrencyEnabled"
+							:allow-currency-selection="allowCurrencySelection"
+							:allow-manual-rate="allowManualRate"
+							:allowed-currencies="allowedPaymentCurrencies"
 							:currencySymbol="currencySymbol"
 							:formatCurrency="formatCurrency"
 							:isNumber="isNumber"
@@ -68,7 +84,9 @@
 							:isGiftCardPayment="isGiftCardPayment"
 							:show-keyboard-shortcuts="counterGridMode"
 							@update-amount="handlePaymentAmountChange"
-							@set-full-amount="set_full_amount"
+							@update-currency="handlePaymentCurrencyChange"
+							@update-rate="handlePaymentRateChange"
+							@set-full-amount="handleSetFullAmount"
 							@set-denomination="setPaymentToDenomination"
 							@mpesa-dialog="mpesa_c2b_dialog"
 							@request-payment="request_payment"
@@ -315,6 +333,8 @@ import { usePaymentSubmission } from "../../composables/pos/payments/usePaymentS
 import { useRedemptionLogic } from "../../composables/pos/payments/useRedemptionLogic";
 import { usePaymentPrinting } from "../../composables/pos/payments/usePaymentPrinting";
 import { usePaymentMethods } from "../../composables/pos/payments/usePaymentMethods";
+import { usePaymentCurrencies } from "../../composables/pos/payments/usePaymentCurrencies";
+import { useChangeCurrencies } from "../../composables/pos/payments/useChangeCurrencies";
 import { useInvoiceDetails } from "../../composables/pos/invoice/useInvoiceDetails";
 import { useFormat } from "../../format";
 import {
@@ -342,6 +362,7 @@ import { resolveCounterGridPaymentShortcut } from "../../utils/counterGridPaymen
 
 // Components
 import PaymentSummary from "./payments/PaymentSummary.vue";
+import ChangeCurrencyHelper from "./payments/ChangeCurrencyHelper.vue";
 import InvoiceTotals from "./payments/InvoiceTotals.vue";
 import PaymentActionButtons from "./payments/PaymentActionButtons.vue";
 import PaymentMethods from "./payments/PaymentMethods.vue";
@@ -630,8 +651,51 @@ const paymentCalculations = usePaymentCalculations({
 	formatCurrency: (val, _curr) => formatCurrency(val, currency_precision.value),
 });
 
+const {
+	multiCurrencyEnabled,
+	allowCurrencySelection,
+	allowManualRate,
+	allowedPaymentCurrencies,
+	initializePayments,
+	normalizePayment,
+	updateOriginalAmount,
+	updateCurrency: updatePaymentCurrency,
+	setInvoiceEquivalent,
+	clearPayment: clearPaymentCurrency,
+} = usePaymentCurrencies({
+	invoiceDoc: computed(() => invoiceStore.invoiceDoc),
+	posProfile: pos_profile,
+	currencyPrecision: currency_precision,
+	formatFloat: (value, precision) => flt(value, precision),
+});
+
 const { diff_payment, total_payments, total_payments_display, diff_payment_display, diff_label, change_due } =
 	paymentCalculations;
+
+const {
+	featureEnabled: changeCurrencyEnabled,
+	allowedChangeCurrencies,
+	rows: changeReturnRows,
+	remainingChange,
+	addRow: addChangeReturnRow,
+	removeRow: removeChangeReturnRow,
+	updateRowAmount,
+	updateRowCurrency,
+} = useChangeCurrencies({
+	invoiceDoc: computed(() => invoiceStore.invoiceDoc),
+	posProfile: pos_profile,
+	changeDue: change_due,
+	currencyPrecision: currency_precision,
+	formatFloat: (value, precision) => flt(value, precision),
+});
+
+const handleChangeReturnAmount = (row, event) => {
+	const raw = event?.target?.value ?? event;
+	void updateRowAmount(row, raw);
+};
+const handleChangeReturnCurrency = (row, currency) => {
+	void updateRowCurrency(row, currency);
+};
 
 const {
 	phone_dialog,
@@ -693,6 +757,8 @@ const {
 	getPaidChange: () => paid_change.value,
 	getCreditChange: () => credit_change.value,
 	onBackToInvoice: () => eventBus.emit("change_active_view", "Invoice"),
+	onPaymentInvoiceAmountChanged: setInvoiceEquivalent,
+	onPaymentCleared: clearPaymentCurrency,
 });
 
 const {
@@ -1152,6 +1218,8 @@ const buildProfilePaymentLines = () => {
 			account: payment.account,
 			type: payment.type,
 			default: payment.default === 1 || payment.default === true || index === 0 ? 1 : 0,
+			posa_default_payment_currency: payment.posa_default_payment_currency,
+			account_currency: payment.account_currency,
 		}));
 };
 
@@ -1212,6 +1280,7 @@ const syncPreferredPaymentToCurrentTotal = (doc = invoice_doc.value) => {
 			currency_precision.value,
 		);
 	}
+	void setInvoiceEquivalent(preferredPayment, normalizedTotal);
 
 	return preferredPayment;
 };
@@ -1228,13 +1297,15 @@ const rebalancePreferredPaymentCoverage = (giftCardAmount = giftCardAppliedAmoun
 		return null;
 	}
 
-	return rebalancePreferredPaymentLine(doc, {
+	const payment = rebalancePreferredPaymentLine(doc, {
 		precision: currency_precision.value,
 		isCashLikePayment,
 		loyaltyAmount: invoice_doc.value?.loyalty_amount || loyalty_amount.value,
 		redeemedCustomerCredit: redeemed_customer_credit.value,
 		giftCardAmount,
 	});
+	if (payment) void setInvoiceEquivalent(payment, payment.amount);
+	return payment;
 };
 
 const mergeProfilePaymentsIntoReturn = (doc) => {
@@ -1467,30 +1538,44 @@ const updateCreditChange = (rawValue) => {
 	}
 };
 
-const handlePaymentAmountChange = (payment, event) => {
-	last_payment_change_was_cash.value = isCashLikePayment(payment);
-	setFormatedCurrency(payment, "amount", null, false, event);
+const showMissingPaymentRate = (payment) => {
+	toastStore.show({
+		title: __("No exchange rate is available for {0} to {1} on the posting date.", [
+			payment?.posa_payment_currency || "",
+			invoice_doc.value?.currency || "",
+		]),
+		color: "error",
+	});
+};
 
-	// For return invoices: user enters a positive number but we store it as negative (refund)
-	if (invoice_doc.value?.is_return && payment.amount > 0) {
-		payment.amount = -payment.amount;
-	}
-	if (payment.base_amount !== undefined) {
-		payment.base_amount = flt(
-			toCompanyCurrency(paymentCurrencyContext(), payment.amount),
-			currency_precision.value,
-		);
-	}
+const handlePaymentAmountChange = async (payment, event) => {
+	last_payment_change_was_cash.value = isCashLikePayment(payment);
+	const holder = { value: payment.posa_original_amount ?? payment.amount };
+	setFormatedCurrency(holder, "value", null, false, event);
+	if (!(await updateOriginalAmount(payment, holder.value))) showMissingPaymentRate(payment);
+};
+
+const handlePaymentCurrencyChange = async (payment, currency) => {
+	if (!(await updatePaymentCurrency(payment, currency))) showMissingPaymentRate(payment);
+};
+
+const handlePaymentRateChange = async (payment, event) => {
+	const holder = { value: payment.posa_exchange_rate };
+	setFormatedCurrency(holder, "value", null, false, event);
+	payment.posa_exchange_rate = holder.value;
+	payment.posa_rate_source = "manual";
+	if (!(await normalizePayment(payment))) showMissingPaymentRate(payment);
+};
+
+const handleSetFullAmount = async (payment, isReturn) => {
+	set_full_amount(payment, isReturn);
+	if (!(await setInvoiceEquivalent(payment, payment.amount))) showMissingPaymentRate(payment);
 };
 
 const setPaymentToDenomination = (payment, amount) => {
-	payment.amount = amount;
-	if (payment.base_amount !== undefined) {
-		payment.base_amount = flt(
-			toCompanyCurrency(paymentCurrencyContext(), amount),
-			currency_precision.value,
-		);
-	}
+	void setInvoiceEquivalent(payment, amount).then((ok) => {
+		if (!ok) showMissingPaymentRate(payment);
+	});
 	last_payment_change_was_cash.value = isCashLikePayment(payment);
 };
 
@@ -1853,6 +1938,7 @@ const handleSubmitPaymentShortcut = ({ print = false, amount = null } = {}) => {
 				currency_precision.value,
 				isCashLikePayment,
 			);
+			void initializePayments();
 			submitShortcut();
 		};
 
@@ -2178,6 +2264,7 @@ onMounted(() => {
 			}
 
 			const initializedPayment = ensurePaymentLinesInitialized(doc);
+			void initializePayments();
 
 			if (doc.is_return) {
 				is_return.value = true;

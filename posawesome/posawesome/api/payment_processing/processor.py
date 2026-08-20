@@ -903,7 +903,7 @@ def process_pos_payment(payload):
                     party=party,
                     party_type=party_type,
                     payment_type=payment_type,
-                    exchange_rate=data.get("exchange_rate"),
+                    exchange_rate=payment_method.get("exchange_rate"),
                     posting_date=posting_date,
                     reference_no=data.get("reference_no") or pos_opening_shift_name,
                     reference_date=data.get("reference_date") or posting_date,
@@ -911,13 +911,18 @@ def process_pos_payment(payload):
                     submit=0,
                     client_request_id=client_request_id,
                     bank_account=payment_method.get("bank_account"),
+                    payment_currency=payment_method.get("payment_currency"),
+                    exchange_rate_source=payment_method.get("rate_source"),
+                    allow_manual_rate=bool(
+                        cint(profile_doc.get("posa_allow_manual_payment_exchange_rate"))
+                    ),
                 )
 
                 party_account = get_party_account(party_type, party, company)
                 party_account_currency = get_account_currency(party_account)
 
                 first_inv = remaining_invoices[0] if remaining_invoices else {}
-                exchange_rate_val = flt(data.get("exchange_rate", 1))
+                exchange_rate_val = flt(payment_method.get("exchange_rate"))
                 precision = _get_currency_precision()
 
                 bank_currency = (

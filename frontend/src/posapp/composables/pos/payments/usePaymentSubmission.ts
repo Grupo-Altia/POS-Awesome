@@ -454,6 +454,21 @@ export function usePaymentSubmission(options: PaymentSubmissionOptions) {
 		} = options;
 		const diff = unref(diff_payment) || 0;
 		const writeOffAmount = getEffectiveWriteOffAmount(doc, profile, diff);
+		const invalidPaymentRate = (doc?.payments || []).find(
+			(payment: any) =>
+				Math.abs(Number(payment?.posa_original_amount || 0)) > 0 &&
+				(payment?._posa_rate_error ||
+					!Number(payment?.posa_exchange_rate) ||
+					!Number(payment?.posa_company_exchange_rate)),
+		);
+		const invalidChangeRate = (doc?.posa_change_returns || []).find(
+			(row: any) =>
+				Number(row?.original_amount || 0) > 0 &&
+				(row?._posa_rate_error || !Number(row?.exchange_rate)),
+		);
+		if (invalidPaymentRate || invalidChangeRate) {
+			frappe.throw(__("Resolve all payment and change exchange rates before submitting."));
+		}
 
 		const storeItemsSource = stores?.invoiceStore?.items;
 		const liveCartItems = Array.isArray(storeItemsSource)

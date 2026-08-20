@@ -27,6 +27,8 @@ export interface PaymentMethodsOptions {
 	getPaidChange?: () => number;
 	getCreditChange?: () => number;
 	onBackToInvoice?: () => void;
+	onPaymentInvoiceAmountChanged?: (_payment: any, _invoiceAmount: number) => void | Promise<void>;
+	onPaymentCleared?: (_payment: any) => void;
 }
 
 export function usePaymentMethods(options: PaymentMethodsOptions) {
@@ -45,6 +47,16 @@ export function usePaymentMethods(options: PaymentMethodsOptions) {
 
 	const flt = (v: any) =>
 		formatFloat ? formatFloat(v) : parseFloat(String(v)) || 0;
+	const syncPaymentCurrency = (payment: any) => {
+		if (options.onPaymentInvoiceAmountChanged) {
+			void options.onPaymentInvoiceAmountChanged(payment, flt(payment.amount));
+		}
+	};
+	const clearPayment = (payment: any) => {
+		payment.amount = 0;
+		if (payment.base_amount !== undefined) payment.base_amount = 0;
+		if (options.onPaymentCleared) options.onPaymentCleared(payment);
+	};
 
 	const currencyContext = (doc = unref(invoiceDoc)) => ({
 		...(doc || {}),
@@ -105,7 +117,7 @@ export function usePaymentMethods(options: PaymentMethodsOptions) {
 
 		doc.payments.forEach((payment: any) => {
 			if (payment.mode_of_payment.toLowerCase() === "cash") {
-				payment.amount = 0;
+				clearPayment(payment);
 			}
 		});
 	};
@@ -155,6 +167,7 @@ export function usePaymentMethods(options: PaymentMethodsOptions) {
 						toCompanyCurrency(currencyContext(doc), newAmount),
 					);
 				}
+				syncPaymentCurrency(other);
 
 				remaining_excess = flt(remaining_excess - reduction);
 			}
@@ -236,8 +249,7 @@ export function usePaymentMethods(options: PaymentMethodsOptions) {
 		// Reset other payments
 		doc.payments.forEach((p: any) => {
 			if (p.mode_of_payment !== payment.mode_of_payment) {
-				p.amount = 0;
-				if (p.base_amount !== undefined) p.base_amount = 0;
+				clearPayment(p);
 			}
 		});
 
@@ -249,6 +261,7 @@ export function usePaymentMethods(options: PaymentMethodsOptions) {
 			);
 			payment.base_amount = isReturn ? -Math.abs(baseAmount) : baseAmount;
 		}
+		syncPaymentCurrency(payment);
 	};
 
 	const set_rest_amount = (payment: any, isReturn = false) => {
@@ -272,16 +285,14 @@ export function usePaymentMethods(options: PaymentMethodsOptions) {
 			const baseAmount = toCompanyCurrency(currencyContext(doc), amount);
 			payment.base_amount = isReturn ? -Math.abs(baseAmount) : baseAmount;
 		}
+		syncPaymentCurrency(payment);
 	};
 
 	const clear_all_amounts = () => {
 		const doc = unref(invoiceDoc);
 		if (doc && doc.payments) {
 			doc.payments.forEach((payment: any) => {
-				payment.amount = 0;
-				if (payment.base_amount !== undefined) {
-					payment.base_amount = 0;
-				}
+				clearPayment(payment);
 			});
 		}
 	};

@@ -244,6 +244,7 @@ import { usePosPayData } from "../../../composables/pos/payments/usePosPayData";
 import { usePosPaySelection } from "../../../composables/pos/payments/usePosPaySelection";
 import { usePosPaySubmission } from "../../../composables/pos/payments/usePosPaySubmission";
 import { usePaymentSharing } from "../../../composables/pos/payments/usePaymentSharing";
+import { resolveExchangeRate } from "../../../services/exchangeRateResolver";
 import {
 	getAllowedPartyTypes,
 	normalizePartyTypeForPaymentType,
@@ -481,7 +482,7 @@ export default {
 		});
 
 		const companyCurrencyLocal = computed(
-			() => companyCurrency.value || pos_profile.value?.currency || "USD",
+			() => companyCurrency.value || pos_profile.value?.currency || "",
 		);
 		const requiresExchangeRate = computed(
 			() => invoiceTotalCurrency.value !== companyCurrencyLocal.value,
@@ -559,25 +560,18 @@ export default {
 			return payment_methods.value;
 		});
 
-		const rateFromCurrencyToCompany = (currency) => {
-			if (!currency || currency === companyCurrencyLocal.value) return 1;
-			if (currency === invoiceTotalCurrency.value) return flt(exchangeRate.value || 1);
-			return flt(invoiceConversionRate.value || exchangeRate.value || 1);
-		};
-
 		const new_payments_detail = computed(() => {
 			if (!filtered_payment_methods.value.length) return [];
 			return filtered_payment_methods.value
 				.filter((m) => flt(m.amount) > 0)
 				.map((m) => {
-					const mopCurrency = getPaymentMethodCurrency(m.mode_of_payment);
-					const rate = rateFromCurrencyToCompany(mopCurrency);
+					const mopCurrency = m.payment_currency || getPaymentMethodCurrency(m.mode_of_payment);
 					return {
 						mode_of_payment: m.mode_of_payment,
 						paid_amount: flt(m.amount),
 						currency: mopCurrency,
 						received_amount: flt(m.amount),
-						exchange_rate: rate,
+						exchange_rate: m.company_exchange_rate || null,
 					};
 				});
 		});
@@ -700,16 +694,16 @@ export default {
 						fieldname: "default_currency",
 					},
 				});
-				companyCurrency.value = r.message?.default_currency || pos_profile.value?.currency || "USD";
+				companyCurrency.value = r.message?.default_currency || pos_profile.value?.currency || "";
 			} catch (e) {
 				console.error("Failed to fetch company currency", e);
-				companyCurrency.value = pos_profile.value?.currency || "USD";
+				companyCurrency.value = pos_profile.value?.currency || "";
 			}
 		};
 
 		const fetchExchangeRate = async () => {
 			if (exchangeRateLoading.value || !requiresExchangeRate.value) {
-				exchangeRate.value = 1;
+				exchangeRate.value = requiresExchangeRate.value ? null : 1;
 				return;
 			}
 			if (!invoiceTotalCurrency.value || !companyCurrencyLocal.value) {
@@ -718,27 +712,25 @@ export default {
 			exchangeRateLoading.value = true;
 			exchangeRateError.value = null;
 			try {
-				const r = await frappe.call({
-					method: "erpnext.setup.utils.get_exchange_rate",
-					args: {
-						from_currency: invoiceTotalCurrency.value,
-						to_currency: companyCurrencyLocal.value,
-						transaction_date: postingDate.value || getTodayDate(),
-						args: "for_selling",
-					},
+				const result = await resolveExchangeRate({
+					profileName: pos_profile.value?.name,
+					company: company.value,
+					fromCurrency: invoiceTotalCurrency.value,
+					toCurrency: companyCurrencyLocal.value,
+					effectiveDate: postingDate.value || getTodayDate(),
+					purpose: "for_selling",
 				});
-				exchangeRate.value = flt(r.message || 1);
+				if (!result.found || !result.rate) throw new Error(__("Exchange rate unavailable"));
+				exchangeRate.value = result.rate;
 			} catch (e) {
 				exchangeRateError.value = e.message;
-				exchangeRate.value = 1;
+				exchangeRate.value = null;
 			} finally {
 				exchangeRateLoading.value = false;
 			}
 		};
 
-		const validateExchangeRate = () => {
-			if (!exchangeRate.value || exchangeRate.value <= 0) exchangeRate.value = 1;
-		};
+		const validateExchangeRate = () => Boolean(exchangeRate.value && exchangeRate.value > 0);
 
 		const set_payment_methods = () => {
 			if (!pos_profile.value?.posa_allow_make_new_payments) return;
@@ -747,8 +739,73 @@ export default {
 				amount: 0,
 				row_id: m.name,
 				bank_account: null,
+				payment_currency: null,
+				invoice_equivalent: 0,
 			}));
 		};
+
+		const resolvePaymentMethodRate = async (method) => {
+			const selectedAccount = (available_bank_accounts.value?.[method.mode_of_payment] || []).find(
+				(account) => account.account === method.bank_account,
+			);
+			const paymentCurrency =
+				selectedAccount?.account_currency ||
+				method.payment_currency ||
+				getPaymentMethodCurrency(method.mode_of_payment);
+			if (!paymentCurrency || !invoiceTotalCurrency.value || !companyCurrencyLocal.value) return;
+			const common = {
+				profileName: pos_profile.value?.name,
+				company: company.value,
+				fromCurrency: paymentCurrency,
+				effectiveDate: postingDate.value || getTodayDate(),
+			};
+			const [invoiceResult, companyResult] = await Promise.all([
+				resolveExchangeRate({ ...common, toCurrency: invoiceTotalCurrency.value }),
+				resolveExchangeRate({ ...common, toCurrency: companyCurrencyLocal.value }),
+			]);
+			method.payment_currency = paymentCurrency;
+			method._rate_error = !invoiceResult.found || !companyResult.found;
+			method.invoice_equivalent = invoiceResult.rate
+				? flt(flt(method.amount) * invoiceResult.rate)
+				: 0;
+			method.company_exchange_rate = companyResult.rate || null;
+			method.rate_date = invoiceResult.rateDate || null;
+			method.rate_source = invoiceResult.source || null;
+		};
+
+		watch(
+			() => payment_methods.value.map((m) => [m.mode_of_payment, m.amount, m.bank_account, getPaymentMethodCurrency(m.mode_of_payment)]),
+			() => payment_methods.value.forEach((method) => void resolvePaymentMethodRate(method)),
+			{ deep: true },
+		);
+
+		const normalizeSelectedPayment = async (row, amountField) => {
+			const fromCurrency = row.currency || pos_profile.value?.currency;
+			const toCurrency = invoiceTotalCurrency.value;
+			if (!fromCurrency || !toCurrency) return;
+			const result = await resolveExchangeRate({
+				profileName: pos_profile.value?.name,
+				company: company.value,
+				fromCurrency,
+				toCurrency,
+				effectiveDate: postingDate.value || getTodayDate(),
+			});
+			row._rate_error = !result.found;
+			row.invoice_equivalent = result.rate ? flt(row?.[amountField] || 0) * result.rate : 0;
+		};
+
+		watch(
+			() => [
+				invoiceTotalCurrency.value,
+				...selected_payments.value.map((row) => `${row.name}:${row.unallocated_amount}:${row.currency}`),
+				...selected_mpesa_payments.value.map((row) => `${row.name}:${row.amount}:${row.currency}`),
+			],
+			() => {
+				selected_payments.value.forEach((row) => void normalizeSelectedPayment(row, "unallocated_amount"));
+				selected_mpesa_payments.value.forEach((row) => void normalizeSelectedPayment(row, "amount"));
+			},
+			{ deep: true },
+		);
 
 		const loadPaymentMethodCurrencies = async () => {
 			if (!pos_profile.value?.payments?.length || !company.value) return;
@@ -765,6 +822,10 @@ export default {
 					currencies[mode] = typeof data === "string" ? data : data.account_currency;
 				}
 				payment_method_currencies.value = currencies;
+				payment_methods.value.forEach((method) => {
+					method.payment_currency = currencies[method.mode_of_payment] || null;
+					void resolvePaymentMethodRate(method);
+				});
 				// Fetch available accounts for all modes
 				await Promise.all(modes.map((mode) => fetchAvailableAccounts(mode)));
 			} catch (e) {

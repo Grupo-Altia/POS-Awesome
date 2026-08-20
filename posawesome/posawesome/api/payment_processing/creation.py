@@ -35,6 +35,9 @@ def create_payment_entry(
     submit=0,
     client_request_id=None,
     bank_account=None,
+    payment_currency=None,
+    exchange_rate_source=None,
+    allow_manual_rate=False,
 ):
     date = nowdate() if not posting_date else posting_date
     party = party or customer
@@ -57,9 +60,23 @@ def create_payment_entry(
     if not bank:
         frappe.throw(_("Bank/Cash account not found for mode of payment {0}").format(mode_of_payment))
 
+    if payment_currency and payment_currency != bank.account_currency:
+        frappe.throw(
+            _("Payment currency {0} does not match account currency {1} for {2}.").format(
+                payment_currency, bank.account_currency, mode_of_payment
+            )
+        )
+
     # Get exchange rate using the MOP bank account currency
-    if exchange_rate and flt(exchange_rate) > 0:
+    if (
+        allow_manual_rate
+        and exchange_rate_source == "manual"
+        and exchange_rate
+        and flt(exchange_rate) > 0
+    ):
         conversion_rate = flt(exchange_rate)
+    elif bank.account_currency == company_currency:
+        conversion_rate = 1
     else:
         conversion_rate = get_exchange_rate(
             bank.account_currency, company_currency, date,

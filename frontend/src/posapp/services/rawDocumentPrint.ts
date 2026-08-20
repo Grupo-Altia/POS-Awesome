@@ -258,11 +258,24 @@ function addTotals(lines: string[], doc: Record<string, any>, width: number) {
 	}
 
 	const payments = Array.isArray(doc.payments) ? doc.payments : [];
-	if (!payments.length) return;
-	lines.push(line(width));
-	lines.push(translate("Payments"));
+	if (payments.length) {
+		lines.push(line(width));
+		lines.push(translate("Payments"));
+	}
 	for (const payment of payments) {
-		lines.push(leftRight(payment.mode_of_payment || payment.account || translate("Payment"), formatAmount(paymentAmount(payment), currency), width));
+		const paymentCurrency = payment.posa_payment_currency || currency;
+		const originalAmount = payment.posa_original_amount ?? paymentAmount(payment);
+		lines.push(leftRight(payment.mode_of_payment || payment.account || translate("Payment"), formatAmount(originalAmount, paymentCurrency), width));
+		if (paymentCurrency !== currency) {
+			lines.push(leftRight(`  ${translate("Invoice equivalent")}`, formatAmount(payment.amount, currency), width));
+		}
+	}
+	const changeReturns = Array.isArray(doc.posa_change_returns) ? doc.posa_change_returns : [];
+	if (changeReturns.length) {
+		lines.push(translate("Physical Change Returned"));
+		for (const row of changeReturns) {
+			lines.push(leftRight(row.currency || currency, formatAmount(row.original_amount, row.currency || currency), width));
+		}
 	}
 }
 
