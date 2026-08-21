@@ -23,6 +23,26 @@
 					<span v-if="payment.default === 1" class="payment-method-card__badge">
 						{{ __("Default") }}
 					</span>
+					<span
+						v-if="payment._posa_auto_remainder"
+						class="payment-method-card__badge payment-method-card__badge--auto"
+					>
+						{{ __("Auto remainder") }}
+					</span>
+					<v-btn
+						v-if="!isMpesaC2bPayment(payment) && !isGiftCardPayment(payment)"
+						icon
+						size="x-small"
+						variant="text"
+						:color="payment._posa_remainder_locked ? 'warning' : 'secondary'"
+						:title="remainderLockTitle(payment)"
+						:data-test="`payment-remainder-lock-${payment.mode_of_payment}`"
+						@click="$emit('toggle-remainder-lock', payment)"
+					>
+						<v-icon size="16">
+							{{ payment._posa_remainder_locked ? "mdi-lock" : "mdi-lock-open-variant" }}
+						</v-icon>
+					</v-btn>
 					<kbd
 						v-if="showKeyboardShortcuts && paymentIndex < 9"
 						class="payment-method-card__shortcut"
@@ -212,12 +232,18 @@ const emit = defineEmits([
 	"update-currency",
 	"update-rate",
 	"set-rest-amount",
+	"toggle-remainder-lock",
 	"set-full-amount",
 	"set-denomination",
 	"mpesa-dialog",
 	"request-payment",
 	"open-gift-card",
 ]);
+
+const remainderLockTitle = (payment) =>
+	payment?._posa_remainder_locked
+		? __("Unlock automatic remainder")
+		: __("Lock automatic remainder");
 
 const handlePrimaryAction = (payment) => {
 	if (props.isGiftCardPayment(payment)) {
@@ -332,6 +358,11 @@ const blurTarget = (event) => {
 
 .payment-method-actions {
 	display: block;
+}
+
+.payment-method-card__badge--auto {
+	background: #0f766e;
+	color: #ffffff;
 }
 
 .payment-currency-equivalent {

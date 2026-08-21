@@ -34,9 +34,13 @@
 					:prefix="currencySymbol(props.item.currency)"
 				></v-text-field>
 			</template>
-			<template v-slot:item.difference="{ item }">
-				{{ companyCurrencySymbol }}
+			<template v-slot:item.difference_in_currency="{ item }">
+				{{ currencySymbol(item.currency) }}
 				{{ formatCurrency(calculateDifference(item)) }}
+			</template>
+			<template v-slot:item.company_difference="{ item }">
+				{{ companyCurrencySymbol }}
+				{{ formatCurrency(calculateCompanyDifference(item)) }}
 			</template>
 			<template v-slot:item.opening_amount="{ item }">
 				{{ companyCurrencySymbol }}
@@ -114,7 +118,14 @@ const closingAmountRule = (v) => {
 const calculateDifference = (item) => {
 	const closing = Number(item?.closing_amount_in_currency ?? item?.closing_amount) || 0;
 	const expected = Number(item?.expected_amount_in_currency ?? item?.expected_amount) || 0;
-	return expected - closing;
+	return closing - expected;
+};
+
+const calculateCompanyDifference = (item) => {
+	const expectedTender = Number(item?.expected_amount_in_currency) || 0;
+	const expectedCompany = Number(item?.expected_amount) || 0;
+	const rate = expectedTender ? Math.abs(expectedCompany / expectedTender) : 1;
+	return calculateDifference(item) * rate;
 };
 
 const formatVariancePercent = (item) => {
@@ -137,7 +148,7 @@ const varianceClass = (item) => {
 	if (!variance) {
 		return "variance-neutral";
 	}
-	return variance > 0 ? "variance-negative" : "variance-positive";
+	return variance < 0 ? "variance-negative" : "variance-positive";
 };
 </script>
 

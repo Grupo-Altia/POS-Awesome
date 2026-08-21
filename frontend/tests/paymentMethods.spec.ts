@@ -150,6 +150,7 @@ describe("PaymentMethods", () => {
 
 	it("requests the remaining amount when an empty payment field receives focus", async () => {
 		const onSetRestAmount = vi.fn();
+		const onToggleRemainderLock = vi.fn();
 		const payments = [
 			{
 				name: "PAY-CASH",
@@ -166,6 +167,7 @@ describe("PaymentMethods", () => {
 				amount: 0,
 				posa_payment_currency: "USD",
 				posa_original_amount: 0,
+				_posa_auto_remainder: true,
 			},
 		];
 		const wrapper = mount(PaymentMethods, {
@@ -183,6 +185,7 @@ describe("PaymentMethods", () => {
 				isMpesaC2bPayment: () => false,
 				isGiftCardPayment: () => false,
 				onSetRestAmount,
+				onToggleRemainderLock,
 			},
 			global: {
 				components: {
@@ -200,6 +203,11 @@ describe("PaymentMethods", () => {
 		expect(onSetRestAmount).toHaveBeenCalledWith(payments[1], false);
 		expect(payments[0].posa_original_amount).toBe(30);
 		expect(payments[1].posa_original_amount).toBe(0);
+		expect(wrapper.text()).toContain("Auto remainder");
+		await wrapper
+			.get('[data-test="payment-remainder-lock-Online Transfer"]')
+			.trigger("click");
+		expect(onToggleRemainderLock).toHaveBeenCalledWith(payments[1]);
 	});
 
 	it("shows Counter Grid accelerator hints in POS Profile payment order", () => {

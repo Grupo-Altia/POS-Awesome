@@ -1,6 +1,9 @@
 import { computed, unref, type Ref } from "vue";
 import { formatUtils } from "../../../format";
-import { fromCompanyCurrency } from "../../../utils/erpnextCurrency";
+import {
+	fromCompanyCurrency,
+	toCompanyCurrency,
+} from "../../../utils/erpnextCurrency";
 
 declare const window: any;
 
@@ -150,6 +153,53 @@ export function usePaymentCalculations(options: PaymentCalculationOptions) {
 		return change > 0 ? change : 0;
 	});
 
+	const base_settlement = computed(() => {
+		const doc = unref(invoiceDoc);
+		if (!doc) {
+			return { paid: 0, target: 0, difference: 0, remaining: 0, change: 0 };
+		}
+
+		const invoiceTotal = flt(doc.rounded_total || doc.grand_total);
+		const explicitBaseTotal = doc.base_rounded_total || doc.base_grand_total;
+		const target = flt(
+			explicitBaseTotal || toCompanyCurrency(currencyContext(doc), invoiceTotal),
+		);
+		let paid = paymentAmountSummary.value.payments.reduce((sum, payment) => {
+			const baseAmount = payment?.base_amount;
+			return (
+				sum +
+				flt(
+					baseAmount !== undefined && baseAmount !== null
+						? baseAmount
+						: toCompanyCurrency(currencyContext(doc), payment?.amount || 0),
+				)
+			);
+		}, 0);
+
+		paid += flt(unref(loyaltyAmount) || 0);
+		paid += flt(unref(redeemedCustomerCredit) || 0);
+		const giftCardRows = giftCardRedemptions ? unref(giftCardRedemptions) : [];
+		if (Array.isArray(giftCardRows)) {
+			paid += giftCardRows.reduce(
+				(sum, row) =>
+					sum + flt(toCompanyCurrency(currencyContext(doc), row?.amount || 0)),
+				0,
+			);
+		}
+
+		paid = flt(paid);
+		const difference = Number(
+			(target - paid).toFixed(unref(currencyPrecision)),
+		);
+		return {
+			paid,
+			target,
+			difference,
+			remaining: difference > 0 ? difference : 0,
+			change: difference < 0 ? Math.abs(difference) : 0,
+		};
+	});
+
 	const isCashLikePayment = (payment: any) => {
 		const mop = payment?.mode_of_payment?.toLowerCase() || "";
 		return (
@@ -209,6 +259,7 @@ export function usePaymentCalculations(options: PaymentCalculationOptions) {
 		diff_payment,
 		diff_payment_display,
 		change_due,
+		base_settlement,
 		diff_label,
 		available_points_amount,
 		available_customer_credit,

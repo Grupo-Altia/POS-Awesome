@@ -1051,14 +1051,6 @@ export function useItemAddition() {
 			context.base_delivery_charges_rate = 0;
 			context.delivery_charges_rate = 0;
 			context.selected_delivery_charge = null;
-			if (typeof context.reset_currency_to_default === "function") {
-				const resetResult = context.reset_currency_to_default();
-				if (resetResult && typeof resetResult.catch === "function") {
-					resetResult.catch((error) => {
-						console.error("Unable to reset invoice currency:", error);
-					});
-				}
-			}
 		}
 
 		context.posa_offers = [];

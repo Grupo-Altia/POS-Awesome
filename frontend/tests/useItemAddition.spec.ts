@@ -430,7 +430,7 @@ describe("useItemAddition new line behavior", () => {
 		expect(context.invoiceTypes).toEqual(["Invoice", "Order", "Quotation"]);
 		expect(context.customer).toBe("Walk in Customer");
 		expect(context.return_doc).toBe("");
-		expect(context.reset_currency_to_default).toHaveBeenCalledTimes(1);
+		expect(context.reset_currency_to_default).not.toHaveBeenCalled();
 		expect(emit).toHaveBeenCalledWith("set_customer_readonly", false);
 	});
 });

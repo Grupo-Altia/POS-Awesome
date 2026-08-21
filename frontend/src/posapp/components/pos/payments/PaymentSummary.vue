@@ -29,6 +29,25 @@
 			></v-text-field>
 		</v-col>
 
+		<v-col v-if="baseCurrency" cols="12">
+			<div
+				class="payment-summary-base"
+				:data-state="baseSettlementState"
+				data-test="payment-base-settlement"
+			>
+				<div>
+					<p class="payment-summary-base__label">{{ baseSettlementLabel }}</p>
+					<p class="payment-summary-base__meta">
+						{{ frappe._("Exact company-currency settlement") }}
+					</p>
+				</div>
+				<strong class="payment-summary-base__amount">
+					{{ currencySymbol(baseCurrency) }}
+					{{ formatCurrency(Math.abs(baseSettlement?.difference || 0)) }}
+				</strong>
+			</div>
+		</v-col>
+
 		<v-col v-if="invoice_doc && giftCardAppliedAmount > 0" cols="12">
 			<div class="payment-summary-pill payment-summary-pill--gift-card">
 				<div class="payment-summary-pill__copy">
@@ -81,7 +100,9 @@
 </template>
 
 <script setup>
-defineProps({
+import { computed } from "vue";
+
+const props = defineProps({
 	invoice_doc: Object,
 	total_payments_display: String,
 	diff_payment_display: String,
@@ -91,6 +112,8 @@ defineProps({
 		default: 0,
 	},
 	change_due: Number,
+	baseSettlement: Object,
+	baseCurrency: String,
 	paid_change: Number,
 	credit_change: Number,
 	paid_change_rules: Array,
@@ -109,6 +132,19 @@ defineProps({
 defineEmits(["show-paid-amount", "show-diff-payment", "show-paid-change", "update-credit-change"]);
 
 const frappe = window.frappe;
+
+const baseSettlementState = computed(() => {
+	const difference = Number(props.baseSettlement?.difference || 0);
+	if (difference > 0) return "remaining";
+	if (difference < 0) return "change";
+	return "balanced";
+});
+
+const baseSettlementLabel = computed(() => {
+	if (baseSettlementState.value === "remaining") return frappe._("Base Remaining");
+	if (baseSettlementState.value === "change") return frappe._("Base Change");
+	return frappe._("Base Difference");
+});
 </script>
 
 <style scoped>
@@ -125,6 +161,48 @@ const frappe = window.frappe;
 .payment-summary-grid :deep(.v-field) {
 	border-radius: var(--pos-radius-sm);
 	background: var(--pos-surface-raised);
+}
+
+.payment-summary-base {
+	display: flex;
+	align-items: center;
+	justify-content: space-between;
+	gap: var(--pos-space-3);
+	padding: 10px 14px;
+	border: 1px solid var(--pos-border);
+	border-radius: var(--pos-radius-sm);
+	background: var(--pos-surface-raised);
+}
+
+.payment-summary-base[data-state="change"] {
+	border-color: rgba(var(--v-theme-warning), 0.35);
+	background: rgba(var(--v-theme-warning), 0.08);
+}
+
+.payment-summary-base[data-state="remaining"] {
+	border-color: rgba(var(--v-theme-error), 0.3);
+	background: rgba(var(--v-theme-error), 0.06);
+}
+
+.payment-summary-base__label,
+.payment-summary-base__meta {
+	margin: 0;
+}
+
+.payment-summary-base__label {
+	font-size: 0.8rem;
+	font-weight: 700;
+	color: var(--pos-text-primary);
+}
+
+.payment-summary-base__meta {
+	font-size: 0.72rem;
+	color: var(--pos-text-secondary);
+}
+
+.payment-summary-base__amount {
+	white-space: nowrap;
+	color: var(--pos-text-primary);
 }
 
 .payment-summary-pill {

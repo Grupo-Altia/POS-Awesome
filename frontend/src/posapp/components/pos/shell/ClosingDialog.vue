@@ -172,8 +172,14 @@ export default {
 				sortable: false,
 			},
 			{
+				title: __("Difference (Tender Currency)"),
+				value: "difference_in_currency",
+				align: "end",
+				sortable: false,
+			},
+			{
 				title: __("Difference (In Company Currency)"),
-				value: "difference",
+				value: "company_difference",
 				align: "end",
 				sortable: false,
 			},

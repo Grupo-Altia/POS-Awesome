@@ -33,6 +33,8 @@
 							:diff_label="diff_label"
 							:diff-payment="diff_payment"
 							:change_due="change_due"
+							:base-settlement="base_settlement"
+							:base-currency="companyCurrency"
 							:paid_change="paid_change"
 							:credit_change="credit_change"
 							:paid_change_rules="paid_change_rules"
@@ -87,6 +89,7 @@
 							@update-currency="handlePaymentCurrencyChange"
 							@update-rate="handlePaymentRateChange"
 							@set-rest-amount="set_rest_amount"
+							@toggle-remainder-lock="toggle_remainder_lock"
 							@set-full-amount="handleSetFullAmount"
 							@set-denomination="setPaymentToDenomination"
 							@mpesa-dialog="mpesa_c2b_dialog"
@@ -530,6 +533,13 @@ const paymentItemDiscountTotal = computed(() => {
 });
 
 const displayCurrency = computed(() => (invoice_doc.value ? invoice_doc.value.currency : ""));
+const companyCurrency = computed(
+	() =>
+		uiStore.companyDoc?.default_currency ||
+		pos_profile.value?.currency ||
+		invoice_doc.value?.currency ||
+		"",
+);
 const isPaymentOpen = computed(() => activeView.value === "payment" || paymentDialogOpen.value);
 const netInvoiceSettlementAmount = computed(() => {
 	if (!invoice_doc.value) return 0;
@@ -669,7 +679,15 @@ const {
 	formatFloat: (value, precision) => flt(value, precision),
 });
 
-const { diff_payment, total_payments, total_payments_display, diff_payment_display, diff_label, change_due } =
+const {
+	diff_payment,
+	total_payments,
+	total_payments_display,
+	diff_payment_display,
+	diff_label,
+	change_due,
+	base_settlement,
+} =
 	paymentCalculations;
 
 const {
@@ -705,6 +723,7 @@ const {
 	set_mpesa_payment,
 	set_full_amount,
 	set_rest_amount,
+	toggle_remainder_lock,
 	clear_all_amounts,
 	request_payment,
 	getVisibleDenominations,
@@ -1194,7 +1213,7 @@ const finishSubmissionNavigation = (clearInvoice = false) => {
 		invoiceStore.clear();
 		invoiceStore.resetPostingDate();
 		if (eventBus && typeof eventBus.emit === "function") {
-			eventBus.emit("clear_invoice");
+			eventBus.emit("clear_invoice", { resetCurrency: true });
 		}
 
 		if (submittedType !== "Invoice") {
@@ -1549,6 +1568,7 @@ const showMissingPaymentRate = (payment) => {
 };
 
 const handlePaymentAmountChange = async (payment, event) => {
+	payment._posa_auto_remainder = false;
 	last_payment_change_was_cash.value = isCashLikePayment(payment);
 	const holder = { value: payment.posa_original_amount ?? payment.amount };
 	setFormatedCurrency(holder, "value", null, false, event);
@@ -1568,11 +1588,13 @@ const handlePaymentRateChange = async (payment, event) => {
 };
 
 const handleSetFullAmount = async (payment, isReturn) => {
+	payment._posa_auto_remainder = false;
 	set_full_amount(payment, isReturn);
 	if (!(await setInvoiceEquivalent(payment, payment.amount))) showMissingPaymentRate(payment);
 };
 
 const setPaymentToDenomination = (payment, amount) => {
+	payment._posa_auto_remainder = false;
 	void setInvoiceEquivalent(payment, amount).then((ok) => {
 		if (!ok) showMissingPaymentRate(payment);
 	});

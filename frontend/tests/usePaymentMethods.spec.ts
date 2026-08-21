@@ -148,6 +148,39 @@ describe("usePaymentMethods", () => {
 		expect(onPaymentInvoiceAmountChanged).not.toHaveBeenCalled();
 	});
 
+	it("marks auto remainder rows and respects the cashier lock", () => {
+		const target: any = {
+			mode_of_payment: "Online Transfer",
+			amount: 0,
+			base_amount: 0,
+			posa_original_amount: 0,
+		};
+		const invoiceDoc = ref<any>({
+			currency: "USD",
+			conversion_rate: 285,
+			payments: [{ mode_of_payment: "Cash", amount: 0.07, base_amount: 20 }, target],
+		});
+		const { set_rest_amount, toggle_remainder_lock } = usePaymentMethods({
+			invoiceDoc,
+			posProfile: ref({ currency: "PKR" }),
+			getNetInvoiceAmount: () => 0.42,
+			stores: {
+				toastStore: { show: () => undefined },
+				uiStore: { freeze: () => undefined, unfreeze: () => undefined },
+			},
+		});
+
+		toggle_remainder_lock(target);
+		set_rest_amount(target);
+		expect(target.amount).toBe(0);
+		expect(target._posa_auto_remainder).toBeUndefined();
+
+		toggle_remainder_lock(target);
+		set_rest_amount(target);
+		expect(target.amount).toBe(0.35);
+		expect(target._posa_auto_remainder).toBe(true);
+	});
+
 	it("fills base payment amount with the invoice conversion rate", () => {
 		const invoiceDoc = ref<any>({
 			currency: "USD",

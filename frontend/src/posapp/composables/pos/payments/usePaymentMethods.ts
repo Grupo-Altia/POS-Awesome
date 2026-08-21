@@ -54,6 +54,7 @@ export function usePaymentMethods(options: PaymentMethodsOptions) {
 	};
 	const clearPayment = (payment: any) => {
 		payment.amount = 0;
+		payment._posa_auto_remainder = false;
 		if (payment.base_amount !== undefined) payment.base_amount = 0;
 		if (options.onPaymentCleared) options.onPaymentCleared(payment);
 	};
@@ -253,6 +254,7 @@ export function usePaymentMethods(options: PaymentMethodsOptions) {
 			}
 		});
 
+		payment._posa_auto_remainder = false;
 		payment.amount = invoiceAmount;
 		if (payment.base_amount !== undefined) {
 			const baseAmount = toCompanyCurrency(
@@ -269,6 +271,7 @@ export function usePaymentMethods(options: PaymentMethodsOptions) {
 		if (
 			!doc?.payments ||
 			!payment ||
+			payment._posa_remainder_locked ||
 			Math.abs(flt(payment.amount)) > 0 ||
 			Math.abs(flt(payment.posa_original_amount)) > 0
 		) {
@@ -289,11 +292,17 @@ export function usePaymentMethods(options: PaymentMethodsOptions) {
 		}
 
 		payment.amount = amount;
+		payment._posa_auto_remainder = true;
 		if (payment.base_amount !== undefined) {
 			const baseAmount = toCompanyCurrency(currencyContext(doc), amount);
 			payment.base_amount = isReturn ? -Math.abs(baseAmount) : baseAmount;
 		}
 		syncPaymentCurrency(payment);
+	};
+
+	const toggle_remainder_lock = (payment: any) => {
+		if (!payment) return;
+		payment._posa_remainder_locked = !payment._posa_remainder_locked;
 	};
 
 	const clear_all_amounts = () => {
@@ -433,6 +442,7 @@ export function usePaymentMethods(options: PaymentMethodsOptions) {
 		set_mpesa_payment,
 		set_full_amount,
 		set_rest_amount,
+		toggle_remainder_lock,
 		clear_all_amounts,
 		request_payment,
 		autoBalancePayments,

@@ -1056,8 +1056,13 @@ export default {
 				console.error("Error refreshing parked orders:", error);
 			}
 		},
-		handleClearInvoice() {
+		handleClearInvoice(options = {}) {
 			this.clear_invoice();
+			if (options.resetCurrency && typeof this.reset_currency_to_default === "function") {
+				this.reset_currency_to_default().catch((error) => {
+					console.error("Unable to reset invoice currency:", error);
+				});
+			}
 			this.uiStore.triggerItemSearchFocus();
 		},
 		handleLoadInvoice(data) {
