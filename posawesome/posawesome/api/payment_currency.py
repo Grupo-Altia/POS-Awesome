@@ -17,6 +17,7 @@ PAYMENT_CURRENCY_FIELDS = (
     "posa_account_currency",
     "posa_account_amount",
 )
+TENDER_AMOUNT_PRECISION = 9
 
 
 def _precision(row, fieldname, fallback=2):
@@ -24,6 +25,11 @@ def _precision(row, fieldname, fallback=2):
         return row.precision(fieldname)
     except Exception:
         return fallback
+
+
+def _tender_amount_precision(row):
+    """Keep conversion inputs exact even when Currency display precision is lower."""
+    return max(_precision(row, "posa_original_amount"), TENDER_AMOUNT_PRECISION)
 
 
 def _company_currency(invoice_doc):
@@ -145,7 +151,7 @@ def normalize_invoice_payment_currencies(invoice_doc, profile_doc=None, rate_cac
 
         payment.posa_payment_currency = payment_currency
         payment.posa_original_amount = flt(
-            original_amount, _precision(payment, "posa_original_amount")
+            original_amount, _tender_amount_precision(payment)
         )
         payment.posa_exchange_rate = invoice_rate
         payment.posa_company_exchange_rate = company_rate

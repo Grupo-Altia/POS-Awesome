@@ -166,7 +166,7 @@ class TestMultiCurrencyPOSPaymentsMixin(TestCase):
         self.assertEqual(cash_entry["debit_in_account_currency"], 28.5)
         self.assertAlmostEqual(cash_entry["debit_in_transaction_currency"], 0.1)
 
-    def test_before_save_hook_restores_v16_overwrite_from_original_tenders(self):
+    def test_before_save_hook_preserves_exact_auto_remainder_at_low_display_precision(self):
         class Row(dict):
             __getattr__ = dict.get
             __setattr__ = dict.__setitem__
@@ -199,10 +199,10 @@ class TestMultiCurrencyPOSPaymentsMixin(TestCase):
             grand_total=0.42,
             base_rounded_total=119.70,
             base_grand_total=119.70,
-            paid_amount=0.43,
+            paid_amount=0.42,
             base_paid_amount=122.55,
-            change_amount=0.01,
-            base_change_amount=2.85,
+            change_amount=0,
+            base_change_amount=0,
             posa_change_returns=[],
             payments=[
                 Row(
@@ -211,17 +211,17 @@ class TestMultiCurrencyPOSPaymentsMixin(TestCase):
                     amount=0.11,
                     base_amount=31.35,
                     posa_payment_currency="PKR",
-                    posa_original_amount=29.93,
+                    posa_original_amount=30,
                     posa_exchange_rate=0.003508772,
                     posa_company_exchange_rate=1,
                 ),
                 Row(
                     type="Bank",
                     account="Bank - TC",
-                    amount=0.32,
-                    base_amount=91.20,
+                    amount=0.31,
+                    base_amount=88.35,
                     posa_payment_currency="USD",
-                    posa_original_amount=0.32,
+                    posa_original_amount=0.314736842,
                     posa_exchange_rate=1,
                     posa_company_exchange_rate=285,
                 ),
@@ -267,8 +267,10 @@ class TestMultiCurrencyPOSPaymentsMixin(TestCase):
 
             preserve_multi_currency_payment_amounts(invoice)
 
-        self.assertEqual(invoice.payments[0].base_amount, 29.93)
-        self.assertEqual(invoice.base_paid_amount, 121.13)
-        self.assertEqual(invoice.base_change_amount, 1.43)
-        self.assertEqual(invoice.paid_amount, 0.43)
-        self.assertEqual(invoice.change_amount, 0.01)
+        self.assertEqual(invoice.payments[0].base_amount, 30)
+        self.assertEqual(invoice.payments[1].posa_original_amount, 0.314736842)
+        self.assertEqual(invoice.payments[1].base_amount, 89.7)
+        self.assertEqual(invoice.base_paid_amount, 119.7)
+        self.assertEqual(invoice.base_change_amount, 0)
+        self.assertEqual(invoice.paid_amount, 0.42)
+        self.assertEqual(invoice.change_amount, 0)
