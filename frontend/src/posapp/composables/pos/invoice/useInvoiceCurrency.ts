@@ -263,6 +263,15 @@ export function useInvoiceCurrency() {
 		}
 	};
 
+	const reset_currency_to_default = async () => {
+		const defaultCurrency =
+			pos_profile.value?.currency || company.value?.default_currency || "";
+		if (!defaultCurrency) return;
+
+		selected_currency.value = defaultCurrency;
+		await update_currency_and_rate();
+	};
+
 	const update_item_rates = async () => {
 		console.log(
 			"Updating item rates with exchange rate:",
@@ -435,6 +444,7 @@ export function useInvoiceCurrency() {
 		flt,
 		fetch_available_currencies,
 		update_currency_and_rate,
+		reset_currency_to_default,
 		update_currency: async (val: string) => {
 			if (val) selected_currency.value = val;
 			await update_currency_and_rate();

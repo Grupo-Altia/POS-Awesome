@@ -421,6 +421,7 @@ describe("useItemAddition new line behavior", () => {
 				emit,
 			},
 			update_price_list: vi.fn(),
+			reset_currency_to_default: vi.fn(),
 		} as any;
 
 		api.clearInvoice(context);
@@ -429,6 +430,7 @@ describe("useItemAddition new line behavior", () => {
 		expect(context.invoiceTypes).toEqual(["Invoice", "Order", "Quotation"]);
 		expect(context.customer).toBe("Walk in Customer");
 		expect(context.return_doc).toBe("");
+		expect(context.reset_currency_to_default).toHaveBeenCalledTimes(1);
 		expect(emit).toHaveBeenCalledWith("set_customer_readonly", false);
 	});
 });

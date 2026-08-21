@@ -37,7 +37,7 @@ const VBtnStub = defineComponent({
 });
 
 const VTextFieldStub = defineComponent({
-	emits: ["change", "focus", "keydown"],
+	emits: ["change", "focus", "focusin", "keydown"],
 	setup(_, { attrs, emit }) {
 		return () =>
 			h("input", {
@@ -45,6 +45,7 @@ const VTextFieldStub = defineComponent({
 				value: attrs.modelValue,
 				onChange: (event: Event) => emit("change", event),
 				onFocus: (event: FocusEvent) => emit("focus", event),
+				onFocusin: (event: FocusEvent) => emit("focusin", event),
 				onKeydown: (event: KeyboardEvent) => emit("keydown", event),
 			});
 	},
@@ -147,7 +148,8 @@ describe("PaymentMethods", () => {
 		expect(blurSpy).toHaveBeenCalledTimes(1);
 	});
 
-	it("does not rebalance a payment row merely because its amount field receives focus", async () => {
+	it("requests the remaining amount when an empty payment field receives focus", async () => {
+		const onSetRestAmount = vi.fn();
 		const payments = [
 			{
 				name: "PAY-CASH",
@@ -161,9 +163,9 @@ describe("PaymentMethods", () => {
 				name: "PAY-ONLINE",
 				mode_of_payment: "Online Transfer",
 				type: "Bank",
-				amount: 0.32,
+				amount: 0,
 				posa_payment_currency: "USD",
-				posa_original_amount: 0.32,
+				posa_original_amount: 0,
 			},
 		];
 		const wrapper = mount(PaymentMethods, {
@@ -180,6 +182,7 @@ describe("PaymentMethods", () => {
 				isCashLikePayment: (payment: any) => payment.type === "Cash",
 				isMpesaC2bPayment: () => false,
 				isGiftCardPayment: () => false,
+				onSetRestAmount,
 			},
 			global: {
 				components: {
@@ -192,11 +195,11 @@ describe("PaymentMethods", () => {
 		});
 
 		const inputs = wrapper.findAll('input[data-pos-keyboard-target="payment-amount"]');
-		await inputs[1].trigger("focus");
+		await inputs[1].trigger("focusin");
 
-		expect(wrapper.emitted("set-rest-amount")).toBeUndefined();
+		expect(onSetRestAmount).toHaveBeenCalledWith(payments[1], false);
 		expect(payments[0].posa_original_amount).toBe(30);
-		expect(payments[1].posa_original_amount).toBe(0.32);
+		expect(payments[1].posa_original_amount).toBe(0);
 	});
 
 	it("shows Counter Grid accelerator hints in POS Profile payment order", () => {

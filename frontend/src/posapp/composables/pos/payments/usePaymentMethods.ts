@@ -266,6 +266,14 @@ export function usePaymentMethods(options: PaymentMethodsOptions) {
 
 	const set_rest_amount = (payment: any, isReturn = false) => {
 		const doc = unref(invoiceDoc);
+		if (
+			!doc?.payments ||
+			!payment ||
+			Math.abs(flt(payment.amount)) > 0 ||
+			Math.abs(flt(payment.posa_original_amount)) > 0
+		) {
+			return;
+		}
 		const invoiceAmount = getInvoiceSettlementAmount();
 		const currentPaid = doc.payments.reduce(
 			(acc: number, p: any) => acc + flt(p.amount),

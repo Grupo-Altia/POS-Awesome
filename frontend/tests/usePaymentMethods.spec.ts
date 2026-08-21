@@ -120,6 +120,34 @@ describe("usePaymentMethods", () => {
 		expect(invoiceDoc.value.payments[1].base_amount).toBe(150);
 	});
 
+	it("does not overwrite a payment amount that the cashier already entered", () => {
+		const invoiceDoc = ref<any>({
+			currency: "USD",
+			conversion_rate: 285,
+			payments: [
+				{ mode_of_payment: "Cash", amount: 0.11, posa_original_amount: 30 },
+				{ mode_of_payment: "Online Transfer", amount: 0.32, posa_original_amount: 0.32 },
+			],
+		});
+		const onPaymentInvoiceAmountChanged = vi.fn();
+		const { set_rest_amount } = usePaymentMethods({
+			invoiceDoc,
+			posProfile: ref({ currency: "PKR" }),
+			getNetInvoiceAmount: () => 0.42,
+			stores: {
+				toastStore: { show: () => undefined },
+				uiStore: { freeze: () => undefined, unfreeze: () => undefined },
+			},
+			onPaymentInvoiceAmountChanged,
+		});
+
+		set_rest_amount(invoiceDoc.value.payments[1]);
+
+		expect(invoiceDoc.value.payments[1].amount).toBe(0.32);
+		expect(invoiceDoc.value.payments[1].posa_original_amount).toBe(0.32);
+		expect(onPaymentInvoiceAmountChanged).not.toHaveBeenCalled();
+	});
+
 	it("fills base payment amount with the invoice conversion rate", () => {
 		const invoiceDoc = ref<any>({
 			currency: "USD",

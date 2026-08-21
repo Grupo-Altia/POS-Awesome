@@ -86,6 +86,7 @@
 							@update-amount="handlePaymentAmountChange"
 							@update-currency="handlePaymentCurrencyChange"
 							@update-rate="handlePaymentRateChange"
+							@set-rest-amount="set_rest_amount"
 							@set-full-amount="handleSetFullAmount"
 							@set-denomination="setPaymentToDenomination"
 							@mpesa-dialog="mpesa_c2b_dialog"
@@ -703,6 +704,7 @@ const {
 	mpesa_c2b_dialog,
 	set_mpesa_payment,
 	set_full_amount,
+	set_rest_amount,
 	clear_all_amounts,
 	request_payment,
 	getVisibleDenominations,

@@ -61,6 +61,7 @@
 						:class="['sleek-field pos-themed-input', isReturn ? 'pos-themed-input--refund' : '']"
 						hide-details
 						:model-value="formatCurrency(payment.posa_original_amount ?? payment.amount)"
+						@focusin="$emit('set-rest-amount', payment, isReturn)"
 						@change="$emit('update-amount', payment, $event)"
 						:rules="[isNumber]"
 						:prefix="currencySymbol(payment.posa_payment_currency || currency)"
@@ -210,6 +211,7 @@ const emit = defineEmits([
 	"update-amount",
 	"update-currency",
 	"update-rate",
+	"set-rest-amount",
 	"set-full-amount",
 	"set-denomination",
 	"mpesa-dialog",
