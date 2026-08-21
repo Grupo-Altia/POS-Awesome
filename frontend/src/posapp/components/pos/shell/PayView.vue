@@ -182,11 +182,14 @@
 						:party-account="partyAccount"
 						:payment-method-accounts="payment_method_accounts"
 						:available-bank-accounts="available_bank_accounts"
+						:allow-payment-currency-selection="allowPaymentCurrencySelection"
+						:allowed-payment-currencies="allowedPaymentCurrencies"
 						:payment-type="paymentEntryType"
 						:invoice-conversion-rate="invoiceConversionRate"
 						@validate-exchange-rate="validateExchangeRate"
 						@fetch-exchange-rate="fetchExchangeRate"
 						@update:bank-account="handleBankAccountChange"
+						@update:payment-currency="handlePaymentCurrencyChange"
 					/>
 
 					<PayActionButtons
@@ -553,7 +556,28 @@ export default {
 		});
 
 		const getPaymentMethodCurrency = (mode) =>
-			payment_method_currencies.value[mode] || pos_profile.value.currency;
+			payment_methods.value.find((method) => method.mode_of_payment === mode)?.payment_currency ||
+			payment_method_currencies.value[mode] ||
+			pos_profile.value.currency;
+
+		const multiCurrencyPaymentsEnabled = computed(
+			() => Number(pos_profile.value?.posa_enable_multi_currency_payments || 0) === 1,
+		);
+		const allowPaymentCurrencySelection = computed(
+			() =>
+				multiCurrencyPaymentsEnabled.value &&
+				Number(pos_profile.value?.posa_allow_payment_currency_selection || 0) === 1,
+		);
+		const allowedPaymentCurrencies = computed(() => {
+			const configured = (pos_profile.value?.posa_allowed_currencies || [])
+				.filter((row) => row?.currency && Number(row.allow_for_payments ?? 1) === 1)
+				.map((row) => row.currency);
+			return [...new Set([
+				...(configured.length
+					? configured
+					: [pos_profile.value?.currency, companyCurrency.value]),
+			].filter(Boolean))];
+		});
 
 		const filtered_payment_methods = computed(() => {
 			if (!payment_methods.value.length) return [];
@@ -741,6 +765,7 @@ export default {
 				bank_account: null,
 				payment_currency: null,
 				invoice_equivalent: 0,
+				invoice_exchange_rate: null,
 			}));
 		};
 
@@ -769,6 +794,7 @@ export default {
 				? flt(flt(method.amount) * invoiceResult.rate)
 				: 0;
 			method.company_exchange_rate = companyResult.rate || null;
+			method.invoice_exchange_rate = invoiceResult.rate || null;
 			method.rate_date = invoiceResult.rateDate || null;
 			method.rate_source = invoiceResult.source || null;
 		};
@@ -822,12 +848,29 @@ export default {
 					currencies[mode] = typeof data === "string" ? data : data.account_currency;
 				}
 				payment_method_currencies.value = currencies;
-				payment_methods.value.forEach((method) => {
-					method.payment_currency = currencies[method.mode_of_payment] || null;
-					void resolvePaymentMethodRate(method);
-				});
 				// Fetch available accounts for all modes
 				await Promise.all(modes.map((mode) => fetchAvailableAccounts(mode)));
+				payment_methods.value.forEach((method) => {
+					const profileRow = pos_profile.value.payments.find(
+						(row) => row.mode_of_payment === method.mode_of_payment,
+					);
+					const preferredCurrency =
+						profileRow?.posa_default_payment_currency ||
+						pos_profile.value?.posa_default_payment_currency ||
+						currencies[method.mode_of_payment] ||
+						pos_profile.value?.currency;
+					const accounts = available_bank_accounts.value[method.mode_of_payment] || [];
+					const allowed = allowedPaymentCurrencies.value.includes(preferredCurrency);
+					const matchingAccount = accounts.find(
+						(account) => account.account_currency === preferredCurrency,
+					);
+					method.payment_currency =
+						multiCurrencyPaymentsEnabled.value && allowed && matchingAccount
+							? preferredCurrency
+							: currencies[method.mode_of_payment] || null;
+					method.bank_account = matchingAccount?.account || null;
+					void resolvePaymentMethodRate(method);
+				});
 			} catch (e) {
 				console.error("Failed to load payment method accounts", e);
 			}
@@ -894,6 +937,22 @@ export default {
 					}
 				}
 			}
+		};
+
+		const handlePaymentCurrencyChange = (mode, currency) => {
+			const method = payment_methods.value.find((row) => row.mode_of_payment === mode);
+			if (!method || !allowedPaymentCurrencies.value.includes(currency)) return;
+			const account = (available_bank_accounts.value[mode] || []).find(
+				(row) => row.account_currency === currency,
+			);
+			if (!account) {
+				method._rate_error = "account_unavailable";
+				return;
+			}
+			method.payment_currency = currency;
+			method.bank_account = account.account;
+			handleBankAccountChange(mode, account.account);
+			void resolvePaymentMethodRate(method);
 		};
 
 		const applyOpeningData = async (data) => {
@@ -1328,6 +1387,8 @@ export default {
 			isPaymentRouteLocked,
 			paymentsLoadingMessage,
 			getPaymentMethodCurrency,
+			allowPaymentCurrencySelection,
+			allowedPaymentCurrencies,
 			fetchCompanyCurrency,
 			fetchExchangeRate,
 			validateExchangeRate,
@@ -1335,6 +1396,7 @@ export default {
 			loadPaymentMethodCurrencies,
 			fetchAvailableAccounts,
 			handleBankAccountChange,
+			handlePaymentCurrencyChange,
 			available_bank_accounts,
 			check_opening_entry,
 			syncPendingPayments,

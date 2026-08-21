@@ -159,6 +159,18 @@
 								</v-chip>
 							</div>
 
+							<v-select
+								v-if="allowPaymentCurrencySelection && paymentCurrencyOptions.length > 1"
+								:model-value="selectedMop.payment_currency || getPaymentMethodCurrency(selectedMop.mode_of_payment)"
+								:items="paymentCurrencyOptions"
+								:label="__('Tender Currency')"
+								density="compact"
+								variant="outlined"
+								hide-details
+								class="mb-2"
+								@update:model-value="onPaymentCurrencyInput"
+							/>
+
 							<div class="d-flex align-center">
 								<span class="text-caption text-medium-emphasis mr-2">
 									{{ paymentType === "Pay" ? __("Paid:") : __("Recv:") }}
@@ -172,7 +184,7 @@
 									hide-details
 									class="payment-amount-input"
 									flat
-									:prefix="currencySymbol(getPaymentMethodCurrency(selectedMop.mode_of_payment))"
+									:prefix="currencySymbol(selectedMop.payment_currency || getPaymentMethodCurrency(selectedMop.mode_of_payment))"
 									placeholder="0.00"
 									@wheel.prevent
 								/>
@@ -334,7 +346,7 @@
 					>
 						<span class="font-weight-medium" style="min-width: 40%">{{ __(entry.mode_of_payment) }}</span>
 						<span class="text-end" style="min-width: 30%">
-							{{ currencySymbol(getPaymentMethodCurrency(entry.mode_of_payment)) }}{{ formatCurrency(entry.amount) }}
+							{{ currencySymbol(entry.payment_currency || getPaymentMethodCurrency(entry.mode_of_payment)) }}{{ formatCurrency(entry.amount) }}
 						</span>
 						<span class="text-medium-emphasis text-end" style="min-width: 30%">
 							({{ currencySymbol(companyCurrency) }}{{ formatCurrency(entry.baseAmount) }})
@@ -624,6 +636,11 @@ const props = defineProps({
 		type: Object,
 		default: () => ({}),
 	},
+	allowPaymentCurrencySelection: Boolean,
+	allowedPaymentCurrencies: {
+		type: Array,
+		default: () => [],
+	},
 	paymentType: {
 		type: String,
 		default: "Receive",
@@ -640,6 +657,7 @@ const emit = defineEmits([
 	"update:referenceNo",
 	"update:referenceDate",
 	"update:bankAccount",
+	"update:paymentCurrency",
 	"validate-exchange-rate",
 	"fetch-exchange-rate",
 ]);
@@ -672,13 +690,15 @@ const newPaymentFields = computed(() => {
 	if (!props.filteredPaymentMethods) return fields;
 	for (const method of props.filteredPaymentMethods) {
 		const amt = flt(method.amount);
-		const mopCurr = props.getPaymentMethodCurrency(method.mode_of_payment);
+		const mopCurr = method.payment_currency || props.getPaymentMethodCurrency(method.mode_of_payment);
 		const partyCurr = props.partyAccount?.currency || props.invoiceTotalCurrency;
 		const isReceive = props.paymentType === "Receive";
 		const fromCurr = isReceive ? partyCurr : mopCurr;
 		const toCurr = isReceive ? mopCurr : partyCurr;
-		const srcRate = rateFromCurrencyToCompany(fromCurr);
-		const tgtRate = rateFromCurrencyToCompany(toCurr);
+		const mopCompanyRate = flt(method.company_exchange_rate) || rateFromCurrencyToCompany(mopCurr);
+		const partyCompanyRate = rateFromCurrencyToCompany(partyCurr);
+		const srcRate = isReceive ? partyCompanyRate : mopCompanyRate;
+		const tgtRate = isReceive ? mopCompanyRate : partyCompanyRate;
 		let paidAmt, recvAmt;
 		if (isReceive) {
 			recvAmt = amt;
@@ -836,9 +856,23 @@ const selectedMop = computed(() => {
 
 const selectedMopRate = computed(() => {
 	if (!selectedMop.value) return 1;
-	const mopCurr = props.getPaymentMethodCurrency(selectedMop.value.mode_of_payment);
-	return rateFromCurrencyToCompany(mopCurr);
+	const mopCurr = selectedMop.value.payment_currency || props.getPaymentMethodCurrency(selectedMop.value.mode_of_payment);
+	return flt(selectedMop.value.company_exchange_rate) || rateFromCurrencyToCompany(mopCurr);
 });
+
+const paymentCurrencyOptions = computed(() => {
+	if (!selectedMopName.value) return [];
+	const configured = new Set((props.allowedPaymentCurrencies || []).filter(Boolean));
+	const currencies = (props.availableBankAccounts?.[selectedMopName.value] || [])
+		.map((account) => account?.account_currency)
+		.filter((currency) => currency && (!configured.size || configured.has(currency)));
+	return [...new Set(currencies)].sort();
+});
+
+const onPaymentCurrencyInput = (currency) => {
+	if (!selectedMop.value || !currency) return;
+	emit("update:paymentCurrency", selectedMop.value.mode_of_payment, currency);
+};
 
 watch(
 	() => props.invoiceTotalCurrency,
@@ -949,13 +983,15 @@ const enteredPayments = computed(() => {
 				row_id: m.row_id,
 				mode_of_payment: m.mode_of_payment,
 				amount: flt(m.amount),
+				payment_currency: m.payment_currency,
+				invoiceEquivalent: flt(m.invoice_equivalent ?? m.amount),
 				baseAmount,
 			};
 		});
 });
 
 const totalNewPayments = computed(() => {
-	return enteredPayments.value.reduce((sum, e) => sum + e.amount, 0);
+	return enteredPayments.value.reduce((sum, e) => sum + e.invoiceEquivalent, 0);
 });
 
 const totalNewPaymentsBase = computed(() => {

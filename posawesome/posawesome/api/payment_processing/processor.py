@@ -90,6 +90,15 @@ def _get_entry_amount(entry):
     return flt(entry.get("paid_amount")) or flt(entry.get("received_amount"))
 
 
+def _allowed_tender_currencies(profile_doc, invoice_currency, company_currency):
+    configured = {
+        row.get("currency")
+        for row in (profile_doc.get("posa_allowed_currencies") or [])
+        if row.get("currency") and cint(row.get("allow_for_payments"))
+    }
+    return configured or {invoice_currency, company_currency}
+
+
 def _get_value(source, key, default=None):
     if isinstance(source, dict):
         return source.get(key, default)
@@ -404,18 +413,33 @@ def _partition_payment_methods(existing_entries, payment_methods):
     missing_payment_methods = []
 
     for payment_method in payment_methods or []:
-        amount = flt(payment_method.get("amount"))
+        amount = flt(
+            payment_method.get("original_amount")
+            if payment_method.get("original_amount") not in (None, "")
+            else payment_method.get("amount")
+        )
         if not amount:
             continue
 
         mode_of_payment = payment_method.get("mode_of_payment")
+        payment_currency = payment_method.get("payment_currency")
         matched_index = next(
             (
                 index
                 for index, entry in enumerate(unmatched_entries)
                 if cint(entry.get("docstatus")) == 1
                 and entry.get("mode_of_payment") == mode_of_payment
-                and _amounts_match(_get_entry_amount(entry), amount)
+                and _amounts_match(
+                    entry.get("posa_original_amount")
+                    if entry.get("posa_original_amount") not in (None, "")
+                    else _get_entry_amount(entry),
+                    amount,
+                )
+                and (
+                    not payment_currency
+                    or not entry.get("posa_payment_currency")
+                    or entry.get("posa_payment_currency") == payment_currency
+                )
             ),
             None,
         )
@@ -586,6 +610,15 @@ def process_pos_payment(payload):
     allow_reconcile_payments = profile_doc.get("posa_allow_reconcile_payments")
     allow_mpesa_reconcile_payments = profile_doc.get("posa_allow_mpesa_reconcile_payments")
     posting_date = data.get("posting_date") or nowdate()
+    company_currency = (
+        frappe.get_cached_value("Company", company, "default_currency") or currency
+    )
+    multi_currency_payments_enabled = bool(
+        cint(profile_doc.get("posa_enable_multi_currency_payments"))
+    )
+    allowed_tender_currencies = _allowed_tender_currencies(
+        profile_doc, currency, company_currency
+    )
     selected_mpesa_payments = list(data.selected_mpesa_payments or [])
     selected_payments = list(data.selected_payments or [])
     payment_methods = list(data.payment_methods or [])
@@ -890,10 +923,25 @@ def process_pos_payment(payload):
     if allow_make_new_payments and len(pending_payment_methods) > 0 and data.total_payment_methods > 0:
         for payment_method in pending_payment_methods:
             try:
-                amount = flt(payment_method.get("amount"))
+                amount = flt(
+                    payment_method.get("original_amount")
+                    if payment_method.get("original_amount") not in (None, "")
+                    else payment_method.get("amount")
+                )
                 if not amount:
                     continue
                 mode_of_payment = payment_method.get("mode_of_payment")
+                payment_currency = payment_method.get("payment_currency")
+                if (
+                    multi_currency_payments_enabled
+                    and payment_currency
+                    and payment_currency not in allowed_tender_currencies
+                ):
+                    frappe.throw(
+                        _("Currency {0} is not allowed for payments in POS Profile {1}.").format(
+                            payment_currency, profile_doc.get("name")
+                        )
+                    )
                 payment_entry = create_payment_entry(
                     company=company,
                     currency=currency,
@@ -911,11 +959,12 @@ def process_pos_payment(payload):
                     submit=0,
                     client_request_id=client_request_id,
                     bank_account=payment_method.get("bank_account"),
-                    payment_currency=payment_method.get("payment_currency"),
+                    payment_currency=payment_currency,
                     exchange_rate_source=payment_method.get("rate_source"),
                     allow_manual_rate=bool(
                         cint(profile_doc.get("posa_allow_manual_payment_exchange_rate"))
                     ),
+                    invoice_currency=currency,
                 )
 
                 party_account = get_party_account(party_type, party, company)

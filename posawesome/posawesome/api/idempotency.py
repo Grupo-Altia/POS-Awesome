@@ -148,6 +148,23 @@ def find_payment_entries_by_client_request_id(
     if not company or not party_type or not party:
         _permission_denied(_("Company and party are required to replay a payment request."))
 
+    fields = [
+        "name",
+        "company",
+        "paid_amount",
+        "received_amount",
+        "posting_date",
+        "mode_of_payment",
+        "party",
+        "party_type",
+        "docstatus",
+        "posa_client_request_id",
+    ]
+    has_column = getattr(frappe.db, "has_column", lambda *_args: False)
+    for fieldname in ("posa_payment_currency", "posa_original_amount"):
+        if has_column("Payment Entry", fieldname):
+            fields.append(fieldname)
+
     rows = frappe.get_list(
         "Payment Entry",
         filters={
@@ -156,18 +173,7 @@ def find_payment_entries_by_client_request_id(
             "party_type": party_type,
             "party": party,
         },
-        fields=[
-            "name",
-            "company",
-            "paid_amount",
-            "received_amount",
-            "posting_date",
-            "mode_of_payment",
-            "party",
-            "party_type",
-            "docstatus",
-            "posa_client_request_id",
-        ],
+        fields=fields,
         order_by="creation asc",
     )
     return list(rows or [])

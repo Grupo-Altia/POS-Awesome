@@ -38,6 +38,7 @@ def create_payment_entry(
     payment_currency=None,
     exchange_rate_source=None,
     allow_manual_rate=False,
+    invoice_currency=None,
 ):
     date = nowdate() if not posting_date else posting_date
     party = party or customer
@@ -67,6 +68,9 @@ def create_payment_entry(
             )
         )
 
+    payment_currency = bank.account_currency
+    invoice_currency = invoice_currency or currency or party_account_currency
+
     # Get exchange rate using the MOP bank account currency
     if (
         allow_manual_rate
@@ -82,6 +86,38 @@ def create_payment_entry(
             bank.account_currency, company_currency, date,
             "for_buying" if payment_type == "Pay" else "for_selling"
         )
+
+    manual_rate_active = bool(
+        allow_manual_rate
+        and exchange_rate_source == "manual"
+        and exchange_rate
+        and flt(exchange_rate) > 0
+    )
+    if payment_currency == invoice_currency:
+        payment_to_invoice_rate = 1
+    elif manual_rate_active:
+        invoice_to_company_rate = (
+            1
+            if invoice_currency == company_currency
+            else flt(get_exchange_rate(invoice_currency, company_currency, date))
+        )
+        if invoice_to_company_rate <= 0:
+            frappe.throw(
+                _("No exchange rate is available for {0} to {1} on {2}.").format(
+                    invoice_currency, company_currency, date
+                )
+            )
+        payment_to_invoice_rate = flt(conversion_rate / invoice_to_company_rate)
+    else:
+        payment_to_invoice_rate = flt(
+            get_exchange_rate(payment_currency, invoice_currency, date)
+        )
+        if payment_to_invoice_rate <= 0:
+            frappe.throw(
+                _("No exchange rate is available for {0} to {1} on {2}.").format(
+                    payment_currency, invoice_currency, date
+                )
+            )
 
     # Create payment entry with metadata only
     pe = frappe.new_doc("Payment Entry")
@@ -147,6 +183,27 @@ def create_payment_entry(
         pe.target_exchange_rate = conversion_rate
         pe.base_paid_amount = flt(paid_amount * conversion_rate, precision)
         pe.base_received_amount = flt(received_amount * conversion_rate, precision)
+
+    metadata = {
+        "posa_payment_currency": payment_currency,
+        "posa_original_amount": bank_amount,
+        "posa_invoice_currency": invoice_currency,
+        "posa_exchange_rate": payment_to_invoice_rate,
+        "posa_company_exchange_rate": conversion_rate,
+        "posa_rate_date": date,
+        "posa_rate_source": (
+            "manual"
+            if manual_rate_active
+            else "same_currency"
+            if payment_currency == company_currency
+            else "currency_exchange"
+        ),
+        "posa_account_currency": bank.account_currency,
+        "posa_account_amount": bank_amount,
+    }
+    for fieldname, value in metadata.items():
+        if pe.meta.has_field(fieldname):
+            pe.set(fieldname, value)
 
     if submit:
         pe.insert(ignore_permissions=True)
