@@ -64,7 +64,6 @@
 						@change="$emit('update-amount', payment, $event)"
 						:rules="[isNumber]"
 						:prefix="currencySymbol(payment.posa_payment_currency || currency)"
-						@focus="$emit('set-rest-amount', payment, isReturn)"
 						@keydown.enter="blurTarget"
 						@keydown.esc="blurTarget"
 						:readonly="isGiftCardPayment(payment)"
@@ -215,7 +214,6 @@ const emit = defineEmits([
 	"set-denomination",
 	"mpesa-dialog",
 	"request-payment",
-	"set-rest-amount",
 	"open-gift-card",
 ]);
 

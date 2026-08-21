@@ -147,6 +147,58 @@ describe("PaymentMethods", () => {
 		expect(blurSpy).toHaveBeenCalledTimes(1);
 	});
 
+	it("does not rebalance a payment row merely because its amount field receives focus", async () => {
+		const payments = [
+			{
+				name: "PAY-CASH",
+				mode_of_payment: "Cash",
+				type: "Cash",
+				amount: 0.11,
+				posa_payment_currency: "PKR",
+				posa_original_amount: 30,
+			},
+			{
+				name: "PAY-ONLINE",
+				mode_of_payment: "Online Transfer",
+				type: "Bank",
+				amount: 0.32,
+				posa_payment_currency: "USD",
+				posa_original_amount: 0.32,
+			},
+		];
+		const wrapper = mount(PaymentMethods, {
+			props: {
+				payments,
+				currency: "USD",
+				isReturn: false,
+				requestPaymentField: false,
+				multiCurrencyEnabled: true,
+				currencySymbol: (currency: string) => `${currency} `,
+				formatCurrency: (value: number) => String(value),
+				isNumber: () => true,
+				getVisibleDenominations: () => [],
+				isCashLikePayment: (payment: any) => payment.type === "Cash",
+				isMpesaC2bPayment: () => false,
+				isGiftCardPayment: () => false,
+			},
+			global: {
+				components: {
+					VRow: BoxStub,
+					VCol: BoxStub,
+					VBtn: VBtnStub,
+					VTextField: VTextFieldStub,
+				},
+			},
+		});
+
+		const inputs = wrapper.findAll('input[data-pos-keyboard-target="payment-amount"]');
+		await inputs[1].trigger("focus");
+
+		expect(wrapper.emitted("set-rest-amount")).toBeUndefined();
+		expect(payments[0].posa_original_amount).toBe(30);
+		expect(payments[1].posa_original_amount).toBe(0.32);
+	});
+
 	it("shows Counter Grid accelerator hints in POS Profile payment order", () => {
 		const wrapper = mount(PaymentMethods, {
 			props: {

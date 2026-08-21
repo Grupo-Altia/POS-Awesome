@@ -132,20 +132,10 @@ export function usePaymentCalculations(options: PaymentCalculationOptions) {
 
 	const diff_payment = computed(() => {
 		const doc = unref(invoiceDoc);
-		const profile = unref(posProfile);
 		if (!doc) return 0;
 
-		let invoice_total;
-		if (
-			profile.posa_allow_multi_currency &&
-			doc.currency !== profile.currency
-		) {
-			invoice_total = flt(doc.grand_total);
-		} else {
-			invoice_total = flt(doc.rounded_total || doc.grand_total);
-		}
-
-		let diff = flt(invoice_total - total_payments.value);
+		const invoiceTotal = flt(doc.rounded_total || doc.grand_total);
+		const diff = flt(invoiceTotal - total_payments.value);
 		// For returns: negative diff means more refund needed, positive means over-refunded (cap to 0)
 		if (doc.is_return) return diff > 0 ? 0 : diff;
 		return diff;
@@ -153,20 +143,10 @@ export function usePaymentCalculations(options: PaymentCalculationOptions) {
 
 	const change_due = computed(() => {
 		const doc = unref(invoiceDoc);
-		const profile = unref(posProfile);
 		if (!doc) return 0;
 
-		let invoice_total;
-		if (
-			profile.posa_allow_multi_currency &&
-			doc.currency !== profile.currency
-		) {
-			invoice_total = flt(doc.grand_total);
-		} else {
-			invoice_total = flt(doc.rounded_total || doc.grand_total);
-		}
-
-		let change = flt(total_payments.value - invoice_total);
+		const invoiceTotal = flt(doc.rounded_total || doc.grand_total);
+		const change = flt(total_payments.value - invoiceTotal);
 		return change > 0 ? change : 0;
 	});
 

@@ -31,4 +31,30 @@ describe("usePaymentCalculations", () => {
 		expect(calculations.diff_payment.value).toBe(-30);
 		expect(calculations.change_due.value).toBe(30);
 	});
+
+	it("uses the rounded invoice total for foreign-currency settlement", () => {
+		const invoiceDoc = ref<any>({
+			currency: "USD",
+			grand_total: 0.425,
+			rounded_total: 0.42,
+			payments: [{ amount: 0.42 }],
+		});
+		const calculations = usePaymentCalculations({
+			invoiceDoc,
+			posProfile: ref({
+				currency: "PKR",
+				posa_allow_multi_currency: 1,
+			}),
+			currencyPrecision: ref(2),
+			loyaltyAmount: ref(0),
+			redeemedCustomerCredit: ref(0),
+			customerCreditDict: ref([]),
+			customerInfo: ref({}),
+			formatCurrency: (value) => String(value),
+		});
+
+		expect(calculations.total_payments.value).toBe(0.42);
+		expect(calculations.diff_payment.value).toBe(0);
+		expect(calculations.change_due.value).toBe(0);
+	});
 });
