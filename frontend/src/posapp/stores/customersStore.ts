@@ -14,6 +14,7 @@ import {
 	buildCustomerMobileSearchKeys,
 	customerMobileMatchesSearch,
 	customerMatchesSearchParts,
+	customerMatchesSearchTerm,
 	getCustomerDuplicateFields,
 	isCustomerMobileSearchTerm,
 	normalizeCustomerSearchTerm,
@@ -363,7 +364,7 @@ export const useCustomersStore = defineStore("customers", () => {
 		syncBootstrapCustomerReadiness(0);
 	}
 
-	async function fetchServerMobileMatches(
+	async function fetchServerCustomerMatches(
 		term: string,
 	): Promise<CustomerSummary[]> {
 		if (!posProfile.value || isOffline()) {
@@ -414,7 +415,7 @@ export const useCustomersStore = defineStore("customers", () => {
 			),
 		);
 		const identifierPages = await Promise.all(
-			["name", "customer_name"].map((field) =>
+			["name", "customer_name", "tax_id"].map((field) =>
 				db
 					.table("customers")
 					.where(field)
@@ -423,6 +424,13 @@ export const useCustomersStore = defineStore("customers", () => {
 					.toArray(),
 			),
 		);
+		const normalizedMatches = await db
+			.table("customers")
+			.filter((customer: CustomerSummary) =>
+				customerMatchesSearchTerm(customer, term),
+			)
+			.limit(requestedLimit)
+			.toArray();
 		const uniqueMatches = new Map<string, CustomerSummary>();
 		mobilePages.flat().forEach((customer: CustomerSummary) => {
 			if (
@@ -433,6 +441,11 @@ export const useCustomersStore = defineStore("customers", () => {
 			}
 		});
 		identifierPages.flat().forEach((customer: CustomerSummary) => {
+			if (customer?.name && customerMatchesSearchTerm(customer, term)) {
+				uniqueMatches.set(customer.name, customer);
+			}
+		});
+		normalizedMatches.forEach((customer: CustomerSummary) => {
 			if (customer?.name) {
 				uniqueMatches.set(customer.name, customer);
 			}
@@ -477,17 +490,22 @@ export const useCustomersStore = defineStore("customers", () => {
 					.toArray();
 			}
 
-			if (
-				!append &&
-				allowRemote &&
-				isMobileSearch &&
-				results.length === 0
-			) {
+			if (!append && allowRemote && Boolean(requestedTerm)) {
 				const remoteResults =
-					await fetchServerMobileMatches(requestedTerm);
+					await fetchServerCustomerMatches(requestedTerm);
 				if (remoteResults.length) {
 					await setCustomerStorage(remoteResults);
-					results = remoteResults;
+					const mergedResults = new Map<string, CustomerSummary>();
+					[...results, ...remoteResults].forEach((customer) => {
+						if (customer?.name) {
+							mergedResults.set(customer.name, customer);
+						}
+					});
+					results = Array.from(mergedResults.values())
+						.sort((left, right) =>
+							left.name.localeCompare(right.name),
+						)
+						.slice(0, PAGE_SIZE);
 				}
 			}
 

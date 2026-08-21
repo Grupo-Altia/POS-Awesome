@@ -19,6 +19,14 @@ export function normalizeCustomerMobile(
 	return String(value ?? "").replace(/\D/g, "");
 }
 
+export function normalizeCustomerTaxId(
+	value: string | null | undefined,
+): string {
+	return String(value ?? "")
+		.toLowerCase()
+		.replace(/[^a-z0-9]/g, "");
+}
+
 export function isCustomerMobileSearchTerm(
 	term: string | null | undefined,
 ): boolean {
@@ -88,6 +96,9 @@ export function buildCustomerSearchText(
 		customer.email_id,
 		(customer as CustomerSummary & { tax_id?: unknown }).tax_id,
 		normalizeCustomerMobile(customer.mobile_no),
+		normalizeCustomerTaxId(
+			(customer as CustomerSummary & { tax_id?: string }).tax_id,
+		),
 	]
 		.filter((value) => value !== null && value !== undefined)
 		.map((value) => String(value).toLowerCase())
@@ -118,7 +129,10 @@ export function customerMatchesSearchTerm(
 	term: string | null | undefined,
 ): boolean {
 	if (isCustomerMobileSearchTerm(term)) {
-		return customerMobileMatchesSearch(customer?.mobile_no, term);
+		return (
+			customerMobileMatchesSearch(customer?.mobile_no, term) ||
+			customerMatchesSearchParts(customer, buildCustomerSearchParts(term))
+		);
 	}
 	return customerMatchesSearchParts(customer, buildCustomerSearchParts(term));
 }

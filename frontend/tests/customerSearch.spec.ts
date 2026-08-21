@@ -9,6 +9,7 @@ import {
 	getCustomerDuplicateFields,
 	normalizeCustomerDuplicateValue,
 	normalizeCustomerSearchTerm,
+	normalizeCustomerTaxId,
 } from "../src/posapp/stores/customers/customerSearch";
 import type { CustomerSummary } from "../src/posapp/types/models";
 
@@ -54,6 +55,17 @@ describe("customer search helpers", () => {
 				"03001234567",
 			),
 		).toBe(true);
+	});
+
+	it("does not treat a numeric tax ID as mobile-only search", () => {
+		const customer: CustomerSummary = {
+			name: "CUST-001",
+			customer_name: "Jane Doe",
+			tax_id: "12-345 6789",
+		};
+
+		expect(normalizeCustomerTaxId(customer.tax_id)).toBe("123456789");
+		expect(customerMatchesSearchTerm(customer, "123456789")).toBe(true);
 	});
 
 	it("uses persisted normalized search text when available", () => {
