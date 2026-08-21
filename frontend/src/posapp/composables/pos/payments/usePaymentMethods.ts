@@ -12,6 +12,7 @@ export interface PaymentMethodsOptions {
 	posProfile: Ref<any>;
 	diffPayment?: ComputedRef<number>;
 	getNetInvoiceAmount?: () => number;
+	getNetCompanyAmount?: () => number;
 	formatFloat?: (_val: any) => number;
 	stores: {
 		toastStore: any;
@@ -27,7 +28,11 @@ export interface PaymentMethodsOptions {
 	getPaidChange?: () => number;
 	getCreditChange?: () => number;
 	onBackToInvoice?: () => void;
-	onPaymentInvoiceAmountChanged?: (_payment: any, _invoiceAmount: number) => void | Promise<void>;
+	onPaymentInvoiceAmountChanged?: (
+		_payment: any,
+		_invoiceAmount: number,
+		_companyAmount?: number,
+	) => void | Promise<void>;
 	onPaymentCleared?: (_payment: any) => void;
 }
 
@@ -47,9 +52,13 @@ export function usePaymentMethods(options: PaymentMethodsOptions) {
 
 	const flt = (v: any) =>
 		formatFloat ? formatFloat(v) : parseFloat(String(v)) || 0;
-	const syncPaymentCurrency = (payment: any) => {
+	const syncPaymentCurrency = (payment: any, companyAmount?: number) => {
 		if (options.onPaymentInvoiceAmountChanged) {
-			void options.onPaymentInvoiceAmountChanged(payment, flt(payment.amount));
+			void options.onPaymentInvoiceAmountChanged(
+				payment,
+				flt(payment.amount),
+				companyAmount,
+			);
 		}
 	};
 	const clearPayment = (payment: any) => {
@@ -271,9 +280,7 @@ export function usePaymentMethods(options: PaymentMethodsOptions) {
 		if (
 			!doc?.payments ||
 			!payment ||
-			payment._posa_remainder_locked ||
-			Math.abs(flt(payment.amount)) > 0 ||
-			Math.abs(flt(payment.posa_original_amount)) > 0
+			payment._posa_remainder_locked
 		) {
 			return;
 		}
@@ -291,13 +298,30 @@ export function usePaymentMethods(options: PaymentMethodsOptions) {
 			amount = Math.max(amount, 0);
 		}
 
+		let companyAmount: number | undefined;
+		if (typeof options.getNetCompanyAmount === "function") {
+			const companyTarget = options.getNetCompanyAmount();
+			const totalCompanyPayments = doc.payments.reduce(
+				(sum: number, row: any) => sum + flt(row?.base_amount || 0),
+				0,
+			);
+			const otherCompanyPayments =
+				totalCompanyPayments - flt(payment.base_amount || 0);
+			companyAmount = flt(companyTarget - otherCompanyPayments);
+			if (!isReturn) companyAmount = Math.max(companyAmount, 0);
+		}
+
+		doc.payments.forEach((row: any) => {
+			if (row !== payment) row._posa_auto_remainder = false;
+		});
 		payment.amount = amount;
 		payment._posa_auto_remainder = true;
 		if (payment.base_amount !== undefined) {
-			const baseAmount = toCompanyCurrency(currencyContext(doc), amount);
+			const baseAmount =
+				companyAmount ?? toCompanyCurrency(currencyContext(doc), amount);
 			payment.base_amount = isReturn ? -Math.abs(baseAmount) : baseAmount;
 		}
-		syncPaymentCurrency(payment);
+		syncPaymentCurrency(payment, companyAmount);
 	};
 
 	const toggle_remainder_lock = (payment: any) => {

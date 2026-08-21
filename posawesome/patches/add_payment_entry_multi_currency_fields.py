@@ -15,6 +15,7 @@ FIELDS = [
         "label": "Original Tender Amount",
         "fieldtype": "Currency",
         "options": "posa_payment_currency",
+        "precision": "9",
         "read_only": 1,
         "insert_after": "posa_payment_currency",
     },

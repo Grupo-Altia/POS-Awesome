@@ -660,6 +660,26 @@ const paymentCalculations = usePaymentCalculations({
 	giftCardRedemptions,
 	formatCurrency: (val, _curr) => formatCurrency(val, currency_precision.value),
 });
+const netCompanySettlementAmount = computed(() => {
+	if (!invoice_doc.value) return 0;
+	const doc = invoice_doc.value;
+	const companyTotal = flt(
+		doc.base_rounded_total ||
+			doc.base_grand_total ||
+			toCompanyCurrency(paymentCurrencyContext(doc), doc.rounded_total || doc.grand_total),
+		currency_precision.value,
+	);
+	const giftCardInvoiceAmount = (Array.isArray(giftCardRedemptions.value)
+		? giftCardRedemptions.value
+		: []
+	).reduce((sum, row) => sum + Number(row?.amount || 0), 0);
+	const coveredCompanyAmount =
+		Number(doc.loyalty_amount || loyalty_amount.value || 0) +
+		Number(redeemed_customer_credit.value || 0) +
+		toCompanyCurrency(paymentCurrencyContext(doc), giftCardInvoiceAmount);
+	const net = flt(companyTotal - coveredCompanyAmount, currency_precision.value);
+	return doc.is_return ? Math.min(net, 0) : Math.max(net, 0);
+});
 
 const {
 	multiCurrencyEnabled,
@@ -733,6 +753,7 @@ const {
 	posProfile: pos_profile,
 	diffPayment: diff_payment,
 	getNetInvoiceAmount: () => netInvoiceSettlementAmount.value,
+	getNetCompanyAmount: () => netCompanySettlementAmount.value,
 	formatFloat: (val) => flt(val, currency_precision.value),
 	stores: {
 		toastStore,

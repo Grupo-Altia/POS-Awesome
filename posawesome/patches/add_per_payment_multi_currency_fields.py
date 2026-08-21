@@ -75,6 +75,7 @@ FIELDS_BY_DOCTYPE = {
             "label": "Original Tender Amount",
             "fieldtype": "Currency",
             "options": "posa_payment_currency",
+            "precision": "9",
             "insert_after": "posa_payment_currency",
         },
         {
@@ -194,4 +195,3 @@ def execute():
                     update_modified=False,
                 )
         frappe.clear_cache(doctype=doctype)
-

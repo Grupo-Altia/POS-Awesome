@@ -20,6 +20,10 @@ export function usePaymentCurrencies(options: PaymentCurrencyOptions) {
 		options.formatFloat
 			? options.formatFloat(value, unref(options.currencyPrecision))
 			: Number(value) || 0;
+	const preciseTenderAmount = (value: unknown) => {
+		const numeric = Number(value);
+		return Number.isFinite(numeric) ? Number(numeric.toFixed(9)) : 0;
+	};
 
 	const multiCurrencyEnabled = computed(() =>
 		enabled(unref(options.posProfile)?.posa_enable_multi_currency_payments),
@@ -130,9 +134,9 @@ export function usePaymentCurrencies(options: PaymentCurrencyOptions) {
 			return false;
 		}
 
-		let original = flt(payment.posa_original_amount);
+		let original = preciseTenderAmount(payment.posa_original_amount);
 		if (preserveInvoiceAmount) {
-			original = flt(flt(payment.amount) / invoiceRate.rate);
+			original = preciseTenderAmount(flt(payment.amount) / invoiceRate.rate);
 		}
 		const invoiceAmount = convertCurrencyAmount(original, invoiceRate.rate);
 		const baseAmount = convertCurrencyAmount(original, companyRate.rate);
@@ -193,8 +197,25 @@ export function usePaymentCurrencies(options: PaymentCurrencyOptions) {
 		});
 	};
 
-	const setInvoiceEquivalent = async (payment: any, invoiceAmount: unknown) => {
+	const setInvoiceEquivalent = async (
+		payment: any,
+		invoiceAmount: unknown,
+		companyAmount?: number,
+	) => {
 		payment.amount = flt(invoiceAmount);
+		if (Number.isFinite(companyAmount)) {
+			if (!Number(payment.posa_company_exchange_rate)) {
+				const initialized = await normalizePayment(payment, { preserveInvoiceAmount: true });
+				if (!initialized) return false;
+			}
+			const companyRate = Number(payment.posa_company_exchange_rate);
+			if (companyRate > 0) {
+				payment.posa_original_amount = preciseTenderAmount(
+					Number(companyAmount) / companyRate,
+				);
+				return normalizePayment(payment);
+			}
+		}
 		return normalizePayment(payment, { preserveInvoiceAmount: true });
 	};
 

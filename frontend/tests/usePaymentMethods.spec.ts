@@ -120,7 +120,7 @@ describe("usePaymentMethods", () => {
 		expect(invoiceDoc.value.payments[1].base_amount).toBe(150);
 	});
 
-	it("does not overwrite a payment amount that the cashier already entered", () => {
+	it("recalculates an existing unlocked payment amount when the cashier focuses it", () => {
 		const invoiceDoc = ref<any>({
 			currency: "USD",
 			conversion_rate: 285,
@@ -143,9 +143,53 @@ describe("usePaymentMethods", () => {
 
 		set_rest_amount(invoiceDoc.value.payments[1]);
 
-		expect(invoiceDoc.value.payments[1].amount).toBe(0.32);
+		expect(invoiceDoc.value.payments[1].amount).toBeCloseTo(0.31);
 		expect(invoiceDoc.value.payments[1].posa_original_amount).toBe(0.32);
-		expect(onPaymentInvoiceAmountChanged).not.toHaveBeenCalled();
+		expect(onPaymentInvoiceAmountChanged).toHaveBeenCalledWith(
+			invoiceDoc.value.payments[1],
+			0.31,
+			undefined,
+		);
+	});
+
+	it("uses the exact company-currency remainder for an auto-filled row", () => {
+		const target: any = {
+			mode_of_payment: "Online Transfer",
+			amount: 0.315,
+			base_amount: 89.775,
+			posa_original_amount: 0.315,
+		};
+		const invoiceDoc = ref<any>({
+			currency: "USD",
+			conversion_rate: 285,
+			base_rounded_total: 119.7,
+			payments: [
+				{ mode_of_payment: "Cash", amount: 0.105, base_amount: 30 },
+				target,
+			],
+		});
+		const onPaymentInvoiceAmountChanged = vi.fn();
+		const { set_rest_amount } = usePaymentMethods({
+			invoiceDoc,
+			posProfile: ref({ currency: "PKR" }),
+			getNetInvoiceAmount: () => 0.42,
+			getNetCompanyAmount: () => 119.7,
+			stores: {
+				toastStore: { show: () => undefined },
+				uiStore: { freeze: () => undefined, unfreeze: () => undefined },
+			},
+			onPaymentInvoiceAmountChanged,
+		});
+
+		set_rest_amount(target);
+
+		expect(target.amount).toBeCloseTo(0.315);
+		expect(target.base_amount).toBeCloseTo(89.7);
+		expect(onPaymentInvoiceAmountChanged).toHaveBeenCalledWith(
+			target,
+			0.315,
+			89.7,
+		);
 	});
 
 	it("marks auto remainder rows and respects the cashier lock", () => {

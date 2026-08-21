@@ -148,7 +148,7 @@ describe("PaymentMethods", () => {
 		expect(blurSpy).toHaveBeenCalledTimes(1);
 	});
 
-	it("requests the remaining amount when an empty payment field receives focus", async () => {
+	it("requests the remaining amount whenever an unlocked payment field receives focus", async () => {
 		const onSetRestAmount = vi.fn();
 		const onToggleRemainderLock = vi.fn();
 		const payments = [
@@ -164,9 +164,9 @@ describe("PaymentMethods", () => {
 				name: "PAY-ONLINE",
 				mode_of_payment: "Online Transfer",
 				type: "Bank",
-				amount: 0,
+				amount: 0.32,
 				posa_payment_currency: "USD",
-				posa_original_amount: 0,
+				posa_original_amount: 0.32,
 				_posa_auto_remainder: true,
 			},
 		];
@@ -202,7 +202,7 @@ describe("PaymentMethods", () => {
 
 		expect(onSetRestAmount).toHaveBeenCalledWith(payments[1], false);
 		expect(payments[0].posa_original_amount).toBe(30);
-		expect(payments[1].posa_original_amount).toBe(0);
+		expect(payments[1].posa_original_amount).toBe(0.32);
 		expect(wrapper.text()).toContain("Auto remainder");
 		await wrapper
 			.get('[data-test="payment-remainder-lock-Online Transfer"]')
