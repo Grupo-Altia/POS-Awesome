@@ -774,8 +774,8 @@ export default {
 				(account) => account.account === method.bank_account,
 			);
 			const paymentCurrency =
-				selectedAccount?.account_currency ||
 				method.payment_currency ||
+				selectedAccount?.account_currency ||
 				getPaymentMethodCurrency(method.mode_of_payment);
 			if (!paymentCurrency || !invoiceTotalCurrency.value || !companyCurrencyLocal.value) return;
 			const common = {
@@ -864,11 +864,12 @@ export default {
 					const matchingAccount = accounts.find(
 						(account) => account.account_currency === preferredCurrency,
 					);
+					const defaultAccount = accountData[method.mode_of_payment]?.account || null;
 					method.payment_currency =
-						multiCurrencyPaymentsEnabled.value && allowed && matchingAccount
+						multiCurrencyPaymentsEnabled.value && allowed
 							? preferredCurrency
 							: currencies[method.mode_of_payment] || null;
-					method.bank_account = matchingAccount?.account || null;
+					method.bank_account = matchingAccount?.account || defaultAccount;
 					void resolvePaymentMethodRate(method);
 				});
 			} catch (e) {
@@ -942,16 +943,7 @@ export default {
 		const handlePaymentCurrencyChange = (mode, currency) => {
 			const method = payment_methods.value.find((row) => row.mode_of_payment === mode);
 			if (!method || !allowedPaymentCurrencies.value.includes(currency)) return;
-			const account = (available_bank_accounts.value[mode] || []).find(
-				(row) => row.account_currency === currency,
-			);
-			if (!account) {
-				method._rate_error = "account_unavailable";
-				return;
-			}
 			method.payment_currency = currency;
-			method.bank_account = account.account;
-			handleBankAccountChange(mode, account.account);
 			void resolvePaymentMethodRate(method);
 		};
 

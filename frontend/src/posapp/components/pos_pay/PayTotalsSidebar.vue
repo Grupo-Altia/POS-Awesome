@@ -164,6 +164,7 @@
 								:model-value="selectedMop.payment_currency || getPaymentMethodCurrency(selectedMop.mode_of_payment)"
 								:items="paymentCurrencyOptions"
 								:label="__('Tender Currency')"
+								data-test="payment-tender-currency"
 								density="compact"
 								variant="outlined"
 								hide-details
@@ -862,11 +863,7 @@ const selectedMopRate = computed(() => {
 
 const paymentCurrencyOptions = computed(() => {
 	if (!selectedMopName.value) return [];
-	const configured = new Set((props.allowedPaymentCurrencies || []).filter(Boolean));
-	const currencies = (props.availableBankAccounts?.[selectedMopName.value] || [])
-		.map((account) => account?.account_currency)
-		.filter((currency) => currency && (!configured.size || configured.has(currency)));
-	return [...new Set(currencies)].sort();
+	return [...new Set((props.allowedPaymentCurrencies || []).filter(Boolean))].sort();
 });
 
 const onPaymentCurrencyInput = (currency) => {
