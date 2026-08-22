@@ -54,6 +54,7 @@ export interface PaymentSubmissionOptions {
 		customersStore?: any;
 		uiStore?: any;
 		invoiceStore?: any;
+		employeeStore?: any;
 	};
 }
 
@@ -245,6 +246,41 @@ export function usePaymentSubmission(options: PaymentSubmissionOptions) {
 			return null;
 		}
 		return exc.envelope.error.code || null;
+	};
+
+	const TERMINAL_UNLOCK_CANCELLED = Symbol("terminal-unlock-cancelled");
+	const submitAfterTerminalUnlock = async (
+		data: any,
+		submissionDoc: any,
+		type: string,
+		profile: any,
+	) => {
+		while (true) {
+			try {
+				const result = await invoiceService.submitInvoice(
+					data,
+					submissionDoc,
+					type,
+					profile,
+				);
+				unwrapApiResult(result);
+				return result;
+			} catch (error) {
+				if (
+					getSubmissionErrorCode(error) !== "TERMINAL_LOCKED" ||
+					type !== "Invoice" ||
+					!stores?.employeeStore?.requestTerminalUnlock
+				) {
+					throw error;
+				}
+
+				const unlocked =
+					await stores.employeeStore.requestTerminalUnlock();
+				if (!unlocked) {
+					return TERMINAL_UNLOCK_CANCELLED;
+				}
+			}
+		}
 	};
 
 	const buildSubmissionFailureToast = (exc: any, message: string) => {
@@ -1122,14 +1158,20 @@ export function usePaymentSubmission(options: PaymentSubmissionOptions) {
 					}),
 				);
 			}
-			const message = unwrapApiResult(
-				await invoiceService.submitInvoice(
-					data,
-					submissionDoc,
-					type,
-					profile,
-				),
+			const submissionResult = await submitAfterTerminalUnlock(
+				data,
+				submissionDoc,
+				type,
+				profile,
 			);
+			if (submissionResult === TERMINAL_UNLOCK_CANCELLED) {
+				await outboxPersistPromise;
+				await removeInvoiceOutboxEntry(
+					submissionDoc.posa_client_request_id,
+				);
+				return { cancelled: true, reason: "terminal_locked" };
+			}
+			const message = unwrapApiResult(submissionResult);
 
 			const r = { message };
 

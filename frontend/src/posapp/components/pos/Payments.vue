@@ -861,6 +861,7 @@ const { ensureReturnPaymentsAreNegative, restoreReturnPayments, validateSubmissi
 			customersStore,
 			uiStore,
 			invoiceStore,
+			employeeStore,
 		},
 		currencyPrecision: currency_precision,
 		requestBelowCostOverride,
@@ -1851,7 +1852,7 @@ const submitInvoiceWrapper = async (print, callbackOverrides = {}, options = {})
 	loading.value = true;
 	try {
 		await validateSubmission(options.paymentReceived || false);
-		await submitInvoice(print, {
+		const submissionResult = await submitInvoice(print, {
 			onPrint: (doc, printOptions = {}) => {
 				if (print) {
 					if (printOptions.waitForPostSubmitPayments || printOptions.waitForInvoiceProcessing) {
@@ -1888,6 +1889,9 @@ const submitInvoiceWrapper = async (print, callbackOverrides = {}, options = {})
 			},
 			...callbackOverrides,
 		});
+		if (submissionResult?.cancelled) {
+			restorePaymentLinesAfterFailedSubmit();
+		}
 	} catch (error) {
 		console.error("Submission failed propagate:", error);
 		restorePaymentLinesAfterFailedSubmit();

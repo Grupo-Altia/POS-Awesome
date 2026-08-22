@@ -452,4 +452,47 @@ describe("EmployeeSwitchDialog", () => {
 			wrapper.find('[data-test="terminal-cashier-error"]').exists(),
 		).toBe(false);
 	});
+
+	it("automatically unlocks when the selected cashier PIN reaches its configured length", async () => {
+		const store = useEmployeeStore();
+		const uiStore = useUIStore();
+		uiStore.setPosProfile({ name: "Main POS" } as any);
+		store.setTerminalEmployees([
+			{
+				user: "backup@example.com",
+				full_name: "Backup Cashier",
+				pin_length: 4,
+			},
+		]);
+		void store.requestTerminalUnlock();
+
+		const wrapper = mount(EmployeeSwitchDialog, {
+			global: {
+				components: {
+					VDialog: VDialogStub,
+					VCard: BoxStub,
+					VCardTitle: BoxStub,
+					VCardText: BoxStub,
+					VCardActions: BoxStub,
+					VBtn: VBtnStub,
+					VIcon: BoxStub,
+					VAlert: BoxStub,
+					VTextField: VTextFieldStub,
+				},
+			},
+		});
+
+		await wrapper
+			.get('input[data-test="terminal-unlock-pin"]')
+			.setValue("1234");
+
+		await vi.waitFor(() => {
+			expect((window as any).frappe.call).toHaveBeenCalledWith(
+				expect.objectContaining({
+					args: expect.objectContaining({ pin: "1234" }),
+				}),
+			);
+			expect(store.isLocked).toBe(false);
+		});
+	});
 });

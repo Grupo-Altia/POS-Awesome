@@ -73,6 +73,14 @@ def _get_user_pin(user_doc) -> str:
         return ""
 
 
+def _get_user_pin_length(user: str) -> int:
+    try:
+        pin_length = len(_get_user_pin(_get_user_doc(user)))
+    except Exception:
+        return 0
+    return pin_length if 4 <= pin_length <= 8 else 0
+
+
 def _get_cashier_pin_request_ip() -> str:
     try:
         request_ip = getattr(frappe.local, "request_ip", None)
@@ -320,6 +328,7 @@ def get_terminal_employees(pos_profile=None):
     )
     user_map = {row.get("name"): row for row in user_rows}
     supervisor_users = _get_pos_supervisor_users(list(user_map))
+    pin_lengths = {user: _get_user_pin_length(user) for user in user_map}
     current_user = frappe.session.user
 
     employees = []
@@ -332,6 +341,7 @@ def get_terminal_employees(pos_profile=None):
                 "user": row.get("name"),
                 "full_name": row.get("full_name") or row.get("name"),
                 "enabled": row.get("enabled", 1),
+                "pin_length": pin_lengths.get(user, 0),
                 "is_current": row.get("name") == current_user,
                 "is_supervisor": user in supervisor_users
                 or bool(row.get("posa_is_pos_supervisor", 0)),
