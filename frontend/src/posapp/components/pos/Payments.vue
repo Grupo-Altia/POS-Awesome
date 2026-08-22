@@ -1960,7 +1960,7 @@ const handlePaymentShortcut = (event) => {
 	}
 };
 
-const handleSubmitPaymentShortcut = ({ print = false, amount = null } = {}) => {
+const handleSubmitPaymentShortcut = async ({ print = false, amount = null } = {}) => {
 	if (!paymentVisible.value || submissionInFlight.value || loading.value) return;
 	const submitShortcut = () => {
 		nextTick(() => {
@@ -1978,22 +1978,37 @@ const handleSubmitPaymentShortcut = ({ print = false, amount = null } = {}) => {
 			return;
 		}
 
-		const applyShortcutAmount = () => {
-			applyPreferredPaymentAmount(
+		const applyShortcutAmount = async () => {
+			// The payment dialog may still be normalizing its default amount when
+			// the queued Alt+X / Alt+P tender arrives. Finish that work first, then
+			// make the cashier-entered amount authoritative for both the invoice
+			// amount and the original tender amount.
+			await initializePayments();
+			const preferredPayment = applyPreferredPaymentAmount(
 				invoice_doc.value,
 				shortcutAmount,
 				currency_precision.value,
 				isCashLikePayment,
 			);
-			void initializePayments();
+			if (!preferredPayment) {
+				return;
+			}
+			const normalized = await setInvoiceEquivalent(
+				preferredPayment,
+				preferredPayment.amount,
+			);
+			if (!normalized) {
+				showMissingPaymentRate(preferredPayment);
+				return;
+			}
 			submitShortcut();
 		};
 
 		if (is_credit_sale.value) {
 			is_credit_sale.value = false;
-			nextTick(applyShortcutAmount);
+			nextTick(() => void applyShortcutAmount());
 		} else {
-			applyShortcutAmount();
+			void applyShortcutAmount();
 		}
 		return;
 	}

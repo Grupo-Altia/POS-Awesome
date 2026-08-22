@@ -17,6 +17,42 @@ vi.mock("../src/posapp/services/exchangeRateResolver", () => ({
 import { usePaymentCurrencies } from "../src/posapp/composables/pos/payments/usePaymentCurrencies";
 
 describe("usePaymentCurrencies", () => {
+	it("replaces a stale initialized amount with the Alt shortcut tender", async () => {
+		const invoiceDoc = ref<any>({
+			currency: "PKR",
+			company: "Farooq Chemicals",
+			posting_date: "2026-08-21",
+			payments: [],
+		});
+		const payment: any = {
+			amount: 120,
+			base_amount: 120,
+			posa_payment_currency: "PKR",
+			posa_original_amount: 120,
+			posa_company_exchange_rate: 1,
+		};
+		invoiceDoc.value.payments = [payment];
+		const { setInvoiceEquivalent } = usePaymentCurrencies({
+			invoiceDoc,
+			posProfile: ref({
+				name: "POS-PROFILE-1",
+				company: "Farooq Chemicals",
+				currency: "PKR",
+				company_currency: "PKR",
+			}),
+			currencyPrecision: ref(2),
+			formatFloat: (value) => Number(Number(value || 0).toFixed(2)),
+		});
+
+		payment.amount = 150;
+		const result = await setInvoiceEquivalent(payment, payment.amount);
+
+		expect(result).toBe(true);
+		expect(payment.amount).toBe(150);
+		expect(payment.posa_original_amount).toBe(150);
+		expect(payment.base_amount).toBe(150);
+	});
+
 	it("preserves an exact tender remainder while rounding invoice and base fields normally", async () => {
 		const invoiceDoc = ref<any>({
 			currency: "USD",
