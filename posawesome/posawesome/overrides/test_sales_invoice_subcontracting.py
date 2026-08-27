@@ -33,9 +33,16 @@ class TestSalesInvoiceSubcontractingGuard(TestCase):
             "posawesome.posawesome.overrides.sales_invoice_subcontracting."
             "SalesInvoiceSubcontractingGuardMixin"
         )
+        payment_extension = (
+            "posawesome.posawesome.overrides.multi_currency_payments."
+            "MultiCurrencyPOSPaymentsMixin"
+        )
 
         self.assertNotIn("Sales Invoice", hooks.override_doctype_class)
-        self.assertEqual(hooks.extend_doctype_class["Sales Invoice"], [extension])
+        self.assertEqual(
+            hooks.extend_doctype_class["Sales Invoice"],
+            [payment_extension, extension],
+        )
 
     def test_pos_invoice_concrete_controller_is_registered(self):
         self.assertEqual(

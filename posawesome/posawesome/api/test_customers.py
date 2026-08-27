@@ -170,9 +170,12 @@ class TestCustomersApi(unittest.TestCase):
             if doctype != "Customer":
                 return []
             self.assertEqual(kwargs["filters"]["disabled"], 0)
-            self.assertEqual(kwargs["filters"]["mobile_no"], ["like", "%4567%"])
             self.assertEqual(
                 kwargs["filters"]["customer_group"], ["in", ["Retail"]]
+            )
+            self.assertIn(
+                ["mobile_no", "like", "%4567%"],
+                kwargs["or_filters"],
             )
             return [
                 AttrDict(
@@ -194,6 +197,30 @@ class TestCustomersApi(unittest.TestCase):
         )
 
         self.assertEqual([match["name"] for match in matches], ["CUST-EXISTING"])
+
+    def test_server_search_finds_normalized_tax_id(self):
+        def get_all(doctype, **kwargs):
+            if doctype != "Customer":
+                return []
+            self.assertIn(
+                ["tax_id", "like", "%6789%"],
+                kwargs["or_filters"],
+            )
+            return [
+                AttrDict(
+                    name="CUST-TAX",
+                    customer_name="Tax Customer",
+                    mobile_no=None,
+                    tax_id="12-345 6789",
+                )
+            ]
+
+        self.module.frappe.get_all = get_all
+        matches = self.module.search_customers(
+            json.dumps({"name": "POS-TEST"}), "123456789"
+        )
+
+        self.assertEqual([match["name"] for match in matches], ["CUST-TAX"])
 
 
 if __name__ == "__main__":

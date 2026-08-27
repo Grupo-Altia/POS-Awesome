@@ -37,7 +37,7 @@ const VBtnStub = defineComponent({
 });
 
 const VTextFieldStub = defineComponent({
-	emits: ["change", "focus", "keydown"],
+	emits: ["change", "focus", "focusin", "keydown"],
 	setup(_, { attrs, emit }) {
 		return () =>
 			h("input", {
@@ -45,6 +45,7 @@ const VTextFieldStub = defineComponent({
 				value: attrs.modelValue,
 				onChange: (event: Event) => emit("change", event),
 				onFocus: (event: FocusEvent) => emit("focus", event),
+				onFocusin: (event: FocusEvent) => emit("focusin", event),
 				onKeydown: (event: KeyboardEvent) => emit("keydown", event),
 			});
 	},
@@ -145,6 +146,68 @@ describe("PaymentMethods", () => {
 		await input.trigger("keydown", { key: "Enter" });
 
 		expect(blurSpy).toHaveBeenCalledTimes(1);
+	});
+
+	it("requests the remaining amount whenever an unlocked payment field receives focus", async () => {
+		const onSetRestAmount = vi.fn();
+		const onToggleRemainderLock = vi.fn();
+		const payments = [
+			{
+				name: "PAY-CASH",
+				mode_of_payment: "Cash",
+				type: "Cash",
+				amount: 0.11,
+				posa_payment_currency: "PKR",
+				posa_original_amount: 30,
+			},
+			{
+				name: "PAY-ONLINE",
+				mode_of_payment: "Online Transfer",
+				type: "Bank",
+				amount: 0.32,
+				posa_payment_currency: "USD",
+				posa_original_amount: 0.32,
+				_posa_auto_remainder: true,
+			},
+		];
+		const wrapper = mount(PaymentMethods, {
+			props: {
+				payments,
+				currency: "USD",
+				isReturn: false,
+				requestPaymentField: false,
+				multiCurrencyEnabled: true,
+				currencySymbol: (currency: string) => `${currency} `,
+				formatCurrency: (value: number) => String(value),
+				isNumber: () => true,
+				getVisibleDenominations: () => [],
+				isCashLikePayment: (payment: any) => payment.type === "Cash",
+				isMpesaC2bPayment: () => false,
+				isGiftCardPayment: () => false,
+				onSetRestAmount,
+				onToggleRemainderLock,
+			},
+			global: {
+				components: {
+					VRow: BoxStub,
+					VCol: BoxStub,
+					VBtn: VBtnStub,
+					VTextField: VTextFieldStub,
+				},
+			},
+		});
+
+		const inputs = wrapper.findAll('input[data-pos-keyboard-target="payment-amount"]');
+		await inputs[1].trigger("focusin");
+
+		expect(onSetRestAmount).toHaveBeenCalledWith(payments[1], false);
+		expect(payments[0].posa_original_amount).toBe(30);
+		expect(payments[1].posa_original_amount).toBe(0.32);
+		expect(wrapper.text()).toContain("Auto remainder");
+		await wrapper
+			.get('[data-test="payment-remainder-lock-Online Transfer"]')
+			.trigger("click");
+		expect(onToggleRemainderLock).toHaveBeenCalledWith(payments[1]);
 	});
 
 	it("shows Counter Grid accelerator hints in POS Profile payment order", () => {

@@ -50,6 +50,40 @@ def _mobile_matches_search(mobile_no, search_term):
     )
 
 
+def _normalize_tax_id(value):
+    return "".join(
+        character.lower()
+        for character in cstr(value or "")
+        if character.isalnum()
+    )
+
+
+def _customer_matches_search(customer, search_term):
+    normalized_term = cstr(search_term or "").strip().lower()
+    if not normalized_term:
+        return True
+
+    search_parts = [part for part in normalized_term.split() if part]
+    search_text = "\n".join(
+        cstr(value or "").lower()
+        for value in (
+            customer.get("customer_name"),
+            customer.get("name"),
+            customer.get("mobile_no"),
+            customer.get("email_id"),
+            customer.get("tax_id"),
+            "".join(
+                character
+                for character in cstr(customer.get("mobile_no") or "")
+                if character.isdigit()
+            ),
+            _normalize_tax_id(customer.get("tax_id")),
+        )
+    )
+    text_match = all(part in search_text for part in search_parts)
+    return text_match or _mobile_matches_search(customer.get("mobile_no"), search_term)
+
+
 def _find_duplicate_customer_records(
     customer_name=None,
     mobile_no=None,
@@ -250,10 +284,10 @@ def get_customer_names(pos_profile, limit=None, offset=None, start_after=None, m
 
 @frappe.whitelist()
 def search_customers(pos_profile, search_term, limit=200):
-    """Find mobile-number matches that may not have reached the local POS cache yet."""
+    """Search profile-eligible customers across their POS-facing identifiers."""
     profile = _load_json_arg(pos_profile) or {}
-    search_keys = _mobile_search_keys(search_term)
-    if not search_keys:
+    search_term = cstr(search_term or "").strip()
+    if not search_term:
         return []
 
     try:
@@ -261,19 +295,27 @@ def search_customers(pos_profile, search_term, limit=200):
     except (TypeError, ValueError):
         result_limit = 200
 
-    digits = max(search_keys, key=len)
-    fragment = digits[-4:]
-    filters = {
-        "disabled": 0,
-        "mobile_no": ["like", f"%{fragment}%"],
-    }
+    search_keys = _mobile_search_keys(search_term)
+    mobile_fragment = max(search_keys, key=len)[-4:] if search_keys else search_term
+    normalized_tax_id = _normalize_tax_id(search_term)
+    tax_fragment = normalized_tax_id[-4:] if normalized_tax_id else search_term
+    filters = {"disabled": 0}
     customer_groups = get_customer_groups(profile)
     if customer_groups:
         filters["customer_group"] = ["in", customer_groups]
 
+    or_filters = [
+        ["name", "like", f"%{search_term}%"],
+        ["customer_name", "like", f"%{search_term}%"],
+        ["email_id", "like", f"%{search_term}%"],
+        ["mobile_no", "like", f"%{mobile_fragment}%"],
+        ["tax_id", "like", f"%{tax_fragment}%"],
+    ]
+
     candidates = frappe.get_all(
         "Customer",
         filters=filters,
+        or_filters=or_filters,
         fields=[
             "name",
             "modified",
@@ -293,7 +335,7 @@ def search_customers(pos_profile, search_term, limit=200):
     return [
         customer
         for customer in candidates
-        if _mobile_matches_search(customer.get("mobile_no"), search_term)
+        if _customer_matches_search(customer, search_term)
     ][:result_limit]
 
 

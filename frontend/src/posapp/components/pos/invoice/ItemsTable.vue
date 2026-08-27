@@ -158,6 +158,10 @@
 import { ref, computed, nextTick, onBeforeUnmount, onMounted, watch, getCurrentInstance } from "vue";
 import { useInvoiceStore } from "../../../stores/invoiceStore";
 import BatchSerialSelectionDialog from "./BatchSerialSelectionDialog.vue";
+import {
+	createBatchAllocationLines,
+	type BatchAllocation,
+} from "../../../composables/pos/shared/batchAllocation";
 import { loadItemSelectorSettings } from "../../../utils/itemSelectorSettings";
 import { logComponentRender } from "../../../utils/perf";
 import CartItemRow from "./CartItemRow.vue";
@@ -703,11 +707,9 @@ const openBatchSerialSelector = async (itemOrRowId: any) => {
 	batchSerialDialog.value = true;
 	deactivateKeyboardGrid();
 	const needsBatchData =
-		item.has_batch_no &&
-		(!Array.isArray(item.batch_no_data) || item.batch_no_data.length === 0);
+		item.has_batch_no && (!Array.isArray(item.batch_no_data) || item.batch_no_data.length === 0);
 	const needsSerialData =
-		item.has_serial_no &&
-		(!Array.isArray(item.serial_no_data) || item.serial_no_data.length === 0);
+		item.has_serial_no && (!Array.isArray(item.serial_no_data) || item.serial_no_data.length === 0);
 	if ((needsBatchData || needsSerialData) && props.refreshBatchSerialData) {
 		batchSerialLoading.value = true;
 		try {
@@ -723,24 +725,40 @@ const openBatchSerialSelector = async (itemOrRowId: any) => {
 
 const commitBatchSerialSelection = (selection: {
 	batchNo: string | null;
+	allocations: BatchAllocation[];
 	serials: string[];
 }) => {
 	const target = batchSerialTarget.value;
 	if (!target?.posa_row_id) return;
-	const updated = invoiceStore.updateItemWithTotals(
-		target.posa_row_id,
-		(item: any) => {
-			if (item.has_batch_no && selection.batchNo) {
-				props.setBatchQty(item, selection.batchNo);
-			}
-			if (item.has_serial_no) {
-				item.serial_no_selected = [...selection.serials];
-				props.setSerialNo(item);
-			}
-			item._batch_serial_assignment_source = "manual";
-		},
-	);
+	const allocationLines = target.has_batch_no
+		? createBatchAllocationLines(target, selection.allocations, selection.serials)
+		: [{ ...target, serial_no_selected: [...selection.serials] }];
+	if (!allocationLines.length) return;
+	const [primaryLine, ...splitLines] = allocationLines;
+	const updated = invoiceStore.updateItemWithTotals(target.posa_row_id, (item: any) => {
+		Object.assign(item, primaryLine);
+		if (item.has_batch_no && primaryLine.batch_no) {
+			props.setBatchQty(item, primaryLine.batch_no);
+		}
+		if (item.has_serial_no) {
+			item.serial_no_selected = [...primaryLine.serial_no_selected];
+			props.setSerialNo(item);
+		}
+		item._batch_serial_assignment_source = "manual";
+	});
 	if (updated) {
+		for (const line of splitLines) {
+			if (line.has_batch_no && line.batch_no) {
+				props.setBatchQty(line, line.batch_no);
+			}
+			if (line.has_serial_no) {
+				props.setSerialNo(line);
+			}
+		}
+		if (splitLines.length) {
+			const targetIndex = invoiceStore.itemOrder.indexOf(updated.posa_row_id);
+			invoiceStore.addItems(splitLines, targetIndex >= 0 ? targetIndex + 1 : -1);
+		}
 		invoiceStore.recalculateTotals();
 		emit("batch-serial-changed", updated);
 	}

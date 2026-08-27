@@ -186,4 +186,34 @@ describe("employeeStore", () => {
 		]);
 		expect(store.isLocked).toBe(true);
 	});
+
+	it("resolves a pending invoice unlock only after unlock or explicit cancellation", async () => {
+		const store = useEmployeeStore();
+		store.setTerminalEmployees([
+			{
+				user: "cashier@example.com",
+				full_name: "Main Cashier",
+				pin_length: 4,
+			},
+		]);
+
+		const cancelledUnlock = store.requestTerminalUnlock();
+		expect(store.invoiceUnlockPending).toBe(true);
+		store.cancelPendingInvoiceSubmission();
+		await expect(cancelledUnlock).resolves.toBe(false);
+		expect(store.isLocked).toBe(true);
+
+		const successfulUnlock = store.requestTerminalUnlock();
+		store.unlockTerminal({
+			user: "cashier@example.com",
+			full_name: "Main Cashier",
+			terminal_state: {
+				active_cashier: "cashier@example.com",
+				locked: false,
+			},
+		});
+		await expect(successfulUnlock).resolves.toBe(true);
+		expect(store.invoiceUnlockPending).toBe(false);
+		expect(store.isLocked).toBe(false);
+	});
 });

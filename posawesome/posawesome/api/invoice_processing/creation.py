@@ -1,6 +1,6 @@
 import frappe
 from frappe import _
-from frappe.exceptions import TimestampMismatchError
+from frappe.exceptions import QueryDeadlockError, TimestampMismatchError
 from frappe.utils import (
     cint,
     flt,
@@ -29,6 +29,11 @@ from posawesome.posawesome.api.tax_contracts import apply_pos_tax_inclusion_cont
 from posawesome.posawesome.api.payment_processing.utils import get_bank_cash_account as get_bank_account
 from posawesome.posawesome.api.utilities import ensure_child_doctype, set_batch_nos_for_bundels
 from posawesome.posawesome.api.payments import redeeming_customer_credit
+from posawesome.posawesome.api.payment_currency import (
+    PAYMENT_CURRENCY_FIELDS,
+    normalize_change_returns,
+    normalize_invoice_payment_currencies,
+)
 from posawesome.posawesome.api.idempotency import (
     assert_invoice_request_scope,
     extract_invoice_client_request_id,
@@ -69,6 +74,7 @@ AUTHORITATIVE_CASHIER_FIELD = "posa_cashier"
 CLIENT_CASHIER_KEYS = {AUTHORITATIVE_CASHIER_FIELD, "_posa_authoritative_cashier"}
 TRUSTED_SHIFT_AUDIT_KEY = "_posa_shift_reassignment_audit"
 TRUSTED_SHIFT_SOURCES = {"offline_sync", "submitted_amendment"}
+DEADLOCK_RETRY_DELAYS = (0.08, 0.2)
 
 RETURN_OUTSTANDING_MESSAGE_MARKERS = (
     "Updating the outstanding to this invoice.",
@@ -1301,6 +1307,9 @@ def _normalize_return_payment_rows(invoice_doc, conversion_rate=1):
         )
         payment.amount = -abs(resolved_amount)
         payment.base_amount = -abs(resolved_base_amount)
+        if payment.get("posa_payment_currency"):
+            payment.posa_original_amount = -abs(flt(payment.get("posa_original_amount")))
+            payment.posa_account_amount = -abs(flt(payment.get("posa_account_amount")))
 
     invoice_doc.paid_amount = flt(sum(p.amount for p in invoice_doc.payments or []))
     invoice_doc.base_paid_amount = flt(sum(p.base_amount for p in invoice_doc.payments or []))
@@ -1340,6 +1349,9 @@ def _reapply_incoming_payment_amounts(invoice_doc, incoming_rows):
             payment.amount = flt(incoming.get("amount"), payment.precision("amount"))
         if incoming.get("base_amount") is not None:
             payment.base_amount = flt(incoming.get("base_amount"), payment.precision("base_amount"))
+        for fieldname in PAYMENT_CURRENCY_FIELDS:
+            if incoming.get(fieldname) is not None:
+                payment.set(fieldname, incoming.get(fieldname))
 
     for row in incoming_rows or []:
         mode = str(row.get("mode_of_payment") or "").strip()
@@ -1357,6 +1369,7 @@ def _reapply_incoming_payment_amounts(invoice_doc, incoming_rows):
             "conversion_rate",
             "reference_no",
             "clearance_date",
+            *PAYMENT_CURRENCY_FIELDS,
         ):
             if row.get(fieldname) is not None:
                 payment.set(fieldname, row.get(fieldname))
@@ -1650,6 +1663,13 @@ def update_invoice(data):
     for payment in invoice_doc.payments:
         payment.amount, payment.base_amount = _resolve_payment_amounts(payment, conversion_rate)
 
+    normalize_invoice_payment_currencies(
+        invoice_doc,
+        profile_doc=profile_doc,
+        rate_cache=currency_cache,
+    )
+    normalize_change_returns(invoice_doc, profile_doc=profile_doc, rate_cache=currency_cache)
+
     invoice_doc.base_total = flt(flt(invoice_doc.total) * conversion_rate, invoice_doc.precision("base_total"))
     invoice_doc.base_net_total = flt(
         flt(invoice_doc.net_total) * conversion_rate,
@@ -1694,8 +1714,32 @@ def update_invoice(data):
     return response
 
 
+def _run_with_deadlock_retry(operation, delays=DEADLOCK_RETRY_DELAYS):
+    """Retry a whole transaction after MySQL/Frappe invalidates it.
+
+    Retrying only the failed statement is unsafe: by the time ERPNext updates
+    Company monthly sales, stock and GL work has already happened in the same
+    transaction.  A rollback plus an idempotent replay is the only safe retry.
+    """
+
+    for attempt in range(len(delays) + 1):
+        try:
+            return operation()
+        except QueryDeadlockError:
+            frappe.db.rollback()
+            if attempt >= len(delays):
+                raise
+            time.sleep(delays[attempt])
+
+
 @frappe.whitelist()
 def submit_invoice(invoice, data, submit_in_background=False):
+    return _run_with_deadlock_retry(
+        lambda: _submit_invoice_once(invoice, data, submit_in_background)
+    )
+
+
+def _submit_invoice_once(invoice, data, submit_in_background=False):
     data = json.loads(data)
     invoice = json.loads(invoice)
     invoice.pop(TRUSTED_SHIFT_AUDIT_KEY, None)
@@ -2035,6 +2079,8 @@ def submit_invoice(invoice, data, submit_in_background=False):
 
     _apply_invoice_gift_card_settlement(invoice_doc, data)
     _apply_customer_credit_print_fields(invoice_doc, data)
+    normalize_invoice_payment_currencies(invoice_doc, profile_doc=profile_doc)
+    normalize_change_returns(invoice_doc, profile_doc=profile_doc)
     _normalize_return_payment_rows(invoice_doc, invoice_doc.get("conversion_rate") or 1)
     _apply_return_outstanding_policy(invoice_doc)
 
@@ -2063,6 +2109,8 @@ def submit_invoice(invoice, data, submit_in_background=False):
         invoice_doc,
         lambda: _save_draft_with_latest_timestamp(invoice_doc),
     )
+    normalize_invoice_payment_currencies(invoice_doc, profile_doc=profile_doc)
+    normalize_change_returns(invoice_doc, profile_doc=profile_doc)
     _normalize_return_payment_rows(invoice_doc, invoice_doc.get("conversion_rate") or 1)
 
     if data.get("due_date"):
@@ -2151,6 +2199,25 @@ def submit_invoice(invoice, data, submit_in_background=False):
         "idempotent": bool(client_request_id),
         AUTHORITATIVE_CASHIER_FIELD: authoritative_cashier,
     }
+
+
+def _record_background_submission_failure(invoice, error, kwargs, user):
+    error_msg = str(error)
+    ledger_name = kwargs.get("ledger_name")
+    if ledger_name:
+        try:
+            ledger_doc = _get_submission_ledger_by_name(ledger_name)
+            if ledger_doc:
+                _mark_ledger_failed(ledger_doc, error_msg)
+        except Exception:
+            pass
+    frappe.log_error(f"POS Background Submission Failed for {invoice}: {error_msg}")
+    if hasattr(frappe, "publish_realtime"):
+        frappe.publish_realtime(
+            "pos_invoice_submit_error",
+            {"invoice": invoice, "error": error_msg},
+            user=user,
+        )
 
 
 def submit_in_background_job(kwargs):
@@ -2289,23 +2356,18 @@ def submit_in_background_job(kwargs):
             ledger_name,
         )
 
+    except QueryDeadlockError as error:
+        frappe.db.rollback()
+        retry_attempt = cint(kwargs.get("_deadlock_retry_attempt"))
+        if retry_attempt < len(DEADLOCK_RETRY_DELAYS):
+            retry_kwargs = dict(kwargs)
+            retry_kwargs["_deadlock_retry_attempt"] = retry_attempt + 1
+            time.sleep(DEADLOCK_RETRY_DELAYS[retry_attempt])
+            return submit_in_background_job(retry_kwargs)
+        _record_background_submission_failure(invoice, error, kwargs, user)
     except Exception as e:
         frappe.db.rollback()
-        error_msg = str(e)
-        ledger_name = kwargs.get("ledger_name")
-        if ledger_name:
-            try:
-                ledger_doc = _get_submission_ledger_by_name(ledger_name)
-                if ledger_doc:
-                    _mark_ledger_failed(ledger_doc, error_msg)
-            except Exception:
-                pass
-        frappe.log_error(f"POS Background Submission Failed for {invoice}: {error_msg}")
-        frappe.publish_realtime(
-            "pos_invoice_submit_error",
-            {"invoice": invoice, "error": error_msg},
-            user=user,
-        )
+        _record_background_submission_failure(invoice, e, kwargs, user)
     finally:
         for key, previous in (
             ("posa_owned_submission_ledger", previous_owned_ledger),

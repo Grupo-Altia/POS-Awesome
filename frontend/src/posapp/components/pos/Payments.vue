@@ -33,6 +33,8 @@
 							:diff_label="diff_label"
 							:diff-payment="diff_payment"
 							:change_due="change_due"
+							:base-settlement="base_settlement"
+							:base-currency="companyCurrency"
 							:paid_change="paid_change"
 							:credit_change="credit_change"
 							:paid_change_rules="paid_change_rules"
@@ -44,6 +46,18 @@
 							@show-diff-payment="showDiffPayment"
 							@show-paid-change="showPaidChange"
 							@update-credit-change="handleCreditChangeUpdate"
+						/>
+						<ChangeCurrencyHelper
+							:enabled="changeCurrencyEnabled"
+							:change-due="change_due"
+							:remaining="remainingChange"
+							:rows="changeReturnRows"
+							:currencies="allowedChangeCurrencies"
+							:format-currency="(value) => formatCurrency(value, invoice_doc.currency)"
+							@add-row="addChangeReturnRow"
+							@remove-row="removeChangeReturnRow"
+							@update-amount="handleChangeReturnAmount"
+							@update-currency="handleChangeReturnCurrency"
 						/>
 					</section>
 
@@ -59,6 +73,10 @@
 							:currency="invoice_doc.currency"
 							:isReturn="invoice_doc.is_return"
 							:requestPaymentField="request_payment_field"
+							:multi-currency-enabled="multiCurrencyEnabled"
+							:allow-currency-selection="allowCurrencySelection"
+							:allow-manual-rate="allowManualRate"
+							:allowed-currencies="allowedPaymentCurrencies"
 							:currencySymbol="currencySymbol"
 							:formatCurrency="formatCurrency"
 							:isNumber="isNumber"
@@ -68,11 +86,14 @@
 							:isGiftCardPayment="isGiftCardPayment"
 							:show-keyboard-shortcuts="counterGridMode"
 							@update-amount="handlePaymentAmountChange"
-							@set-full-amount="set_full_amount"
+							@update-currency="handlePaymentCurrencyChange"
+							@update-rate="handlePaymentRateChange"
+							@set-rest-amount="set_rest_amount"
+							@toggle-remainder-lock="toggle_remainder_lock"
+							@set-full-amount="handleSetFullAmount"
 							@set-denomination="setPaymentToDenomination"
 							@mpesa-dialog="mpesa_c2b_dialog"
 							@request-payment="request_payment"
-							@set-rest-amount="set_rest_amount"
 							@open-gift-card="openGiftCardDialog"
 						/>
 						<PaymentGiftCardSection
@@ -315,6 +336,8 @@ import { usePaymentSubmission } from "../../composables/pos/payments/usePaymentS
 import { useRedemptionLogic } from "../../composables/pos/payments/useRedemptionLogic";
 import { usePaymentPrinting } from "../../composables/pos/payments/usePaymentPrinting";
 import { usePaymentMethods } from "../../composables/pos/payments/usePaymentMethods";
+import { usePaymentCurrencies } from "../../composables/pos/payments/usePaymentCurrencies";
+import { useChangeCurrencies } from "../../composables/pos/payments/useChangeCurrencies";
 import { useInvoiceDetails } from "../../composables/pos/invoice/useInvoiceDetails";
 import { useFormat } from "../../format";
 import {
@@ -342,6 +365,7 @@ import { resolveCounterGridPaymentShortcut } from "../../utils/counterGridPaymen
 
 // Components
 import PaymentSummary from "./payments/PaymentSummary.vue";
+import ChangeCurrencyHelper from "./payments/ChangeCurrencyHelper.vue";
 import InvoiceTotals from "./payments/InvoiceTotals.vue";
 import PaymentActionButtons from "./payments/PaymentActionButtons.vue";
 import PaymentMethods from "./payments/PaymentMethods.vue";
@@ -509,6 +533,13 @@ const paymentItemDiscountTotal = computed(() => {
 });
 
 const displayCurrency = computed(() => (invoice_doc.value ? invoice_doc.value.currency : ""));
+const companyCurrency = computed(
+	() =>
+		uiStore.companyDoc?.default_currency ||
+		pos_profile.value?.currency ||
+		invoice_doc.value?.currency ||
+		"",
+);
 const isPaymentOpen = computed(() => activeView.value === "payment" || paymentDialogOpen.value);
 const netInvoiceSettlementAmount = computed(() => {
 	if (!invoice_doc.value) return 0;
@@ -629,9 +660,80 @@ const paymentCalculations = usePaymentCalculations({
 	giftCardRedemptions,
 	formatCurrency: (val, _curr) => formatCurrency(val, currency_precision.value),
 });
+const netCompanySettlementAmount = computed(() => {
+	if (!invoice_doc.value) return 0;
+	const doc = invoice_doc.value;
+	const companyTotal = flt(
+		doc.base_rounded_total ||
+			doc.base_grand_total ||
+			toCompanyCurrency(paymentCurrencyContext(doc), doc.rounded_total || doc.grand_total),
+		currency_precision.value,
+	);
+	const giftCardInvoiceAmount = (Array.isArray(giftCardRedemptions.value)
+		? giftCardRedemptions.value
+		: []
+	).reduce((sum, row) => sum + Number(row?.amount || 0), 0);
+	const coveredCompanyAmount =
+		Number(doc.loyalty_amount || loyalty_amount.value || 0) +
+		Number(redeemed_customer_credit.value || 0) +
+		toCompanyCurrency(paymentCurrencyContext(doc), giftCardInvoiceAmount);
+	const net = flt(companyTotal - coveredCompanyAmount, currency_precision.value);
+	return doc.is_return ? Math.min(net, 0) : Math.max(net, 0);
+});
 
-const { diff_payment, total_payments, total_payments_display, diff_payment_display, diff_label, change_due } =
+const {
+	multiCurrencyEnabled,
+	allowCurrencySelection,
+	allowManualRate,
+	allowedPaymentCurrencies,
+	initializePayments,
+	normalizePayment,
+	updateOriginalAmount,
+	updateCurrency: updatePaymentCurrency,
+	setInvoiceEquivalent,
+	clearPayment: clearPaymentCurrency,
+} = usePaymentCurrencies({
+	invoiceDoc: computed(() => invoiceStore.invoiceDoc),
+	posProfile: pos_profile,
+	currencyPrecision: currency_precision,
+	formatFloat: (value, precision) => flt(value, precision),
+});
+
+const {
+	diff_payment,
+	total_payments,
+	total_payments_display,
+	diff_payment_display,
+	diff_label,
+	change_due,
+	base_settlement,
+} =
 	paymentCalculations;
+
+const {
+	featureEnabled: changeCurrencyEnabled,
+	allowedChangeCurrencies,
+	rows: changeReturnRows,
+	remainingChange,
+	addRow: addChangeReturnRow,
+	removeRow: removeChangeReturnRow,
+	updateRowAmount,
+	updateRowCurrency,
+} = useChangeCurrencies({
+	invoiceDoc: computed(() => invoiceStore.invoiceDoc),
+	posProfile: pos_profile,
+	changeDue: change_due,
+	currencyPrecision: currency_precision,
+	formatFloat: (value, precision) => flt(value, precision),
+});
+
+const handleChangeReturnAmount = (row, event) => {
+	const raw = event?.target?.value ?? event;
+	void updateRowAmount(row, raw);
+};
+const handleChangeReturnCurrency = (row, currency) => {
+	void updateRowCurrency(row, currency);
+};
 
 const {
 	phone_dialog,
@@ -641,6 +743,7 @@ const {
 	set_mpesa_payment,
 	set_full_amount,
 	set_rest_amount,
+	toggle_remainder_lock,
 	clear_all_amounts,
 	request_payment,
 	getVisibleDenominations,
@@ -650,6 +753,7 @@ const {
 	posProfile: pos_profile,
 	diffPayment: diff_payment,
 	getNetInvoiceAmount: () => netInvoiceSettlementAmount.value,
+	getNetCompanyAmount: () => netCompanySettlementAmount.value,
 	formatFloat: (val) => flt(val, currency_precision.value),
 	stores: {
 		toastStore,
@@ -693,6 +797,8 @@ const {
 	getPaidChange: () => paid_change.value,
 	getCreditChange: () => credit_change.value,
 	onBackToInvoice: () => eventBus.emit("change_active_view", "Invoice"),
+	onPaymentInvoiceAmountChanged: setInvoiceEquivalent,
+	onPaymentCleared: clearPaymentCurrency,
 });
 
 const {
@@ -755,6 +861,7 @@ const { ensureReturnPaymentsAreNegative, restoreReturnPayments, validateSubmissi
 			customersStore,
 			uiStore,
 			invoiceStore,
+			employeeStore,
 		},
 		currencyPrecision: currency_precision,
 		requestBelowCostOverride,
@@ -1128,7 +1235,7 @@ const finishSubmissionNavigation = (clearInvoice = false) => {
 		invoiceStore.clear();
 		invoiceStore.resetPostingDate();
 		if (eventBus && typeof eventBus.emit === "function") {
-			eventBus.emit("clear_invoice");
+			eventBus.emit("clear_invoice", { resetCurrency: true });
 		}
 
 		if (submittedType !== "Invoice") {
@@ -1152,6 +1259,8 @@ const buildProfilePaymentLines = () => {
 			account: payment.account,
 			type: payment.type,
 			default: payment.default === 1 || payment.default === true || index === 0 ? 1 : 0,
+			posa_default_payment_currency: payment.posa_default_payment_currency,
+			account_currency: payment.account_currency,
 		}));
 };
 
@@ -1212,6 +1321,7 @@ const syncPreferredPaymentToCurrentTotal = (doc = invoice_doc.value) => {
 			currency_precision.value,
 		);
 	}
+	void setInvoiceEquivalent(preferredPayment, normalizedTotal);
 
 	return preferredPayment;
 };
@@ -1228,13 +1338,15 @@ const rebalancePreferredPaymentCoverage = (giftCardAmount = giftCardAppliedAmoun
 		return null;
 	}
 
-	return rebalancePreferredPaymentLine(doc, {
+	const payment = rebalancePreferredPaymentLine(doc, {
 		precision: currency_precision.value,
 		isCashLikePayment,
 		loyaltyAmount: invoice_doc.value?.loyalty_amount || loyalty_amount.value,
 		redeemedCustomerCredit: redeemed_customer_credit.value,
 		giftCardAmount,
 	});
+	if (payment) void setInvoiceEquivalent(payment, payment.amount);
+	return payment;
 };
 
 const mergeProfilePaymentsIntoReturn = (doc) => {
@@ -1467,30 +1579,47 @@ const updateCreditChange = (rawValue) => {
 	}
 };
 
-const handlePaymentAmountChange = (payment, event) => {
-	last_payment_change_was_cash.value = isCashLikePayment(payment);
-	setFormatedCurrency(payment, "amount", null, false, event);
+const showMissingPaymentRate = (payment) => {
+	toastStore.show({
+		title: __("No exchange rate is available for {0} to {1} on the posting date.", [
+			payment?.posa_payment_currency || "",
+			invoice_doc.value?.currency || "",
+		]),
+		color: "error",
+	});
+};
 
-	// For return invoices: user enters a positive number but we store it as negative (refund)
-	if (invoice_doc.value?.is_return && payment.amount > 0) {
-		payment.amount = -payment.amount;
-	}
-	if (payment.base_amount !== undefined) {
-		payment.base_amount = flt(
-			toCompanyCurrency(paymentCurrencyContext(), payment.amount),
-			currency_precision.value,
-		);
-	}
+const handlePaymentAmountChange = async (payment, event) => {
+	payment._posa_auto_remainder = false;
+	last_payment_change_was_cash.value = isCashLikePayment(payment);
+	const holder = { value: payment.posa_original_amount ?? payment.amount };
+	setFormatedCurrency(holder, "value", null, false, event);
+	if (!(await updateOriginalAmount(payment, holder.value))) showMissingPaymentRate(payment);
+};
+
+const handlePaymentCurrencyChange = async (payment, currency) => {
+	if (!(await updatePaymentCurrency(payment, currency))) showMissingPaymentRate(payment);
+};
+
+const handlePaymentRateChange = async (payment, event) => {
+	const holder = { value: payment.posa_exchange_rate };
+	setFormatedCurrency(holder, "value", null, false, event);
+	payment.posa_exchange_rate = holder.value;
+	payment.posa_rate_source = "manual";
+	if (!(await normalizePayment(payment))) showMissingPaymentRate(payment);
+};
+
+const handleSetFullAmount = async (payment, isReturn) => {
+	payment._posa_auto_remainder = false;
+	set_full_amount(payment, isReturn);
+	if (!(await setInvoiceEquivalent(payment, payment.amount))) showMissingPaymentRate(payment);
 };
 
 const setPaymentToDenomination = (payment, amount) => {
-	payment.amount = amount;
-	if (payment.base_amount !== undefined) {
-		payment.base_amount = flt(
-			toCompanyCurrency(paymentCurrencyContext(), amount),
-			currency_precision.value,
-		);
-	}
+	payment._posa_auto_remainder = false;
+	void setInvoiceEquivalent(payment, amount).then((ok) => {
+		if (!ok) showMissingPaymentRate(payment);
+	});
 	last_payment_change_was_cash.value = isCashLikePayment(payment);
 };
 
@@ -1723,7 +1852,7 @@ const submitInvoiceWrapper = async (print, callbackOverrides = {}, options = {})
 	loading.value = true;
 	try {
 		await validateSubmission(options.paymentReceived || false);
-		await submitInvoice(print, {
+		const submissionResult = await submitInvoice(print, {
 			onPrint: (doc, printOptions = {}) => {
 				if (print) {
 					if (printOptions.waitForPostSubmitPayments || printOptions.waitForInvoiceProcessing) {
@@ -1760,6 +1889,9 @@ const submitInvoiceWrapper = async (print, callbackOverrides = {}, options = {})
 			},
 			...callbackOverrides,
 		});
+		if (submissionResult?.cancelled) {
+			restorePaymentLinesAfterFailedSubmit();
+		}
 	} catch (error) {
 		console.error("Submission failed propagate:", error);
 		restorePaymentLinesAfterFailedSubmit();
@@ -1828,7 +1960,7 @@ const handlePaymentShortcut = (event) => {
 	}
 };
 
-const handleSubmitPaymentShortcut = ({ print = false, amount = null } = {}) => {
+const handleSubmitPaymentShortcut = async ({ print = false, amount = null } = {}) => {
 	if (!paymentVisible.value || submissionInFlight.value || loading.value) return;
 	const submitShortcut = () => {
 		nextTick(() => {
@@ -1846,21 +1978,37 @@ const handleSubmitPaymentShortcut = ({ print = false, amount = null } = {}) => {
 			return;
 		}
 
-		const applyShortcutAmount = () => {
-			applyPreferredPaymentAmount(
+		const applyShortcutAmount = async () => {
+			// The payment dialog may still be normalizing its default amount when
+			// the queued Alt+X / Alt+P tender arrives. Finish that work first, then
+			// make the cashier-entered amount authoritative for both the invoice
+			// amount and the original tender amount.
+			await initializePayments();
+			const preferredPayment = applyPreferredPaymentAmount(
 				invoice_doc.value,
 				shortcutAmount,
 				currency_precision.value,
 				isCashLikePayment,
 			);
+			if (!preferredPayment) {
+				return;
+			}
+			const normalized = await setInvoiceEquivalent(
+				preferredPayment,
+				preferredPayment.amount,
+			);
+			if (!normalized) {
+				showMissingPaymentRate(preferredPayment);
+				return;
+			}
 			submitShortcut();
 		};
 
 		if (is_credit_sale.value) {
 			is_credit_sale.value = false;
-			nextTick(applyShortcutAmount);
+			nextTick(() => void applyShortcutAmount());
 		} else {
-			applyShortcutAmount();
+			void applyShortcutAmount();
 		}
 		return;
 	}
@@ -2178,6 +2326,7 @@ onMounted(() => {
 			}
 
 			const initializedPayment = ensurePaymentLinesInitialized(doc);
+			void initializePayments();
 
 			if (doc.is_return) {
 				is_return.value = true;

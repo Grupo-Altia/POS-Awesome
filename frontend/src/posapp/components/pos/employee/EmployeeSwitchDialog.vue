@@ -271,6 +271,15 @@
 				</v-alert>
 			</v-card-text>
 			<v-card-actions class="employee-switch-dialog__actions">
+				<v-btn
+					v-if="invoiceUnlockPending"
+					variant="text"
+					data-test="terminal-unlock-cancel"
+					:disabled="isSubmitting"
+					@click="employeeStore.cancelPendingInvoiceSubmission()"
+				>
+					{{ __("Cancel invoice submission") }}
+				</v-btn>
 				<v-btn color="primary" :disabled="!canSubmit" :loading="isSubmitting" @click="submitUnlock">
 					{{ __("Unlock POS") }}
 				</v-btn>
@@ -295,6 +304,7 @@ const {
 	lockDialogOpen,
 	terminalEmployeesLoadStatus,
 	terminalEmployeesLoadError,
+	invoiceUnlockPending,
 } = storeToRefs(employeeStore);
 const selectedUser = ref("");
 const cashierPin = ref("");
@@ -365,6 +375,7 @@ const normalizeErrorMessage = (error) =>
 
 const selectEmployee = (user) => {
 	selectedUser.value = user;
+	cashierPin.value = "";
 	pinError.value = "";
 };
 
@@ -442,6 +453,32 @@ const submitUnlock = async () => {
 	employeeStore.unlockTerminal(verifiedCashier);
 	cashierPin.value = "";
 };
+
+watch(cashierPin, (value) => {
+	const normalizedPin = String(value || "")
+		.replace(/\D/g, "")
+		.slice(0, 8);
+	if (normalizedPin !== value) {
+		cashierPin.value = normalizedPin;
+		return;
+	}
+
+	const expectedLength = Number(selectedCashier.value?.pin_length || 0);
+	if (
+		isSubmitting.value ||
+		expectedLength < 4 ||
+		expectedLength > 8 ||
+		normalizedPin.length !== expectedLength
+	) {
+		return;
+	}
+
+	if (lockDialogOpen.value) {
+		void submitUnlock();
+	} else if (switchDialogOpen.value) {
+		void submitSwitch();
+	}
+});
 
 const __ = window.__;
 </script>

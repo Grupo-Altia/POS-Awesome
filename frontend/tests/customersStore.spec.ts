@@ -173,6 +173,66 @@ describe("customersStore profile and customer dto handling", () => {
 		]);
 	});
 
+	it("falls back to the server for a tax ID missing from the local cache", async () => {
+		const store = useCustomersStore();
+		store.setPosProfile({ name: "Main POS", company: "Test Co" });
+		customerTableToArrayMock.mockResolvedValue([]);
+		(globalThis as any).frappe.call = vi.fn((request: any) => {
+			if (request.method.endsWith("search_customers")) {
+				request.callback?.({
+					message: [
+						{
+							name: "CUST-TAX",
+							customer_name: "Tax Customer",
+							tax_id: "12-345-6789",
+						},
+					],
+				});
+			}
+		});
+
+		await store.queueSearch("123456789");
+
+		expect(store.customers).toEqual([
+			expect.objectContaining({ name: "CUST-TAX" }),
+		]);
+		expect(setCustomerStorageMock).toHaveBeenCalledWith([
+			expect.objectContaining({ name: "CUST-TAX" }),
+		]);
+	});
+
+	it("merges server matches when the local cache only has another match", async () => {
+		const store = useCustomersStore();
+		store.setPosProfile({ name: "Main POS", company: "Test Co" });
+		customerTableToArrayMock.mockResolvedValue([
+			{
+				name: "CUST-LOCAL",
+				customer_name: "Local Customer",
+				tax_id: "123456789",
+			},
+		]);
+		(globalThis as any).frappe.call = vi.fn((request: any) => {
+			if (request.method.endsWith("search_customers")) {
+				request.callback?.({
+					message: [
+						{
+							name: "CUST-REMOTE",
+							customer_name: "Remote Customer",
+							tax_id: "123456789",
+						},
+					],
+				});
+			}
+		});
+
+		await store.queueSearch("123456789");
+
+		expect(store.customers.map((customer) => customer.name)).toEqual([
+			"CUST-LOCAL",
+			"CUST-REMOTE",
+		]);
+	});
+
 	it("loads customers in five parallel 200-row pages with smooth progress", async () => {
 		const store = useCustomersStore();
 		store.setPosProfile({ name: "Main POS", company: "Test Co" });
