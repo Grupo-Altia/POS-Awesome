@@ -173,15 +173,26 @@ class TestEmployeesApi(unittest.TestCase):
             ]
         )
 
+        class FakeUserDoc:
+            def __init__(self, name):
+                self.name = name
+
+            def get_password(self, fieldname):
+                return "1234" if self.name == "cashier@example.com" else "123456"
+
+        self.employees.frappe.get_doc = lambda doctype, name: FakeUserDoc(name)
+
         result = self.employees.get_terminal_employees("Main POS")
 
         self.assertEqual(len(result), 2)
         self.assertEqual(result[0]["user"], "cashier@example.com")
         self.assertTrue(result[0]["is_current"])
         self.assertTrue(result[0]["is_supervisor"])
+        self.assertEqual(result[0]["pin_length"], 4)
         self.assertEqual(result[1]["full_name"], "Backup Cashier")
         self.assertFalse(result[1]["is_current"])
         self.assertFalse(result[1]["is_supervisor"])
+        self.assertEqual(result[1]["pin_length"], 6)
 
     def test_get_terminal_employees_marks_supervisor_from_user_role(self):
         self.employees.frappe.session.user = "cashier@example.com"

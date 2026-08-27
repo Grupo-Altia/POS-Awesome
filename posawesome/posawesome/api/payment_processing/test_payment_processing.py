@@ -266,6 +266,237 @@ class TestPosPaymentProcessing(unittest.TestCase):
         self.assertEqual(row["dr_or_cr"], "debit_in_account_currency")
         self.assertEqual(row["allocated_amount"], 125)
 
+    def test_payment_replay_matches_original_tender_currency_and_amount(self):
+        existing = [
+            AttrDict(
+                name="ACC-PAY-USD",
+                docstatus=1,
+                mode_of_payment="Cash",
+                paid_amount=29.93,
+                received_amount=0.105,
+                posa_payment_currency="USD",
+                posa_original_amount=29.93,
+            ),
+            AttrDict(
+                name="ACC-PAY-PKR",
+                docstatus=1,
+                mode_of_payment="Cash",
+                paid_amount=29.93,
+                received_amount=29.93,
+                posa_payment_currency="PKR",
+                posa_original_amount=29.93,
+            ),
+        ]
+
+        matched, missing, unmatched = self.processor._partition_payment_methods(
+            existing,
+            [
+                {
+                    "mode_of_payment": "Cash",
+                    "amount": 29.93,
+                    "original_amount": 29.93,
+                    "payment_currency": "PKR",
+                }
+            ],
+        )
+
+        self.assertEqual([entry.name for entry in matched], ["ACC-PAY-PKR"])
+        self.assertEqual(missing, [])
+        self.assertEqual([entry.name for entry in unmatched], ["ACC-PAY-USD"])
+
+    def test_create_payment_entry_persists_original_tender_metadata(self):
+        class Meta:
+            @staticmethod
+            def has_field(_fieldname):
+                return True
+
+        class PaymentEntry(AttrDict):
+            meta = Meta()
+
+            def setup_party_account_field(self):
+                return None
+
+            def set_missing_values(self):
+                return None
+
+            def set(self, fieldname, value):
+                self[fieldname] = value
+
+        payment_entry = PaymentEntry()
+        company_doc = AttrDict(
+            default_currency="PKR",
+            default_letter_head="Letter Head",
+        )
+        bank = AttrDict(
+            account="Cash PKR - TC",
+            account_currency="PKR",
+            account_type="Cash",
+        )
+        fake_db = types.SimpleNamespace(get_default=lambda _key: 2)
+
+        with (
+            patch.object(self.creation.frappe, "get_cached_doc", return_value=company_doc),
+            patch.object(self.creation.frappe, "new_doc", return_value=payment_entry),
+            patch.object(self.creation.frappe, "db", fake_db),
+            patch.object(self.creation, "get_party_account", return_value="Debtors - TC"),
+            patch.object(self.creation, "get_account_currency", return_value="PKR"),
+            patch.object(self.creation, "get_bank_cash_account", return_value=bank),
+            patch.object(self.creation, "get_party_bank_account", return_value=None),
+            patch.object(
+                self.creation,
+                "get_exchange_rate",
+                side_effect=lambda source, target, *_args: (
+                    0.003508772 if (source, target) == ("PKR", "USD") else 1
+                ),
+            ),
+        ):
+            result = self.creation.create_payment_entry(
+                company="Test Company",
+                amount=29.93,
+                currency="USD",
+                invoice_currency="USD",
+                mode_of_payment="Cash",
+                customer="Customer 727",
+                payment_currency="PKR",
+                bank_account="Cash PKR - TC",
+                posting_date="2026-08-21",
+            )
+
+        self.assertEqual(result.posa_payment_currency, "PKR")
+        self.assertEqual(result.posa_original_amount, 29.93)
+        self.assertEqual(result.posa_invoice_currency, "USD")
+        self.assertAlmostEqual(result.posa_exchange_rate, 0.003508772)
+        self.assertEqual(result.posa_company_exchange_rate, 1)
+        self.assertEqual(result.posa_account_currency, "PKR")
+        self.assertEqual(result.posa_account_amount, 29.93)
+        self.assertEqual(result.base_paid_amount, 29.93)
+        self.assertEqual(result.base_received_amount, 29.93)
+
+    def test_create_payment_entry_converts_foreign_tender_into_account_currency(self):
+        class Meta:
+            @staticmethod
+            def has_field(_fieldname):
+                return True
+
+        class PaymentEntry(AttrDict):
+            meta = Meta()
+
+            def setup_party_account_field(self):
+                return None
+
+            def set_missing_values(self):
+                return None
+
+            def set(self, fieldname, value):
+                self[fieldname] = value
+
+        payment_entry = PaymentEntry()
+        company_doc = AttrDict(
+            default_currency="PKR",
+            default_letter_head="Letter Head",
+        )
+        bank = AttrDict(
+            account="Cash PKR - TC",
+            account_currency="PKR",
+            account_type="Cash",
+        )
+        fake_db = types.SimpleNamespace(get_default=lambda _key: 2)
+
+        with (
+            patch.object(self.creation.frappe, "get_cached_doc", return_value=company_doc),
+            patch.object(self.creation.frappe, "new_doc", return_value=payment_entry),
+            patch.object(self.creation.frappe, "db", fake_db),
+            patch.object(self.creation, "get_party_account", return_value="Debtors - TC"),
+            patch.object(self.creation, "get_account_currency", return_value="PKR"),
+            patch.object(self.creation, "get_bank_cash_account", return_value=bank),
+            patch.object(self.creation, "get_party_bank_account", return_value=None),
+            patch.object(
+                self.creation,
+                "get_exchange_rate",
+                side_effect=lambda source, target, *_args: (
+                    285 if (source, target) == ("USD", "PKR") else 1
+                ),
+            ),
+        ):
+            result = self.creation.create_payment_entry(
+                company="Test Company",
+                amount=10,
+                currency="USD",
+                invoice_currency="USD",
+                mode_of_payment="Cash",
+                customer="Customer 727",
+                payment_currency="USD",
+                bank_account="Cash PKR - TC",
+                posting_date="2026-08-21",
+            )
+
+        self.assertEqual(result.posa_payment_currency, "USD")
+        self.assertEqual(result.posa_original_amount, 10)
+        self.assertEqual(result.posa_exchange_rate, 1)
+        self.assertEqual(result.posa_company_exchange_rate, 285)
+        self.assertEqual(result.posa_account_currency, "PKR")
+        self.assertEqual(result.posa_account_amount, 2850)
+        self.assertEqual(result.received_amount, 2850)
+        self.assertEqual(result.base_received_amount, 2850)
+
+    @patch("posawesome.posawesome.api.payment_processing.processor.create_payment_entry")
+    @patch("posawesome.posawesome.api.payment_processing.processor.frappe")
+    def test_process_pos_payment_rejects_currency_outside_profile_allow_list(
+        self,
+        mock_frappe,
+        mock_create_payment_entry,
+    ):
+        mock_frappe._dict.side_effect = lambda value: AttrDict(value)
+        mock_frappe.get_cached_value.return_value = "PKR"
+        mock_frappe.throw.side_effect = lambda message, *_args, **_kwargs: (_ for _ in ()).throw(
+            Exception(message)
+        )
+        mock_frappe.db = types.SimpleNamespace(
+            has_column=lambda *_args: False,
+            sql=lambda *_args, **_kwargs: [],
+            get_value=lambda *_args, **_kwargs: None,
+        )
+
+        result = self.processor.process_pos_payment(
+            json.dumps(
+                {
+                    "customer": "Customer 727",
+                    "company": "Test Company",
+                    "currency": "USD",
+                    "pos_profile_name": "Main POS",
+                    "pos_opening_shift_name": "POS-OPEN-0001",
+                    "selected_invoices": [],
+                    "selected_payments": [],
+                    "selected_mpesa_payments": [],
+                    "payment_methods": [
+                        {
+                            "mode_of_payment": "Cash",
+                            "amount": 10,
+                            "original_amount": 10,
+                            "payment_currency": "EUR",
+                        }
+                    ],
+                    "total_selected_payments": 0,
+                    "total_selected_mpesa_payments": 0,
+                    "total_payment_methods": 10,
+                    "pos_profile": {
+                        "posa_use_pos_awesome_payments": 1,
+                        "posa_allow_make_new_payments": 1,
+                        "posa_allow_reconcile_payments": 0,
+                        "posa_allow_mpesa_reconcile_payments": 0,
+                        "posa_enable_multi_currency_payments": 1,
+                        "posa_allowed_currencies": [
+                            {"currency": "PKR", "allow_for_payments": 1},
+                            {"currency": "USD", "allow_for_payments": 1},
+                        ],
+                    },
+                }
+            )
+        )
+
+        mock_create_payment_entry.assert_not_called()
+        self.assertTrue(any("EUR" in error for error in result["errors"]))
+
     def test_selected_mpesa_reference_is_reloaded_and_normalized_from_server(self):
         profile = AttrDict(
             name="Main POS",

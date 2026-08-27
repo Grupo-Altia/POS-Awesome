@@ -1056,8 +1056,13 @@ export default {
 				console.error("Error refreshing parked orders:", error);
 			}
 		},
-		handleClearInvoice() {
+		handleClearInvoice(options = {}) {
 			this.clear_invoice();
+			if (options.resetCurrency && typeof this.reset_currency_to_default === "function") {
+				this.reset_currency_to_default().catch((error) => {
+					console.error("Unable to reset invoice currency:", error);
+				});
+			}
 			this.uiStore.triggerItemSearchFocus();
 		},
 		handleLoadInvoice(data) {
@@ -1133,19 +1138,20 @@ export default {
 			this.invoiceType = "Return";
 			this.invoiceTypes = ["Return"];
 			this.invoice_doc.is_return = 1;
-			// Cap on cash refundable for this return = amount actually paid on the
-			// original invoice. 0 for an unpaid/credit invoice, so the payment screen
-			// defaults to no cash refund and the return becomes a credit note that
-			// reduces the customer's balance. Derived here so it covers every entry
-			// point that loads a return (returns dialog + invoice management).
+			// Cap on cash refundable for this return. The backend
+			// (get_invoice_for_return) computes it authoritatively as
+			// grand_total - outstanding - returns-already-issued; use that value.
+			// Covers every entry point that loads a return (returns dialog + invoice
+			// management). Falls back to grand - outstanding only if neither the
+			// carried value nor the backend field is present (e.g. older payload).
 			{
 				const od = data.invoice_doc || {};
 				const rd = data.return_doc || {};
 				let refundable =
 					od.posa_refundable_amount != null
 						? od.posa_refundable_amount
-						: rd.paid_amount != null
-							? rd.paid_amount
+						: rd.posa_refundable_amount != null
+							? rd.posa_refundable_amount
 							: (rd.grand_total || 0) - (rd.outstanding_amount || 0);
 				refundable = this.flt(refundable, this.currency_precision);
 				this.invoice_doc.posa_refundable_amount = refundable > 0 ? refundable : 0;

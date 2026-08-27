@@ -113,6 +113,16 @@ export interface Payment {
   default?: boolean;
   currency?: string;
   conversion_rate?: number;
+  /** Currency and amount physically tendered by the customer. */
+  posa_payment_currency?: string;
+  posa_original_amount?: number;
+  /** Explicit payment-to-invoice and payment-to-company multipliers. */
+  posa_exchange_rate?: number;
+  posa_company_exchange_rate?: number;
+  posa_rate_date?: string;
+  posa_rate_source?: string;
+  posa_account_currency?: string;
+  posa_account_amount?: number;
   [key: string]: any;
 }
 

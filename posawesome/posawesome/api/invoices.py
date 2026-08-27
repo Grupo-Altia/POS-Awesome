@@ -5,6 +5,7 @@
 
 import frappe
 import time
+from frappe.utils import cint, flt
 from posawesome.posawesome.api.erpnext_compat import resolve_make_sales_invoice_from_order
 from posawesome.posawesome.api.tax_contracts import apply_pos_tax_inclusion_contract
 from posawesome.posawesome.api.invoice_processing.utils import (
@@ -151,7 +152,7 @@ def delete_invoice(invoice):
 
 
 @frappe.whitelist()
-def fetch_exchange_rate_pair(from_currency, to_currency):
+def fetch_exchange_rate_pair(from_currency, to_currency, transaction_date=None):
     """Return exchange rate payload expected by POS multi-currency UI."""
 
     if not from_currency or not to_currency:
@@ -162,13 +163,54 @@ def fetch_exchange_rate_pair(from_currency, to_currency):
 
         return {
             "exchange_rate": 1,
-            "date": nowdate(),
+            "date": transaction_date or nowdate(),
         }
 
-    exchange_rate, rate_date = get_latest_rate(from_currency, to_currency)
+    exchange_rate, rate_date = get_latest_rate(
+        from_currency,
+        to_currency,
+        transaction_date=transaction_date,
+        silent=True,
+    )
     return {
         "exchange_rate": exchange_rate,
         "date": rate_date,
+    }
+
+
+@frappe.whitelist()
+def resolve_exchange_rate(
+    from_currency,
+    to_currency,
+    transaction_date=None,
+    purpose=None,
+    allow_external=1,
+):
+    """Resolve one explicitly requested pair without emitting desk dialogs."""
+
+    if not from_currency or not to_currency:
+        return {
+            "found": False,
+            "from_currency": from_currency,
+            "to_currency": to_currency,
+            "error": "from_currency and to_currency are required",
+        }
+
+    rate, rate_date = get_latest_rate(
+        from_currency,
+        to_currency,
+        transaction_date=transaction_date,
+        purpose=purpose,
+        allow_external=cint(allow_external),
+        silent=True,
+    )
+    return {
+        "found": bool(rate and flt(rate) > 0),
+        "from_currency": from_currency,
+        "to_currency": to_currency,
+        "exchange_rate": flt(rate) if rate else None,
+        "date": rate_date,
+        "source": "same_currency" if from_currency == to_currency else "currency_exchange",
     }
 
 

@@ -23,6 +23,26 @@
 					<span v-if="payment.default === 1" class="payment-method-card__badge">
 						{{ __("Default") }}
 					</span>
+					<span
+						v-if="payment._posa_auto_remainder"
+						class="payment-method-card__badge payment-method-card__badge--auto"
+					>
+						{{ __("Auto remainder") }}
+					</span>
+					<v-btn
+						v-if="!isMpesaC2bPayment(payment) && !isGiftCardPayment(payment)"
+						icon
+						size="x-small"
+						variant="text"
+						:color="payment._posa_remainder_locked ? 'warning' : 'secondary'"
+						:title="remainderLockTitle(payment)"
+						:data-test="`payment-remainder-lock-${payment.mode_of_payment}`"
+						@click="$emit('toggle-remainder-lock', payment)"
+					>
+						<v-icon size="16">
+							{{ payment._posa_remainder_locked ? "mdi-lock" : "mdi-lock-open-variant" }}
+						</v-icon>
+					</v-btn>
 					<kbd
 						v-if="showKeyboardShortcuts && paymentIndex < 9"
 						class="payment-method-card__shortcut"
@@ -33,7 +53,24 @@
 			</div>
 
 			<v-row class="payments ma-0" dense>
-				<v-col cols="12" md="7" v-if="!isMpesaC2bPayment(payment)">
+				<v-col
+					v-if="!isMpesaC2bPayment(payment) && multiCurrencyEnabled"
+					cols="12"
+					md="3"
+				>
+					<v-select
+						density="compact"
+						variant="solo"
+						class="sleek-field pos-themed-input"
+						hide-details
+						:label="frappe._('Tender Currency')"
+						:items="allowedCurrencies"
+						:model-value="payment.posa_payment_currency || currency"
+						:readonly="!allowCurrencySelection"
+						@update:model-value="$emit('update-currency', payment, $event)"
+					></v-select>
+				</v-col>
+				<v-col cols="12" :md="multiCurrencyEnabled ? 4 : 7" v-if="!isMpesaC2bPayment(payment)">
 					<v-text-field
 						data-pos-keyboard-target="payment-amount"
 						:data-testid="`payment-amount-${payment.mode_of_payment}`"
@@ -43,17 +80,39 @@
 						:label="frappe._('Amount')"
 						:class="['sleek-field pos-themed-input', isReturn ? 'pos-themed-input--refund' : '']"
 						hide-details
-						:model-value="formatCurrency(payment.amount)"
+						:model-value="formatCurrency(payment.posa_original_amount ?? payment.amount)"
+						@focusin="$emit('set-rest-amount', payment, isReturn)"
 						@change="$emit('update-amount', payment, $event)"
 						:rules="[isNumber]"
-						:prefix="currencySymbol(currency)"
-						@focus="$emit('set-rest-amount', payment, isReturn)"
+						:prefix="currencySymbol(payment.posa_payment_currency || currency)"
 						@keydown.enter="blurTarget"
 						@keydown.esc="blurTarget"
 						:readonly="isGiftCardPayment(payment)"
 					></v-text-field>
+					<div v-if="multiCurrencyEnabled" class="payment-currency-equivalent">
+						<span v-if="payment._posa_rate_error" class="payment-currency-equivalent--error">
+							{{ __("Exchange rate unavailable") }}
+						</span>
+						<span v-else>
+							{{ __("Invoice equivalent") }}:
+							{{ currencySymbol(currency) }}{{ formatCurrency(payment.amount) }}
+						</span>
+					</div>
 				</v-col>
-				<v-col cols="12" md="5" v-if="!isMpesaC2bPayment(payment)">
+				<v-col cols="12" :md="multiCurrencyEnabled ? 5 : 5" v-if="!isMpesaC2bPayment(payment)">
+					<v-text-field
+						v-if="allowManualRate && payment.posa_payment_currency !== currency"
+						density="compact"
+						variant="solo"
+						class="sleek-field pos-themed-input mb-2"
+						hide-details
+						type="number"
+						min="0"
+						step="any"
+						:label="frappe._('Rate to Invoice Currency')"
+						:model-value="payment.posa_exchange_rate"
+						@change="$emit('update-rate', payment, $event)"
+					></v-text-field>
 					<div class="payment-method-actions">
 						<v-btn
 							block
@@ -148,6 +207,13 @@ const props = defineProps({
 	currency: String,
 	isReturn: Boolean,
 	requestPaymentField: Boolean,
+	multiCurrencyEnabled: Boolean,
+	allowCurrencySelection: Boolean,
+	allowManualRate: Boolean,
+	allowedCurrencies: {
+		type: Array,
+		default: () => [],
+	},
 	currencySymbol: Function,
 	formatCurrency: Function,
 	isNumber: Function,
@@ -163,13 +229,21 @@ const props = defineProps({
 
 const emit = defineEmits([
 	"update-amount",
+	"update-currency",
+	"update-rate",
+	"set-rest-amount",
+	"toggle-remainder-lock",
 	"set-full-amount",
 	"set-denomination",
 	"mpesa-dialog",
 	"request-payment",
-	"set-rest-amount",
 	"open-gift-card",
 ]);
+
+const remainderLockTitle = (payment) =>
+	payment?._posa_remainder_locked
+		? __("Unlock automatic remainder")
+		: __("Lock automatic remainder");
 
 const handlePrimaryAction = (payment) => {
 	if (props.isGiftCardPayment(payment)) {
@@ -284,6 +358,22 @@ const blurTarget = (event) => {
 
 .payment-method-actions {
 	display: block;
+}
+
+.payment-method-card__badge--auto {
+	background: #0f766e;
+	color: #ffffff;
+}
+
+.payment-currency-equivalent {
+	margin-top: 6px;
+	font-size: 0.75rem;
+	color: var(--pos-text-secondary);
+}
+
+.payment-currency-equivalent--error {
+	color: rgb(var(--v-theme-error));
+	font-weight: 700;
 }
 
 .payment-method-action-btn:hover,

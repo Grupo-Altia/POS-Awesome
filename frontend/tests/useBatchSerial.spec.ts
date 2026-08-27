@@ -21,7 +21,10 @@ describe("useBatchSerial.setSerialNo", () => {
 			qty: 1,
 			stock_qty: 2,
 			conversion_factor: 2,
-			serial_no_data: [{ serial_no: "SER-001" }, { serial_no: "SER-002" }],
+			serial_no_data: [
+				{ serial_no: "SER-001" },
+				{ serial_no: "SER-002" },
+			],
 			serial_no_selected: ["SER-001", "SER-002"],
 		};
 
@@ -37,7 +40,10 @@ describe("useBatchSerial.setSerialNo", () => {
 		const item: any = {
 			has_serial_no: 1,
 			has_batch_no: 0,
-			serial_no_data: [{ serial_no: "SER-001" }, { serial_no: "SER-002" }],
+			serial_no_data: [
+				{ serial_no: "SER-001" },
+				{ serial_no: "SER-002" },
+			],
 			serial_no_selected: [],
 			stock_qty: 15,
 			qty: 15,
@@ -144,6 +150,31 @@ describe("useBatchSerial.setBatchQty", () => {
 		expect(item.batch_no_data.map((b: any) => b.batch_no)).toEqual([
 			"B-VALID",
 		]);
+	});
+
+	it("reserves existing cart quantities in stock UOM", () => {
+		const { getBatchAvailability } = useBatchSerial();
+		const item: any = {
+			posa_row_id: "ROW-NEW",
+			item_code: "BOXED",
+			qty: 1,
+			conversion_factor: 6,
+			batch_no_data: [{ batch_no: "B-1", batch_qty: 12 }],
+		};
+		const batches = getBatchAvailability(item, {
+			items: [
+				item,
+				{
+					posa_row_id: "ROW-EXISTING",
+					item_code: "BOXED",
+					batch_no: "B-1",
+					qty: 1,
+					conversion_factor: 6,
+				},
+			],
+		});
+
+		expect(batches[0].available_qty).toBe(6);
 	});
 
 	it("applies batch price immediately during auto batch selection", () => {

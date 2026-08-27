@@ -1773,4 +1773,117 @@ describe("usePaymentSubmission", () => {
 			expect.any(Object),
 		);
 	});
+
+	it("waits for terminal unlock and retries the same pending invoice", async () => {
+		const invoiceService = (
+			await import("../src/posapp/services/invoiceService")
+		).default;
+		(invoiceService.submitInvoice as any)
+			.mockResolvedValueOnce(
+				{
+					ok: false,
+					data: null,
+					error: {
+						code: "TERMINAL_LOCKED",
+						message: "This POS terminal is locked.",
+						retryable: false,
+					},
+					requestId: "terminal-locked-1",
+					serverTime: null,
+				},
+			)
+			.mockResolvedValueOnce({
+				name: "ACC-SINV-UNLOCKED",
+				doctype: "Sales Invoice",
+				docstatus: 1,
+			});
+		const requestTerminalUnlock = vi.fn().mockResolvedValue(true);
+		const invoiceDoc = ref<any>({
+			name: "ACC-SINV-UNLOCKED",
+			doctype: "Sales Invoice",
+			is_return: 0,
+			items: [{ item_code: "ITEM-1", qty: 1 }],
+			payments: [{ mode_of_payment: "Cash", amount: 100, type: "Cash" }],
+			grand_total: 100,
+		});
+		const { submitInvoice } = usePaymentSubmission({
+			invoiceDoc,
+			posProfile: ref({ posa_allow_submissions_in_background_job: 0 }),
+			stockSettings: ref({}),
+			invoiceType: ref("Invoice"),
+			formatFloat: (value) => Number(value || 0),
+			stores: {
+				employeeStore: { requestTerminalUnlock },
+				toastStore: { show: vi.fn() },
+			},
+			isCashback: ref(false),
+			paidChange: ref(0),
+			creditChange: ref(0),
+			redeemedCustomerCredit: ref(0),
+			customerCreditDict: ref([]),
+			diff_payment: ref(0),
+		});
+
+		await expect(submitInvoice(false)).resolves.toMatchObject({ success: true });
+		expect(requestTerminalUnlock).toHaveBeenCalledOnce();
+		expect(invoiceService.submitInvoice).toHaveBeenCalledTimes(2);
+		expect((invoiceService.submitInvoice as any).mock.calls[1][0]).toBe(
+			(invoiceService.submitInvoice as any).mock.calls[0][0],
+		);
+		expect((invoiceService.submitInvoice as any).mock.calls[1][1]).toBe(
+			(invoiceService.submitInvoice as any).mock.calls[0][1],
+		);
+	});
+
+	it("keeps the invoice unsubmitted when terminal unlock is cancelled", async () => {
+		const invoiceService = (
+			await import("../src/posapp/services/invoiceService")
+		).default;
+		(invoiceService.submitInvoice as any).mockResolvedValueOnce(
+			{
+				ok: false,
+				data: null,
+				error: {
+					code: "TERMINAL_LOCKED",
+					message: "This POS terminal is locked.",
+					retryable: false,
+				},
+				requestId: "terminal-locked-cancelled",
+				serverTime: null,
+			},
+		);
+		const invoiceDoc = ref<any>({
+			name: "ACC-SINV-CANCELLED",
+			doctype: "Sales Invoice",
+			is_return: 0,
+			items: [],
+			payments: [{ mode_of_payment: "Cash", amount: 50, type: "Cash" }],
+			grand_total: 50,
+		});
+		const { submitInvoice } = usePaymentSubmission({
+			invoiceDoc,
+			posProfile: ref({ posa_allow_submissions_in_background_job: 0 }),
+			stockSettings: ref({}),
+			invoiceType: ref("Invoice"),
+			formatFloat: (value) => Number(value || 0),
+			stores: {
+				employeeStore: {
+					requestTerminalUnlock: vi.fn().mockResolvedValue(false),
+				},
+				toastStore: { show: vi.fn() },
+			},
+			isCashback: ref(false),
+			paidChange: ref(0),
+			creditChange: ref(0),
+			redeemedCustomerCredit: ref(0),
+			customerCreditDict: ref([]),
+			diff_payment: ref(0),
+		});
+
+		await expect(submitInvoice(false)).resolves.toEqual({
+			cancelled: true,
+			reason: "terminal_locked",
+		});
+		expect(invoiceService.submitInvoice).toHaveBeenCalledOnce();
+	});
 });

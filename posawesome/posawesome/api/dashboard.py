@@ -775,6 +775,7 @@ def _collect_payment_method_report(
     date_to: str,
     limit: int = 20,
 ) -> dict[str, Any]:
+    company_currency = frappe.get_cached_value("Company", company, "default_currency") or ""
     report: dict[str, Any] = {
         "period": {"from": date_from, "to": date_to},
         "totals": {
@@ -800,8 +801,9 @@ def _collect_payment_method_report(
     profile_filter, profile_filter_params = _build_in_filter("inv.pos_profile", profile_names)
     cash_modes = _get_cash_modes(profile_names)
     mode_names: set[str] = set(cash_modes)
-    payment_totals: dict[str, float] = defaultdict(float)
-    payment_invoice_counts: dict[str, int] = defaultdict(int)
+    payment_totals: dict[tuple[str, str], float] = defaultdict(float)
+    payment_tender_totals: dict[tuple[str, str], float] = defaultdict(float)
+    payment_invoice_counts: dict[tuple[str, str], int] = defaultdict(int)
     day_buckets: dict[str, dict[str, Any]] = {}
     totals = report["totals"]
 
@@ -912,16 +914,44 @@ def _collect_payment_method_report(
         if not payment_amount_field:
             continue
 
+        has_tender_currency = frappe.db.has_column(
+            payment_child_doctype, "posa_payment_currency"
+        )
+        has_original_amount = frappe.db.has_column(
+            payment_child_doctype, "posa_original_amount"
+        )
+        tender_currency_expression = (
+            "coalesce(nullif(pay.posa_payment_currency, ''), inv.currency)"
+            if has_tender_currency
+            else "inv.currency"
+        )
+        tender_amount_expression = "coalesce(pay.amount, 0)"
+        if has_tender_currency and has_original_amount:
+            tender_amount_expression = """
+                case
+                    when nullif(pay.posa_payment_currency, '') is not null
+                        then coalesce(pay.posa_original_amount, pay.amount, 0)
+                    else coalesce(pay.amount, 0)
+                end
+            """
+
         payment_rows = frappe.db.sql(
             f"""
             select
                 pay.mode_of_payment as mode_of_payment,
+                {tender_currency_expression} as currency,
                 sum(
                     case
                         when {is_return_expression} = 1 then -abs(coalesce(pay.{payment_amount_field}, 0))
                         else coalesce(pay.{payment_amount_field}, 0)
                     end
                 ) as collected_amount,
+                sum(
+                    case
+                        when {is_return_expression} = 1 then -abs({tender_amount_expression})
+                        else {tender_amount_expression}
+                    end
+                ) as tender_amount,
                 count(distinct pay.parent) as invoice_count
             from `tab{payment_child_doctype}` pay
             inner join `tab{parent_doctype}` inv on inv.name = pay.parent
@@ -930,7 +960,7 @@ def _collect_payment_method_report(
               and inv.posting_date between %s and %s
               {profile_filter}
               {_extra_parent_filter(parent_doctype, "inv")}
-            group by pay.mode_of_payment
+            group by pay.mode_of_payment, {tender_currency_expression}
             """,
             (company, date_from, date_to, *profile_filter_params),
             as_dict=True,
@@ -939,9 +969,12 @@ def _collect_payment_method_report(
             mode_name = cstr(pay_row.get("mode_of_payment")).strip()
             if not mode_name:
                 continue
+            tender_currency = cstr(pay_row.get("currency")).strip() or company_currency
+            payment_key = (mode_name, tender_currency)
             mode_names.add(mode_name)
-            payment_totals[mode_name] += flt(pay_row.get("collected_amount"))
-            payment_invoice_counts[mode_name] += cint(pay_row.get("invoice_count"))
+            payment_totals[payment_key] += flt(pay_row.get("collected_amount"))
+            payment_tender_totals[payment_key] += flt(pay_row.get("tender_amount"))
+            payment_invoice_counts[payment_key] += cint(pay_row.get("invoice_count"))
 
         split_rows = frappe.db.sql(
             f"""
@@ -977,11 +1010,13 @@ def _collect_payment_method_report(
         "other": {"category": "other", "label": _("Other"), "amount": 0.0, "invoice_count": 0},
     }
     method_rows: list[dict[str, Any]] = []
-    for mode_name in sorted(
-        payment_totals.keys(), key=lambda name: abs(flt(payment_totals.get(name))), reverse=True
+    for payment_key in sorted(
+        payment_totals.keys(), key=lambda key: abs(flt(payment_totals.get(key))), reverse=True
     ):
-        amount = flt(payment_totals.get(mode_name))
-        invoice_count = cint(payment_invoice_counts.get(mode_name))
+        mode_name, tender_currency = payment_key
+        amount = flt(payment_totals.get(payment_key))
+        tender_amount = flt(payment_tender_totals.get(payment_key))
+        invoice_count = cint(payment_invoice_counts.get(payment_key))
         category = _classify_payment_mode(mode_name, mode_type_map.get(mode_name, ""), cash_modes)
         category_entry = category_totals[category]
         category_entry["amount"] = flt(category_entry["amount"]) + amount
@@ -993,6 +1028,9 @@ def _collect_payment_method_report(
                 "mode_type": mode_type_map.get(mode_name, ""),
                 "category": category,
                 "amount": amount,
+                "company_currency_amount": amount,
+                "currency": tender_currency,
+                "tender_amount": tender_amount,
                 "invoice_count": invoice_count,
             }
         )

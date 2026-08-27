@@ -5,6 +5,7 @@ export interface TerminalEmployee {
 	user: string;
 	full_name: string;
 	enabled?: number;
+	pin_length?: number;
 	is_current?: boolean;
 	is_supervisor?: boolean;
 	can_override_below_cost?: boolean;
@@ -28,6 +29,9 @@ const normalizeEmployee = (cashier: TerminalEmployee): TerminalEmployee => ({
 	user: String(cashier.user),
 	full_name: String(cashier.full_name || cashier.user),
 	enabled: Number(cashier.enabled ?? 1),
+	pin_length: Number.isInteger(Number(cashier.pin_length))
+		? Number(cashier.pin_length)
+		: undefined,
 	is_current: Boolean(cashier.is_current),
 	is_supervisor: Boolean(cashier.is_supervisor),
 	can_override_below_cost: Boolean(
@@ -42,6 +46,7 @@ export const useEmployeeStore = defineStore("employee", () => {
 	const lockDialogOpen = ref(true);
 	const terminalStateLoaded = ref(false);
 	const terminalLockPending = ref(false);
+	const invoiceUnlockPending = ref(false);
 	const terminalEmployeesLoadStatus =
 		ref<TerminalEmployeesLoadStatus>("idle");
 	const terminalEmployeesLoadError = ref("");
@@ -52,6 +57,16 @@ export const useEmployeeStore = defineStore("employee", () => {
 			currentCashier.value?.full_name || currentCashier.value?.user || "",
 	);
 	const isLocked = computed(() => lockDialogOpen.value);
+	let pendingUnlockPromise: Promise<boolean> | null = null;
+	let settlePendingUnlock: ((unlocked: boolean) => void) | null = null;
+
+	const finishPendingUnlock = (unlocked: boolean) => {
+		const settle = settlePendingUnlock;
+		settlePendingUnlock = null;
+		pendingUnlockPromise = null;
+		invoiceUnlockPending.value = false;
+		settle?.(unlocked);
+	};
 
 	const setCurrentCashier = (cashier: TerminalEmployee | string | null) => {
 		if (!cashier) {
@@ -92,6 +107,7 @@ export const useEmployeeStore = defineStore("employee", () => {
 		profileName: string,
 		cachedEmployees: TerminalEmployee[] = [],
 	) => {
+		finishPendingUnlock(false);
 		const nextProfileName = String(profileName || "").trim();
 		const canReuseLoadedEmployees =
 			terminalEmployeesProfile.value === nextProfileName &&
@@ -173,6 +189,8 @@ export const useEmployeeStore = defineStore("employee", () => {
 		terminalStateLoaded.value = true;
 		if (lockDialogOpen.value) {
 			switchDialogOpen.value = false;
+		} else {
+			finishPendingUnlock(true);
 		}
 	};
 
@@ -226,6 +244,21 @@ export const useEmployeeStore = defineStore("employee", () => {
 		terminalLockPending.value = true;
 	};
 
+	const requestTerminalUnlock = () => {
+		lockTerminal();
+		invoiceUnlockPending.value = true;
+		if (!pendingUnlockPromise) {
+			pendingUnlockPromise = new Promise<boolean>((resolve) => {
+				settlePendingUnlock = resolve;
+			});
+		}
+		return pendingUnlockPromise;
+	};
+
+	const cancelPendingInvoiceSubmission = () => {
+		finishPendingUnlock(false);
+	};
+
 	const unlockTerminal = (
 		cashier: TerminalEmployee & {
 			terminal_state?: AuthoritativeTerminalState;
@@ -242,6 +275,7 @@ export const useEmployeeStore = defineStore("employee", () => {
 		lockDialogOpen,
 		terminalStateLoaded,
 		terminalLockPending,
+		invoiceUnlockPending,
 		terminalEmployeesLoadStatus,
 		terminalEmployeesLoadError,
 		terminalEmployeesProfile,
@@ -259,6 +293,8 @@ export const useEmployeeStore = defineStore("employee", () => {
 		closeEmployeeSwitch,
 		lockTerminal,
 		markTerminalLockPending,
+		requestTerminalUnlock,
+		cancelPendingInvoiceSubmission,
 		unlockTerminal,
 	};
 });

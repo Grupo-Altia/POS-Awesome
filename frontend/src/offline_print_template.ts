@@ -99,6 +99,20 @@ function defaultOfflineHTML(invoice: any, terms = "") {
                 <td style="width:40%; text-align:right;">${invoice.change_amount}</td>
             </tr>`
 		: "";
+	const paymentRows = (invoice.payments || [])
+		.filter((row: any) => Number(row?.amount || row?.posa_original_amount || 0) !== 0)
+		.map((row: any) => {
+			const paymentCurrency = row.posa_payment_currency || invoice.currency || "";
+			const original = row.posa_original_amount ?? row.amount;
+			const equivalent = paymentCurrency !== invoice.currency
+				? ` <small>(${row.amount} ${invoice.currency || ""})</small>`
+				: "";
+			return `<tr><td>${row.mode_of_payment || "Payment"} (${paymentCurrency})</td><td style="text-align:right">${original}${equivalent}</td></tr>`;
+		})
+		.join("");
+	const physicalChangeRows = (invoice.posa_change_returns || [])
+		.map((row: any) => `<tr><td>Change (${row.currency || ""})</td><td style="text-align:right">${row.original_amount}</td></tr>`)
+		.join("");
 
 	const termsSection = terms
 		? `<div class="terms"><strong>Terms & Conditions</strong><div>${terms}</div></div>`
@@ -162,7 +176,9 @@ function defaultOfflineHTML(invoice: any, terms = "") {
                 <td style="width:60%">Paid</td>
                 <td style="width:40%; text-align:right;">${paidAmount}</td>
             </tr>
-            ${changeRow}
+			${changeRow}
+			${paymentRows}
+			${physicalChangeRows}
         </tbody>
     </table>
     ${termsSection}

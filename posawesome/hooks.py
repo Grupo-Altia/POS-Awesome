@@ -110,12 +110,14 @@ doc_events = {
     },
     "Sales Invoice": {
         "validate": "posawesome.posawesome.api.invoice.validate",
+        "before_save": "posawesome.posawesome.api.payment_currency.preserve_multi_currency_payment_amounts",
         "before_submit": "posawesome.posawesome.api.invoice.before_submit",
         "before_cancel": "posawesome.posawesome.api.invoice.before_cancel",
         "on_cancel": "posawesome.posawesome.api.invoice.on_cancel",
     },
     "POS Invoice": {
         "validate": "posawesome.posawesome.api.invoice.validate",
+        "before_save": "posawesome.posawesome.api.payment_currency.preserve_multi_currency_payment_amounts",
         "before_submit": "posawesome.posawesome.api.invoice.before_submit",
         "before_cancel": "posawesome.posawesome.api.invoice.before_cancel",
         "on_cancel": "posawesome.posawesome.api.invoice.on_cancel",
@@ -192,6 +194,17 @@ doc_events = {
 override_doctype_class = {
     "POS Invoice": "posawesome.posawesome.overrides.pos_invoice.CustomPOSInvoice",
     "POS Invoice Merge Log": "posawesome.posawesome.overrides.pos_invoice_merge_log.CustomPOSInvoiceMergeLog",
+}
+
+# ERPNext v16 calls SalesInvoice.is_subcontracted() with an empty Sales Order
+# filter for ordinary invoices and returns whose items are not linked to an
+# order. Extend the standard Sales Invoice controller after Frappe resolves any
+# concrete override so this compatibility guard composes with other apps.
+extend_doctype_class = {
+    "Sales Invoice": [
+        "posawesome.posawesome.overrides.multi_currency_payments.MultiCurrencyPOSPaymentsMixin",
+        "posawesome.posawesome.overrides.sales_invoice_subcontracting.SalesInvoiceSubcontractingGuardMixin"
+    ],
 }
 
 # exempt linked doctypes from being automatically cancelled
@@ -432,6 +445,36 @@ fixtures = [
                 [
                     "POS Profile-posa_allow_multi_currency",
                     "POS Profile-posa_decimal_precision",
+                    "POS Profile-posa_enable_multi_currency_payments",
+                    "POS Profile-posa_allowed_currencies",
+                    "POS Profile-posa_allow_payment_currency_selection",
+                    "POS Profile-posa_allow_manual_payment_exchange_rate",
+                    "POS Profile-posa_default_payment_currency",
+                    "POS Profile-posa_enable_multi_currency_change",
+                    "POS Payment Method-posa_default_payment_currency",
+                    "Sales Invoice Payment-posa_payment_currency",
+                    "Sales Invoice Payment-posa_original_amount",
+                    "Sales Invoice Payment-posa_exchange_rate",
+                    "Sales Invoice Payment-posa_company_exchange_rate",
+                    "Sales Invoice Payment-posa_rate_date",
+                    "Sales Invoice Payment-posa_rate_source",
+                    "Sales Invoice Payment-posa_account_currency",
+                    "Sales Invoice Payment-posa_account_amount",
+                    "Payment Entry-posa_payment_currency",
+                    "Payment Entry-posa_original_amount",
+                    "Payment Entry-posa_invoice_currency",
+                    "Payment Entry-posa_exchange_rate",
+                    "Payment Entry-posa_company_exchange_rate",
+                    "Payment Entry-posa_rate_date",
+                    "Payment Entry-posa_rate_source",
+                    "Payment Entry-posa_account_currency",
+                    "Payment Entry-posa_account_amount",
+                    "Sales Invoice-posa_change_returns",
+                    "Sales Invoice-posa_change_returned",
+                    "Sales Invoice-posa_remaining_change",
+                    "POS Invoice-posa_change_returns",
+                    "POS Invoice-posa_change_returned",
+                    "POS Invoice-posa_remaining_change",
                 ],
             ]
         ],
