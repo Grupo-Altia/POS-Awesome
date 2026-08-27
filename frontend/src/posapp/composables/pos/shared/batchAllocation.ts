@@ -78,6 +78,67 @@ export const getBatchAllocationTotal = (
 		0,
 	);
 
+export const selectSerialsForBatchAllocations = (
+	item: any,
+	allocations: BatchAllocation[],
+	currentSerials: string[] = [],
+	unavailableSerials: Set<string> = new Set(),
+): string[] => {
+	const serialRows = Array.isArray(item?.serial_no_data)
+		? item.serial_no_data
+		: [];
+	const normalizedCurrent = currentSerials
+		.map((serial) => String(serial || "").trim())
+		.filter(Boolean);
+	const rowBySerial = new Map(
+		serialRows
+			.filter((row: any) => row?.serial_no)
+			.map((row: any) => [String(row.serial_no), row]),
+	);
+	const selected: string[] = [];
+	const selectedSet = new Set<string>();
+
+	for (const allocation of normalizeBatchAllocations(allocations)) {
+		const requiredCount = Number.isInteger(allocation.stockQty)
+			? allocation.stockQty
+			: 0;
+		if (requiredCount <= 0) continue;
+
+		const candidates = serialRows
+			.filter(
+				(row: any) =>
+					String(row?.batch_no || "") === allocation.batchNo,
+			)
+			.map((row: any) => String(row.serial_no || "").trim())
+			.filter(
+				(serial: string) =>
+					serial &&
+					!unavailableSerials.has(serial) &&
+					!selectedSet.has(serial),
+			);
+		const candidateSet = new Set(candidates);
+		const preserved = normalizedCurrent.filter((serial) => {
+			const row: any = rowBySerial.get(serial);
+			return (
+				String(row?.batch_no || "") === allocation.batchNo &&
+				candidateSet.has(serial) &&
+				!selectedSet.has(serial)
+			);
+		});
+		const chosen = preserved.slice(0, requiredCount);
+		for (const serial of candidates) {
+			if (chosen.length >= requiredCount) break;
+			if (!chosen.includes(serial)) chosen.push(serial);
+		}
+		for (const serial of chosen) {
+			selected.push(serial);
+			selectedSet.add(serial);
+		}
+	}
+
+	return selected;
+};
+
 const createRowId = () =>
 	Math.random().toString(36).substring(2, 12) +
 	Math.random().toString(36).substring(2, 12);
@@ -96,7 +157,7 @@ const serialsForBatch = (item: any, serials: string[], batchNo: string) => {
 	);
 	return serials.filter((serial) => {
 		const knownBatch = serialBatch.get(serial);
-		return !knownBatch || knownBatch === batchNo;
+		return knownBatch === batchNo;
 	});
 };
 

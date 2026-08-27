@@ -147,6 +147,7 @@ import {
 	batchAllocationEpsilon,
 	getBatchAllocationTotal,
 	getBatchAvailableStockQty,
+	selectSerialsForBatchAllocations,
 	type BatchAllocation,
 } from "../../../composables/pos/shared/batchAllocation";
 import {
@@ -224,8 +225,8 @@ const serialOptions = computed(() => {
 	return rows.filter((row: any) => {
 		const serial = String(row?.serial_no || "").trim();
 		if (!serial || usedSerialsElsewhere.value.has(serial)) return false;
-		if (selectedBatchNos.value.size && row?.batch_no) {
-			return selectedBatchNos.value.has(String(row.batch_no));
+		if (selectedBatchNos.value.size && props.item?.has_batch_no) {
+			return selectedBatchNos.value.has(String(row?.batch_no || ""));
 		}
 		return true;
 	});
@@ -252,6 +253,8 @@ const initializeDraft = () => {
 	errorMessage.value = "";
 	if (!currentBatch || (!props.isReturnInvoice && !allocationFitsAvailability.value)) {
 		autoAllocate();
+	} else {
+		syncSerialSelection();
 	}
 };
 
@@ -262,9 +265,18 @@ const allocationFitsAvailability = computed(() =>
 	}),
 );
 
-const pruneSerialSelection = () => {
-	const validSerials = new Set(serialOptions.value.map((row: any) => row.serial_no));
-	workingSerials.value = workingSerials.value.filter((serial) => validSerials.has(serial));
+const syncSerialSelection = () => {
+	if (props.item?.has_serial_no && props.item?.has_batch_no) {
+		workingSerials.value = selectSerialsForBatchAllocations(
+			props.item,
+			allocations.value,
+			workingSerials.value,
+			usedSerialsElsewhere.value,
+		);
+	} else {
+		const validSerials = new Set(serialOptions.value.map((row: any) => row.serial_no));
+		workingSerials.value = workingSerials.value.filter((serial) => validSerials.has(serial));
+	}
 	errorMessage.value = "";
 };
 
@@ -277,7 +289,7 @@ const setAllocation = (batchNo: string, value: any) => {
 		delete next[batchNo];
 		workingAllocations.value = next;
 	}
-	pruneSerialSelection();
+	syncSerialSelection();
 };
 
 const autoAllocate = () => {
@@ -285,7 +297,7 @@ const autoAllocate = () => {
 	workingAllocations.value = Object.fromEntries(
 		result.allocations.map((allocation) => [allocation.batchNo, allocation.stockQty]),
 	);
-	pruneSerialSelection();
+	syncSerialSelection();
 	if (result.unallocatedStockQty > batchAllocationEpsilon) {
 		errorMessage.value = `${__("Insufficient batch stock")}: ${result.unallocatedStockQty} ${__("stock unit(s) remain unallocated")}`;
 	}

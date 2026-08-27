@@ -3,6 +3,7 @@ import { describe, expect, it } from "vitest";
 import {
 	allocateBatchStockQty,
 	createBatchAllocationLines,
+	selectSerialsForBatchAllocations,
 } from "../src/posapp/composables/pos/shared/batchAllocation";
 
 describe("multi-batch allocation", () => {
@@ -91,5 +92,41 @@ describe("multi-batch allocation", () => {
 
 		expect(lines[0].serial_no_selected).toEqual(["S-1"]);
 		expect(lines[1].serial_no_selected).toEqual(["S-2"]);
+	});
+
+	it("automatically fills serials for every manually allocated batch", () => {
+		const selected = selectSerialsForBatchAllocations(
+			{
+				serial_no_data: [
+					{ serial_no: "S-1", batch_no: "B-1" },
+					{ serial_no: "S-2", batch_no: "B-1" },
+					{ serial_no: "S-3", batch_no: "B-2" },
+					{ serial_no: "S-4", batch_no: "B-2" },
+				],
+			},
+			[
+				{ batchNo: "B-1", stockQty: 1 },
+				{ batchNo: "B-2", stockQty: 2 },
+			],
+			["S-2"],
+		);
+
+		expect(selected).toEqual(["S-2", "S-3", "S-4"]);
+	});
+
+	it("does not reuse serials selected on another cart row", () => {
+		const selected = selectSerialsForBatchAllocations(
+			{
+				serial_no_data: [
+					{ serial_no: "S-USED", batch_no: "B-1" },
+					{ serial_no: "S-FREE", batch_no: "B-1" },
+				],
+			},
+			[{ batchNo: "B-1", stockQty: 1 }],
+			[],
+			new Set(["S-USED"]),
+		);
+
+		expect(selected).toEqual(["S-FREE"]);
 	});
 });
