@@ -8,8 +8,12 @@ import {
 
 describe("batch and serial assignment validation", () => {
 	it("uses stock quantity when UOM has a conversion factor", () => {
-		expect(getRequiredStockQuantity({ qty: 2, conversion_factor: 6 })).toBe(12);
-		expect(getRequiredStockQuantity({ qty: -2, conversion_factor: 6 })).toBe(12);
+		expect(getRequiredStockQuantity({ qty: 2, conversion_factor: 6 })).toBe(
+			12,
+		);
+		expect(
+			getRequiredStockQuantity({ qty: -2, conversion_factor: 6 }),
+		).toBe(12);
 	});
 
 	it("requires a batch and enough available stock for a sale", () => {
@@ -22,7 +26,9 @@ describe("batch and serial assignment validation", () => {
 			batch_no_data: [{ batch_no: "B-1", available_qty: 2 }],
 		};
 
-		expect(validateBatchSerialSelection(item)[0]?.code).toBe("batch_required");
+		expect(validateBatchSerialSelection(item)[0]?.code).toBe(
+			"batch_required",
+		);
 		expect(
 			validateBatchSerialSelection(item, { batchNo: "B-1" })[0]?.code,
 		).toBe("batch_insufficient");
@@ -40,6 +46,55 @@ describe("batch and serial assignment validation", () => {
 			{ isReturnInvoice: true },
 		);
 		expect(issues).toEqual([]);
+	});
+
+	it("accepts an exact quantity allocated across multiple batches", () => {
+		const issues = validateBatchSerialSelection(
+			{
+				item_code: "MULTI-BATCH",
+				has_batch_no: 1,
+				qty: 5,
+				conversion_factor: 1,
+				batch_no_data: [
+					{ batch_no: "B-1", available_qty: 2 },
+					{ batch_no: "B-2", available_qty: 3 },
+				],
+			},
+			{
+				allocations: [
+					{ batchNo: "B-1", stockQty: 2 },
+					{ batchNo: "B-2", stockQty: 3 },
+				],
+			},
+		);
+
+		expect(issues).toEqual([]);
+	});
+
+	it("rejects incomplete or overdrawn multi-batch allocations", () => {
+		const item = {
+			item_code: "MULTI-BATCH",
+			has_batch_no: 1,
+			qty: 5,
+			conversion_factor: 1,
+			batch_no_data: [
+				{ batch_no: "B-1", available_qty: 2 },
+				{ batch_no: "B-2", available_qty: 3 },
+			],
+		};
+		const issues = validateBatchSerialSelection(item, {
+			allocations: [
+				{ batchNo: "B-1", stockQty: 3 },
+				{ batchNo: "B-2", stockQty: 1 },
+			],
+		});
+
+		expect(issues.map((issue) => issue.code)).toContain(
+			"batch_allocation_mismatch",
+		);
+		expect(issues.map((issue) => issue.code)).toContain(
+			"batch_insufficient",
+		);
 	});
 
 	it("validates serial count and batch relationship", () => {
@@ -61,7 +116,9 @@ describe("batch and serial assignment validation", () => {
 			batchNo: "B-1",
 			serials: ["S-1", "S-2"],
 		});
-		expect(issues.some((issue) => issue.code === "serial_batch_mismatch")).toBe(true);
+		expect(
+			issues.some((issue) => issue.code === "serial_batch_mismatch"),
+		).toBe(true);
 	});
 
 	it("rejects the same serial on two cart rows", () => {
@@ -76,6 +133,8 @@ describe("batch and serial assignment validation", () => {
 		}));
 
 		const issues = validateCartBatchSerialAssignments(rows);
-		expect(issues.some((issue) => issue.code === "serial_used_in_cart")).toBe(true);
+		expect(
+			issues.some((issue) => issue.code === "serial_used_in_cart"),
+		).toBe(true);
 	});
 });

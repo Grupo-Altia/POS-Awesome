@@ -1,4 +1,5 @@
 import { fromCompanyCurrency } from "../../../utils/erpnextCurrency";
+import { getItemRequiredStockQty } from "./batchAllocation";
 
 export const getDisplayableBatchOptions = (batchList: any): any[] => {
 	if (!Array.isArray(batchList)) {
@@ -163,7 +164,7 @@ export function useBatchSerial() {
 
 		existing_items.forEach((element) => {
 			if (!element.batch_no || !element.qty) return;
-			let qtyToAllocate = Number(element.qty) || 0;
+			let qtyToAllocate = getItemRequiredStockQty(element);
 			if (element.qty < 0) return; // Don't subtract returns from availability? Or should we add them?
 			// Usually returns add back to stock. But simple logic: if qty > 0, it consumes stock.
 			// Returns (negative qty) technically free up stock, but for auto-selection we care about "taking" stock.

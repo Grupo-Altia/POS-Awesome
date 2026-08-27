@@ -16,6 +16,10 @@ import { useItemBundles } from "./addition/useItemBundles";
 import { collectUsedSerialsForItem } from "./addition/serialSelection";
 import { useBatchSerial } from "../shared/useBatchSerial";
 import { getRequiredStockQuantity } from "../shared/batchSerialValidation";
+import {
+	allocateBatchStockQty,
+	getItemConversionFactor,
+} from "../shared/batchAllocation";
 
 declare const __: (_text: string, _args?: any[]) => string;
 declare const frappe: any;
@@ -120,7 +124,10 @@ export function useItemAddition() {
 
 	const getRequestedSerialQty = (item: any) => {
 		const stockQty = getRequiredStockQuantity(item);
-		return Math.max(Number.isFinite(stockQty) ? Math.trunc(stockQty) : 0, 1);
+		return Math.max(
+			Number.isFinite(stockQty) ? Math.trunc(stockQty) : 0,
+			1,
+		);
 	};
 
 	const autoAssignSerials = (item: any, context: any) => {
@@ -502,14 +509,13 @@ export function useItemAddition() {
 					);
 				}
 				const extra_items: any[] = [];
-				const requestedQtyForBatching = Math.abs(
-					Number(new_item.qty || 0),
-				);
+				const requestedStockQtyForBatching =
+					getRequiredStockQuantity(new_item);
 				const shouldAllocateAcrossBatches =
 					new_item.has_batch_no &&
 					!new_item.batch_no &&
 					(shouldAutoSetBatch(context, new_item) ||
-						requestedQtyForBatching > 1);
+						requestedStockQtyForBatching > 1);
 
 				if (shouldAllocateAcrossBatches) {
 					// Get sorted availability (taking existing cart items into account)
@@ -527,51 +533,33 @@ export function useItemAddition() {
 						// Fallback to standard behavior (likely picks first or none)
 						callSetBatchQty(context, new_item, null, false);
 					} else {
-						let remaining_qty = new_item.qty;
-
-						const allocations: Array<{ batch: any; qty: number }> =
-							[];
-
-						for (const batch of usable_batches) {
-							if (remaining_qty <= 0) break;
-							const take = Math.min(
-								remaining_qty,
-								batch.available_qty,
-							);
-							if (take <= 0) continue;
-							allocations.push({
-								batch: batch.batch_no,
-								qty: take,
-							});
-							remaining_qty -= take;
-						}
+						const allocationResult = allocateBatchStockQty(
+							usable_batches,
+							requestedStockQtyForBatching,
+						);
+						const conversionFactor =
+							getItemConversionFactor(new_item);
+						const allocations = allocationResult.allocations.map(
+							(allocation) => ({
+								batch: allocation.batchNo,
+								qty: allocation.stockQty / conversionFactor,
+							}),
+						);
+						const remaining_qty =
+							allocationResult.unallocatedStockQty;
 						logBatchFlow("Batch allocation prepared", {
 							item_code: new_item.item_code,
 							requested_qty: new_item.qty,
+							requested_stock_qty: requestedStockQtyForBatching,
 							allocations,
-							remaining_qty,
+							unallocated_stock_qty: remaining_qty,
 						});
 
-						// If we still have remainder but ran out of batches, add it to the last allocation
+						// Never over-allocate a batch. Keeping the original line intact lets
+						// stock validation report stale/insufficient batch data accurately.
 						if (remaining_qty > 0) {
-							if (allocations.length > 0) {
-								const lastAllocation =
-									allocations[allocations.length - 1];
-								if (lastAllocation) {
-									lastAllocation.qty += remaining_qty;
-									logBatchFlow(
-										"Insufficient batch availability, keeping remainder on last allocation",
-										{
-											item_code: new_item.item_code,
-											remainder: remaining_qty,
-											last_batch: lastAllocation.batch,
-										},
-									);
-								}
-							} else {
-								// No usable batches found? Just use standard logic
-								callSetBatchQty(context, new_item, null, false);
-							}
+							allocations.length = 0;
+							callSetBatchQty(context, new_item, null, false);
 						}
 
 						if (allocations.length > 0) {

@@ -185,7 +185,9 @@ describe("useItemAddition new line behavior", () => {
 		expect(context.items[0].base_rate).toBeCloseTo(11.2);
 		expect(context.items[0].base_price_list_rate).toBeCloseTo(11.2);
 		expect(context.items[0].original_base_rate).toBeCloseTo(11.2);
-		expect(context.items[0].original_base_price_list_rate).toBeCloseTo(11.2);
+		expect(context.items[0].original_base_price_list_rate).toBeCloseTo(
+			11.2,
+		);
 	});
 
 	it("resolves batched merge when invoice store lacks updateItemWithTotals", async () => {
@@ -262,9 +264,21 @@ describe("useItemAddition new line behavior", () => {
 
 	it("keeps grouped merge quantities numeric when incoming qty is a string", () => {
 		const { groupAndAddItem } = useItemMerging() as any;
-		const items = [{ item_code: "ITEM-001", uom: "Nos", rate: 10, qty: "1", amount: 10 }];
+		const items = [
+			{
+				item_code: "ITEM-001",
+				uom: "Nos",
+				rate: 10,
+				qty: "1",
+				amount: 10,
+			},
+		];
 
-		groupAndAddItem(items, { item_code: "ITEM-001", uom: "Nos", rate: 10, qty: "2" }, {});
+		groupAndAddItem(
+			items,
+			{ item_code: "ITEM-001", uom: "Nos", rate: 10, qty: "2" },
+			{},
+		);
 
 		expect(items[0].qty).toBe(3);
 		expect(typeof items[0].qty).toBe("number");
@@ -362,6 +376,88 @@ describe("useItemAddition new line behavior", () => {
 		expect(context.items[0].batch_no).toBe("B-FEFO");
 		expect(context.items[0].rate).toBe(7);
 		expect(context.items[0].price_list_rate).toBe(7);
+	});
+
+	it("splits one requested quantity across multiple batch rows", async () => {
+		const api = useItemAddition();
+		const context = createContext(false) as any;
+		const batchSerial = useBatchSerial();
+		context.pos_profile.posa_auto_set_batch = 1;
+		context.price_list_currency = "USD";
+		context.selected_currency = "USD";
+		context.exchange_rate = 1;
+		context.currency_precision = 2;
+		context.flt = Number;
+		context.forceUpdate = vi.fn();
+		context.setBatchQty = (line: any, value: any, update?: boolean) =>
+			batchSerial.setBatchQty(line, value, update, context);
+
+		const item = {
+			...createItem(),
+			qty: 5,
+			has_batch_no: 1,
+			batch_no_data: [
+				{ batch_no: "B-1", batch_qty: 2, is_expired: false },
+				{ batch_no: "B-2", batch_qty: 3, is_expired: false },
+			],
+		};
+
+		await api.prepareItemForCart(item, 5, context);
+		await api.addItem(item, context);
+
+		expect(context.items).toHaveLength(2);
+		expect(
+			context.items
+				.map((line: any) => [line.batch_no, line.qty])
+				.sort(([left]: any, [right]: any) => left.localeCompare(right)),
+		).toEqual([
+			["B-1", 2],
+			["B-2", 3],
+		]);
+	});
+
+	it("allocates batches in stock units for an alternate UOM", async () => {
+		const api = useItemAddition();
+		const context = createContext(false) as any;
+		const batchSerial = useBatchSerial();
+		context.pos_profile.posa_auto_set_batch = 1;
+		context.price_list_currency = "USD";
+		context.selected_currency = "USD";
+		context.exchange_rate = 1;
+		context.currency_precision = 2;
+		context.flt = Number;
+		context.forceUpdate = vi.fn();
+		context.setBatchQty = (line: any, value: any, update?: boolean) =>
+			batchSerial.setBatchQty(line, value, update, context);
+
+		const item = {
+			...createItem(),
+			qty: 2,
+			conversion_factor: 6,
+			item_uoms: [{ uom: "Box", conversion_factor: 6 }],
+			uom: "Box",
+			has_batch_no: 1,
+			batch_no_data: [
+				{ batch_no: "B-1", batch_qty: 5, is_expired: false },
+				{ batch_no: "B-2", batch_qty: 7, is_expired: false },
+			],
+		};
+
+		await api.prepareItemForCart(item, 2, context);
+		await api.addItem(item, context);
+
+		expect(context.items).toHaveLength(2);
+		const byBatch = new Map(
+			context.items.map((line: any) => [line.batch_no, line]),
+		);
+		expect(byBatch.get("B-1").qty).toBeCloseTo(5 / 6);
+		expect(byBatch.get("B-2").qty).toBeCloseTo(7 / 6);
+		expect(
+			context.items.reduce(
+				(total: number, line: any) => total + line.qty,
+				0,
+			),
+		).toBeCloseTo(2);
 	});
 
 	it("auto-assigns serials using converted stock quantity", async () => {
