@@ -20,9 +20,10 @@ PAYMENT_CURRENCY_FIELDS = (
 TENDER_AMOUNT_PRECISION = 9
 
 
-def _precision(row, fieldname, fallback=2):
+def _precision(row, fieldname: str, fallback: int = 2) -> int:
     try:
-        return row.precision(fieldname)
+        prec = row.precision(fieldname) if hasattr(row, "precision") else None
+        return cint(prec) if prec is not None else fallback
     except Exception:
         return fallback
 

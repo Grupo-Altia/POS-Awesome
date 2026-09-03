@@ -130,6 +130,11 @@
 						<strong class="summary-hero__amount">
 							{{ currencySymbol(displayCurrency) }}{{ formatCurrency(subtotal) }}
 						</strong>
+						<div class="text-subtitle-2 font-weight-bold text-success mt-1 d-flex align-center">
+							<v-icon size="16" class="mr-1">mdi-currency-usd</v-icon>
+							<span>≈ {{ formatCurrencyCustom(toUSD(subtotal), "$") }} USD</span>
+							<span class="text-caption text-grey ml-1 font-weight-regular">(Tasa: {{ exchangeRate.toFixed(2) }})</span>
+						</div>
 						<div class="summary-hero__meta">
 							<span
 								>{{ formatFloat(total_qty, hide_qty_decimals ? 0 : undefined) }}
@@ -318,6 +323,9 @@ import {
 import InvoiceActionButtons from "./InvoiceActionButtons.vue";
 import ParkedOrdersList from "./ParkedOrdersList.vue";
 import DocumentSourceSelector from "../shared/DocumentSourceSelector.vue";
+import { useVenezuelaMock } from "../../../composables/pos/useVenezuelaMock";
+
+const { exchangeRate, toUSD, formatCurrencyCustom } = useVenezuelaMock();
 
 defineOptions({
 	name: "InvoiceSummary",

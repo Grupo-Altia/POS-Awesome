@@ -1,3 +1,5 @@
+import { useVenezuelaMock } from "../composables/pos/useVenezuelaMock";
+
 type CurrencyLikeContext = {
 	company?: { default_currency?: string } | null;
 	pos_profile?: { currency?: string; company?: string } | null;
@@ -39,14 +41,25 @@ export const getConversionRate = (context: CurrencyLikeContext): number => {
 };
 
 export const getPlcConversionRate = (context: CurrencyLikeContext): number => {
-	const explicit = Number.parseFloat(String(context?.plc_conversion_rate ?? ""));
-	if (Number.isFinite(explicit) && explicit > 0) {
-		return explicit;
-	}
-
 	const priceListCurrency = getPriceListCurrency(context);
 	const selectedCurrency = getSelectedCurrency(context);
 	const companyCurrency = getCompanyCurrency(context);
+
+	// Multi-currency Venezuela: Si la lista de precios está en USD y la moneda de la compañía/POS es VEF/VES
+	if (
+		priceListCurrency === "USD" &&
+		(companyCurrency === "VEF" || companyCurrency === "VES" || selectedCurrency === "VEF" || selectedCurrency === "VES")
+	) {
+		const { exchangeRate } = useVenezuelaMock();
+		if (exchangeRate.value > 0) {
+			return exchangeRate.value;
+		}
+	}
+
+	const explicit = Number.parseFloat(String(context?.plc_conversion_rate ?? ""));
+	if (Number.isFinite(explicit) && explicit > 0 && explicit !== 1) {
+		return explicit;
+	}
 
 	if (priceListCurrency && companyCurrency && priceListCurrency === companyCurrency) {
 		return 1;
@@ -67,6 +80,12 @@ export const toCompanyCurrency = (
 	amount: unknown,
 ): number => {
 	const numeric = Number.parseFloat(String(amount ?? 0)) || 0;
+	const selectedCurrency = getSelectedCurrency(context);
+	const companyCurrency = getCompanyCurrency(context);
+	if (selectedCurrency === "USD" && (companyCurrency === "VEF" || companyCurrency === "VES")) {
+		const { exchangeRate } = useVenezuelaMock();
+		return numeric * (exchangeRate.value || 1);
+	}
 	return numeric * getConversionRate(context);
 };
 
@@ -75,6 +94,12 @@ export const fromCompanyCurrency = (
 	amount: unknown,
 ): number => {
 	const numeric = Number.parseFloat(String(amount ?? 0)) || 0;
+	const selectedCurrency = getSelectedCurrency(context);
+	const companyCurrency = getCompanyCurrency(context);
+	if (selectedCurrency === "USD" && (companyCurrency === "VEF" || companyCurrency === "VES")) {
+		const { exchangeRate } = useVenezuelaMock();
+		return exchangeRate.value ? numeric / exchangeRate.value : numeric;
+	}
 	const rate = getConversionRate(context);
 	return rate ? numeric / rate : numeric;
 };
@@ -84,5 +109,5 @@ export const priceListToSelectedCurrency = (
 	priceListAmount: unknown,
 ): number => {
 	const numeric = Number.parseFloat(String(priceListAmount ?? 0)) || 0;
-	return numeric * getPlcConversionRate(context) / getConversionRate(context);
+	return (numeric * getPlcConversionRate(context)) / getConversionRate(context);
 };

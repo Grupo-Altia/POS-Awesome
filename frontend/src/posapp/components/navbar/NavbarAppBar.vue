@@ -124,6 +124,18 @@
 					</template>
 				</NavbarInfoGadgets>
 
+				<!-- Venezuela BCV Exchange Rate Widget -->
+				<v-chip
+					color="success"
+					variant="flat"
+					class="mx-2 font-weight-bold elevation-1"
+					style="cursor: pointer;"
+					@click="openRateDialog"
+				>
+					<v-icon start size="18">mdi-currency-usd</v-icon>
+					<span>BCV: {{ formattedRate }}</span>
+				</v-chip>
+
 				<div :class="['profile-section', isRtl ? 'rtl-profile-section' : 'ltr-profile-section']">
 					<v-chip
 						v-if="cashierChipLabel"
@@ -226,11 +238,41 @@
 				/>
 			</div>
 		</transition>
+
+		<!-- Dialog to adjust BCV rate in live demo -->
+		<v-dialog v-model="showRateDialog" max-width="360">
+			<v-card class="pa-4 rounded-xl">
+				<v-card-title class="text-h6 font-weight-bold d-flex align-center pb-2">
+					<v-icon color="success" class="mr-2">mdi-currency-usd</v-icon>
+					Tasa de Cambio BCV
+				</v-card-title>
+				<v-card-text class="py-2">
+					<p class="text-caption text-grey mb-3">
+						Modifica la tasa oficial en vivo para simular cómo recalculan el catálogo, carrito y pagos.
+					</p>
+					<v-text-field
+						v-model.number="tempRate"
+						label="Tasa en Bolívares (Bs / $)"
+						prefix="Bs."
+						type="number"
+						step="0.5"
+						variant="outlined"
+						density="comfortable"
+						autofocus
+					/>
+				</v-card-text>
+				<v-card-actions class="justify-end">
+					<v-btn variant="text" @click="showRateDialog = false">Cancelar</v-btn>
+					<v-btn color="success" variant="flat" @click="saveRate">Aplicar Tasa</v-btn>
+				</v-card-actions>
+			</v-card>
+		</v-dialog>
 	</v-app-bar>
 </template>
 
 <script>
 import { useRtl } from "../../composables/core/useRtl";
+import { useVenezuelaMock } from "../../composables/pos/useVenezuelaMock";
 import { resolvePosBranding } from "../../config/branding";
 import { isCounterGridTemplate } from "../../utils/posUiTemplate";
 import posLogo from "../pos/pos.png";
@@ -243,17 +285,23 @@ export default {
 	},
 	setup() {
 		const { isRtl, rtlStyles, rtlClasses } = useRtl();
+		const { exchangeRate, formattedRate, setExchangeRate } = useVenezuelaMock();
 		return {
 			isRtl,
 			rtlStyles,
 			rtlClasses,
 			posLogo,
+			exchangeRate,
+			formattedRate,
+			setExchangeRate,
 		};
 	},
 	data() {
 		return {
 			windowWidth: window.innerWidth,
 			resizeRafId: null,
+			showRateDialog: false,
+			tempRate: 50.0,
 		};
 	},
 	mounted() {
@@ -402,6 +450,16 @@ export default {
 					});
 				}
 			}
+		},
+
+		openRateDialog() {
+			this.tempRate = this.exchangeRate;
+			this.showRateDialog = true;
+		},
+
+		saveRate() {
+			this.setExchangeRate(Number(this.tempRate) || 50.0);
+			this.showRateDialog = false;
 		},
 	},
 	emits: ["nav-click", "go-desk", "show-offline-invoices", "open-employee-switch"],

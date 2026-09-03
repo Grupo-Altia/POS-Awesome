@@ -1,4 +1,5 @@
 import { toCompanyCurrency } from "../../../../utils/erpnextCurrency";
+import { useVenezuelaMock } from "../../useVenezuelaMock";
 
 declare const __: (_text: string, _args?: any[]) => string;
 declare const frappe: any;
@@ -46,25 +47,58 @@ export function useItemCreation() {
 		new_item.discount_amount = 0;
 		new_item.discount_percentage = 0;
 		new_item.discount_amount_per_item = 0;
-		new_item.price_list_rate = item.price_list_rate ?? item.rate ?? 0;
-
-		// Setup base rates properly for multi-currency
+		// Multi-currency Venezuela Mock:
+		// Convert USD item rate to Bs when transaction/company is in VEF
+		const { exchangeRate } = useVenezuelaMock();
 		const companyCurrency = context.pos_profile.currency;
-		const selectedCurrency = context.selected_currency || companyCurrency;
-		if (selectedCurrency !== companyCurrency) {
-			// Store original base currency values (Selected -> Company)
-			new_item.base_price_list_rate =
-				item.base_price_list_rate ?? toCompanyCurrency(context, item.rate);
-			new_item.base_rate =
-				item.base_rate ?? toCompanyCurrency(context, item.rate);
+		const isItemUSD =
+			item.currency === "USD" ||
+			item.original_currency === "USD" ||
+			item.price_list_currency === "USD" ||
+			context.price_list_currency === "USD";
+		const isCompanyVEF =
+			companyCurrency === "VEF" ||
+			companyCurrency === "VES" ||
+			!companyCurrency;
+
+		if (isItemUSD && isCompanyVEF && exchangeRate.value > 0) {
+			const usdRate = Number(
+				item.original_rate ?? item.price_list_rate ?? item.rate ?? 0,
+			);
+			if (usdRate > 0) {
+				const bsRate = Math.round(usdRate * exchangeRate.value * 100) / 100;
+				new_item.price_list_rate = bsRate;
+				new_item.rate = bsRate;
+				new_item.base_price_list_rate = bsRate;
+				new_item.base_rate = bsRate;
+				new_item.original_rate = usdRate;
+				new_item.original_currency = "USD";
+			} else {
+				new_item.price_list_rate = 0;
+				new_item.rate = 0;
+				new_item.base_price_list_rate = 0;
+				new_item.base_rate = 0;
+			}
 			new_item.base_discount_amount = 0;
 		} else {
-			// In base currency, base rates = displayed rates
-			new_item.base_price_list_rate =
-				item.base_price_list_rate ?? item.rate;
-			new_item.base_rate =
-				item.base_rate ?? item.rate;
-			new_item.base_discount_amount = 0;
+			new_item.price_list_rate = item.price_list_rate ?? item.rate ?? 0;
+			// Setup base rates properly for multi-currency
+			const selectedCurrency = context.selected_currency || companyCurrency;
+			if (selectedCurrency !== companyCurrency) {
+				// Store original base currency values (Selected -> Company)
+				new_item.base_price_list_rate =
+					item.base_price_list_rate ?? toCompanyCurrency(context, item.rate);
+				new_item.base_rate =
+					item.base_rate ?? toCompanyCurrency(context, item.rate);
+				new_item.base_discount_amount = 0;
+			} else {
+				// In base currency, base rates = displayed rates
+				new_item.base_price_list_rate =
+					item.base_price_list_rate ?? item.rate;
+				new_item.base_rate =
+					item.base_rate ?? item.rate;
+				new_item.base_discount_amount = 0;
+			}
 		}
 
 
@@ -186,8 +220,32 @@ export function useItemCreation() {
 			}
 		}
 
-		// Handle multi-currency conversion
-		if (pos_profile?.posa_allow_multi_currency && itemCurrencyUtils) {
+		// Venezuela multi-currency mock conversion:
+		const { exchangeRate: veExchangeRate } = useVenezuelaMock();
+		const isItemUSD =
+			item.currency === "USD" ||
+			item.original_currency === "USD" ||
+			item.price_list_currency === "USD" ||
+			context?.price_list_currency === "USD";
+		const isCompanyVEF =
+			pos_profile?.currency === "VEF" ||
+			pos_profile?.currency === "VES" ||
+			!pos_profile?.currency;
+
+		if (isItemUSD && isCompanyVEF && veExchangeRate.value > 0) {
+			const usdRate = Number(
+				item.original_rate ?? item.price_list_rate ?? item.rate ?? 0,
+			);
+			if (usdRate > 0) {
+				const bsRate = Math.round(usdRate * veExchangeRate.value * 100) / 100;
+				item.original_rate = usdRate;
+				item.original_currency = "USD";
+				item.rate = bsRate;
+				item.price_list_rate = bsRate;
+				item.base_rate = bsRate;
+				item.base_price_list_rate = bsRate;
+			}
+		} else if (pos_profile?.posa_allow_multi_currency && itemCurrencyUtils) {
 			if (!context.price_list_currency) {
 				context.price_list_currency =
 					item.original_currency ||

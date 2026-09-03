@@ -1,5 +1,40 @@
 <template>
 	<div v-if="payments && payments.length" class="payment-methods">
+		<!-- Selector de Modo de Pago Venezuela: Efectivo Bs vs Efectivo USD -->
+		<div class="ve-payment-type-selector mb-2 pa-3 rounded-lg border" style="background: rgba(var(--v-theme-surface-variant), 0.2);">
+			<div class="text-caption font-weight-bold mb-2 d-flex align-center justify-space-between">
+				<span class="d-flex align-center">
+					<v-icon size="16" class="mr-1 text-primary">mdi-swap-horizontal</v-icon>
+					Moneda de Cobro:
+				</span>
+				<v-chip size="x-small" :color="selectedPaymentType === 'usd' ? 'warning' : 'success'" variant="flat">
+					{{ selectedPaymentType === 'usd' ? 'Aplica IGTF (+3%)' : 'Exento IGTF (0%)' }}
+				</v-chip>
+			</div>
+			<div class="d-flex ga-2">
+				<v-btn
+					:color="selectedPaymentType === 'bs' ? 'primary' : undefined"
+					:variant="selectedPaymentType === 'bs' ? 'flat' : 'outlined'"
+					class="flex-grow-1 font-weight-bold"
+					size="default"
+					@click="setPaymentType('bs')"
+				>
+					<v-icon start size="18">mdi-cash</v-icon>
+					Efectivo Bs (0% IGTF)
+				</v-btn>
+				<v-btn
+					:color="selectedPaymentType === 'usd' ? 'warning' : undefined"
+					:variant="selectedPaymentType === 'usd' ? 'flat' : 'outlined'"
+					class="flex-grow-1 font-weight-bold"
+					size="default"
+					@click="setPaymentType('usd')"
+				>
+					<v-icon start size="18">mdi-currency-usd</v-icon>
+					Efectivo USD (+3% IGTF)
+				</v-btn>
+			</div>
+		</div>
+
 		<div
 			v-for="(payment, paymentIndex) in payments"
 			:key="payment.name"
@@ -11,7 +46,9 @@
 			<div class="payment-method-card__header">
 				<div>
 					<p class="payment-method-card__label">{{ frappe._("Method") }}</p>
-					<h4 class="payment-method-card__title">{{ payment.mode_of_payment }}</h4>
+					<h4 class="payment-method-card__title">
+						{{ selectedPaymentType === 'usd' ? 'Efectivo USD (Divisas)' : 'Efectivo Bolívares (VEF)' }}
+					</h4>
 				</div>
 				<div class="payment-method-card__badges">
 					<span
@@ -116,7 +153,7 @@
 					<div class="payment-method-actions">
 						<v-btn
 							block
-							color="primary"
+							:color="selectedPaymentType === 'usd' ? 'warning' : 'primary'"
 							variant="flat"
 							class="payment-method-action-btn"
 							data-pos-keyboard-target="payment-action"
@@ -128,7 +165,7 @@
 							"
 							@click="handlePrimaryAction(payment)"
 						>
-							{{ isGiftCardPayment(payment) ? __("Redeem / Scan") : payment.mode_of_payment }}
+							{{ isGiftCardPayment(payment) ? __("Redeem / Scan") : (selectedPaymentType === 'usd' ? 'Cobrar en USD' : 'Cobrar en Bs') }}
 						</v-btn>
 					</div>
 				</v-col>
@@ -199,6 +236,10 @@
 </template>
 
 <script setup>
+import { useVenezuelaMock } from "../../../composables/pos/useVenezuelaMock";
+
+const { selectedPaymentType, setPaymentType } = useVenezuelaMock();
+
 const frappe = window.frappe;
 const __ = window.__;
 

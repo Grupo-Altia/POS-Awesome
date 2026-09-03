@@ -59,6 +59,17 @@
 					</div>
 					<div
 						v-if="
+							(item.original_currency === 'USD' ||
+								item.currency === 'USD' ||
+								item.price_list_currency === 'USD') &&
+							exchangeRate > 0
+						"
+						class="text-success text-caption font-weight-bold"
+					>
+						≈ {{ formatCurrencyCustom((item.original_rate ?? item.rate ?? 0) * exchangeRate, "Bs.") }}
+					</div>
+					<div
+						v-else-if="
 							posProfile.posa_allow_multi_currency &&
 							selectedCurrency &&
 							selectedCurrency !==
@@ -124,6 +135,9 @@
 import { ref, computed, nextTick, watch } from "vue";
 import ItemRateInfoMenu from "./ItemRateInfoMenu.vue";
 import { priceListToSelectedCurrency } from "../../../utils/erpnextCurrency";
+import { useVenezuelaMock } from "../../../composables/pos/useVenezuelaMock";
+
+const { exchangeRate, formatCurrencyCustom } = useVenezuelaMock();
 
 const props = defineProps({
 	displayedItems: { type: Array, default: () => [] },
