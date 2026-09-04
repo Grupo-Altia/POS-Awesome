@@ -26,7 +26,8 @@ export function usePaymentCurrencies(options: PaymentCurrencyOptions) {
 	};
 
 	const multiCurrencyEnabled = computed(() =>
-		enabled(unref(options.posProfile)?.posa_enable_multi_currency_payments),
+		enabled(unref(options.posProfile)?.posa_enable_multi_currency_payments) ||
+		enabled(unref(options.posProfile)?.posa_allow_multi_currency),
 	);
 	const allowCurrencySelection = computed(
 		() =>

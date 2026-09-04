@@ -86,6 +86,45 @@ const resolveUncached = async (
 		};
 	}
 
+	// Priority resolution for Venezuela BCV multi-currency environment
+	const fromUpper = (args.fromCurrency || "").toUpperCase();
+	const toUpper = (args.toCurrency || "").toUpperCase();
+	const isVeBase = (c: string) => c === "VEF" || c === "VES";
+
+	if ((fromUpper === "USD" && isVeBase(toUpper)) || (isVeBase(fromUpper) && toUpper === "USD")) {
+		const storedUsd = localStorage.getItem("posa_ve_bcv_rate_usd") || localStorage.getItem("posa_ve_bcv_rate");
+		const rateUsd = storedUsd ? parseFloat(storedUsd) : 801.0;
+		if (rateUsd > 0) {
+			const finalRate = fromUpper === "USD" ? rateUsd : 1 / rateUsd;
+			return {
+				found: true,
+				fromCurrency: args.fromCurrency,
+				toCurrency: args.toCurrency,
+				rate: finalRate,
+				effectiveDate: args.effectiveDate,
+				rateDate: args.effectiveDate,
+				source: "offline_cache",
+			};
+		}
+	}
+
+	if ((fromUpper === "EUR" && isVeBase(toUpper)) || (isVeBase(fromUpper) && toUpper === "EUR")) {
+		const storedEur = localStorage.getItem("posa_ve_bcv_rate_eur");
+		const rateEur = storedEur ? parseFloat(storedEur) : 850.0;
+		if (rateEur > 0) {
+			const finalRate = fromUpper === "EUR" ? rateEur : 1 / rateEur;
+			return {
+				found: true,
+				fromCurrency: args.fromCurrency,
+				toCurrency: args.toCurrency,
+				rate: finalRate,
+				effectiveDate: args.effectiveDate,
+				rateDate: args.effectiveDate,
+				source: "offline_cache",
+			};
+		}
+	}
+
 	if (!args.purpose) {
 		const inverse = resolvedRates.get(
 			cacheKey({

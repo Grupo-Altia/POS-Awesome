@@ -124,7 +124,7 @@
 					</template>
 				</NavbarInfoGadgets>
 
-				<!-- Venezuela BCV Exchange Rate Widget -->
+				<!-- Venezuela BCV Exchange Rate Widget (USD & EUR) -->
 				<v-chip
 					color="success"
 					variant="flat"
@@ -132,8 +132,8 @@
 					style="cursor: pointer;"
 					@click="openRateDialog"
 				>
-					<v-icon start size="18">mdi-currency-usd</v-icon>
-					<span>BCV: {{ formattedRate }}</span>
+					<v-icon start size="16">mdi-bank</v-icon>
+					<span>BCV: ${{ exchangeRateUSD.toFixed(2) }} | €{{ exchangeRateEUR.toFixed(2) }}</span>
 				</v-chip>
 
 				<div :class="['profile-section', isRtl ? 'rtl-profile-section' : 'ltr-profile-section']">
@@ -240,30 +240,42 @@
 		</transition>
 
 		<!-- Dialog to adjust BCV rate in live demo -->
-		<v-dialog v-model="showRateDialog" max-width="360">
+		<v-dialog v-model="showRateDialog" max-width="400">
 			<v-card class="pa-4 rounded-xl">
 				<v-card-title class="text-h6 font-weight-bold d-flex align-center pb-2">
-					<v-icon color="success" class="mr-2">mdi-currency-usd</v-icon>
-					Tasa de Cambio BCV
+					<v-icon color="success" class="mr-2">mdi-bank</v-icon>
+					Tasas de Cambio Oficiales (BCV)
 				</v-card-title>
 				<v-card-text class="py-2">
 					<p class="text-caption text-grey mb-3">
-						Modifica la tasa oficial en vivo para simular cómo recalculan el catálogo, carrito y pagos.
+						Modifica las tasas oficiales del sistema (USD y EUR) para simular el recálculo en vivo del catálogo, pagos e IGTF.
 					</p>
 					<v-text-field
-						v-model.number="tempRate"
-						label="Tasa en Bolívares (Bs / $)"
-						prefix="Bs."
+						v-model.number="tempRateUSD"
+						label="Tasa Dólar BCV (USD / Bs)"
+						prefix="$ 1 ="
+						suffix="Bs."
 						type="number"
 						step="0.5"
 						variant="outlined"
 						density="comfortable"
+						class="mb-2"
 						autofocus
+					/>
+					<v-text-field
+						v-model.number="tempRateEUR"
+						label="Tasa Euro BCV (EUR / Bs)"
+						prefix="€ 1 ="
+						suffix="Bs."
+						type="number"
+						step="0.5"
+						variant="outlined"
+						density="comfortable"
 					/>
 				</v-card-text>
 				<v-card-actions class="justify-end">
 					<v-btn variant="text" @click="showRateDialog = false">Cancelar</v-btn>
-					<v-btn color="success" variant="flat" @click="saveRate">Aplicar Tasa</v-btn>
+					<v-btn color="success" variant="flat" @click="saveRate">Aplicar Tasas</v-btn>
 				</v-card-actions>
 			</v-card>
 		</v-dialog>
@@ -285,15 +297,15 @@ export default {
 	},
 	setup() {
 		const { isRtl, rtlStyles, rtlClasses } = useRtl();
-		const { exchangeRate, formattedRate, setExchangeRate } = useVenezuelaMock();
+		const { exchangeRateUSD, exchangeRateEUR, setExchangeRates } = useVenezuelaMock();
 		return {
 			isRtl,
 			rtlStyles,
 			rtlClasses,
 			posLogo,
-			exchangeRate,
-			formattedRate,
-			setExchangeRate,
+			exchangeRateUSD,
+			exchangeRateEUR,
+			setExchangeRates,
 		};
 	},
 	data() {
@@ -301,7 +313,8 @@ export default {
 			windowWidth: window.innerWidth,
 			resizeRafId: null,
 			showRateDialog: false,
-			tempRate: 50.0,
+			tempRateUSD: 801.0,
+			tempRateEUR: 850.0,
 		};
 	},
 	mounted() {
@@ -453,12 +466,16 @@ export default {
 		},
 
 		openRateDialog() {
-			this.tempRate = this.exchangeRate;
+			this.tempRateUSD = this.exchangeRateUSD;
+			this.tempRateEUR = this.exchangeRateEUR;
 			this.showRateDialog = true;
 		},
 
 		saveRate() {
-			this.setExchangeRate(Number(this.tempRate) || 50.0);
+			this.setExchangeRates({
+				usd: Number(this.tempRateUSD) || 801.0,
+				eur: Number(this.tempRateEUR) || 850.0,
+			});
 			this.showRateDialog = false;
 		},
 	},

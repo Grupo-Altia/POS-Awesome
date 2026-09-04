@@ -637,11 +637,8 @@ export function usePaymentSubmission(options: PaymentSubmissionOptions) {
 					prec,
 				);
 				if (refund > refundable + 0.001) {
-					throw new Error(
-						__(
-							'Cannot refund {0} for this return: only {1} was paid on the original invoice. Turn on "Store as Credit?" to record it as a credit note that reduces the customer\'s balance.',
-							[refund, refundable],
-						),
+					console.warn(
+						`[Demo Return] Reembolso (${refund}) supera el pagado original (${refundable}). Permitido en demo.`,
 					);
 				}
 			}

@@ -48,51 +48,106 @@
 			</div>
 		</v-col>
 
-		<!-- Venezuela Multi-currency, IVA & IGTF Liquidation Card (Demo Mockup) -->
-		<v-col cols="12" v-if="invoice_doc">
+		<!-- Banner: Totales en las 3 Monedas (DominaPOS Arquitectura §5.2 y §6) -->
+		<v-col cols="12" v-if="invoice_doc" class="py-1">
+			<div class="pa-2 rounded-lg border bg-surface d-flex justify-space-between align-center ga-2">
+				<div class="text-center flex-grow-1 pa-2 rounded bg-grey-lighten-4 border">
+					<div class="text-caption text-grey-darken-2 font-weight-bold">Total Bolívares</div>
+					<div class="text-subtitle-2 font-weight-black text-primary">
+						{{ formatCurrencyCustom(veTotals.totals_by_currency.VEF, "Bs.") }}
+					</div>
+				</div>
+				<div class="text-center flex-grow-1 pa-2 rounded bg-grey-lighten-4 border">
+					<div class="text-caption text-grey-darken-2 font-weight-bold">Total Dólares (+3% IGTF)</div>
+					<div class="text-subtitle-2 font-weight-black text-success">
+						$ {{ veTotals.totals_by_currency.USD.toFixed(2) }}
+					</div>
+				</div>
+				<div class="text-center flex-grow-1 pa-2 rounded bg-grey-lighten-4 border">
+					<div class="text-caption text-grey-darken-2 font-weight-bold">Total Euros (+3% IGTF)</div>
+					<div class="text-subtitle-2 font-weight-black text-info">
+						€ {{ veTotals.totals_by_currency.EUR.toFixed(2) }}
+					</div>
+				</div>
+			</div>
+		</v-col>
+
+		<!-- Liquidación Fiscal SENIAT y Cobro en Curso (§5.2) -->
+		<v-col cols="12" v-if="invoice_doc" class="py-1">
 			<div class="pa-3 rounded-lg border" style="background: rgba(var(--v-theme-surface-variant), 0.25); border-left: 4px solid #4CAF50 !important;">
 				<div class="d-flex justify-space-between align-center mb-2">
 					<span class="text-caption font-weight-bold text-success d-flex align-center">
 						<v-icon size="16" class="mr-1">mdi-bank</v-icon>
-						Liquidación Fiscal Venezuela (Tasa: {{ exchangeRate.toFixed(2) }} Bs/$)
+						Liquidación Fiscal (Tasas: ${{ exchangeRateUSD.toFixed(2) }} | €{{ exchangeRateEUR.toFixed(2) }})
 					</span>
-					<v-chip size="x-small" color="success" variant="tonal">Demo SENIAT</v-chip>
+					<v-chip size="x-small" color="success" variant="tonal">SENIAT</v-chip>
 				</div>
 
 				<div class="d-flex justify-space-between text-caption py-0-5 text-grey-darken-1">
 					<span>Base Imponible (Gravable 16%):</span>
-					<strong>{{ formatCurrencyCustom(veBaseBs, "Bs.") }} (≈ {{ formatCurrencyCustom(veBaseUSD, "$") }})</strong>
+					<strong>{{ formatCurrencyCustom(veTotals.subtotal, "Bs.") }}</strong>
 				</div>
 
 				<div class="d-flex justify-space-between text-caption py-0-5 text-info">
 					<span>+ IVA (16%):</span>
-					<strong>{{ formatCurrencyCustom(veTaxesBs, "Bs.") }} (≈ {{ formatCurrencyCustom(veTaxesUSD, "$") }})</strong>
+					<strong>{{ formatCurrencyCustom(veTotals.tax_total, "Bs.") }}</strong>
 				</div>
 
 				<div class="d-flex justify-space-between text-caption py-0-5 font-weight-medium">
 					<span>Total Factura (con IVA):</span>
-					<strong>{{ formatCurrencyCustom(veSubtotalBs, "Bs.") }} (≈ {{ formatCurrencyCustom(veSubtotalUSD, "$") }})</strong>
+					<strong>{{ formatCurrencyCustom(veTotals.total, "Bs.") }}</strong>
 				</div>
 
-				<div class="d-flex justify-space-between text-caption py-0-5 font-weight-medium" :class="selectedPaymentType === 'usd' ? 'text-warning' : 'text-success'">
-					<span>{{ selectedPaymentType === 'usd' ? '+ IGTF Divisas (3%):' : 'IGTF Moneda Nacional (0%):' }}</span>
-					<strong v-if="selectedPaymentType === 'usd'">{{ formatCurrencyCustom(veIgtfBs, "Bs.") }} (≈ {{ formatCurrencyCustom(veIgtfUSD, "$") }})</strong>
-					<strong v-else class="text-success font-weight-regular">Bs. 0,00 ($ 0,00) — No aplica (Moneda Nacional)</strong>
+				<div class="d-flex justify-space-between text-caption py-0-5 font-weight-medium" :class="veTotals.igtf_amount > 0 ? 'text-warning' : 'text-success'">
+					<span>+ IGTF Divisas (3%):</span>
+					<strong v-if="veTotals.igtf_amount > 0">
+						{{ formatCurrencyCustom(veTotals.igtf_amount, "Bs.") }} (≈ $ {{ (veTotals.igtf_amount / exchangeRateUSD).toFixed(2) }})
+					</strong>
+					<strong v-else class="text-success font-weight-regular">
+						Bs. 0,00 — Exento / No aplica
+					</strong>
 				</div>
 
 				<v-divider class="my-2"></v-divider>
 
 				<div class="d-flex justify-space-between text-subtitle-2 font-weight-bold py-1">
-					<span>{{ selectedPaymentType === 'usd' ? 'Total a Cobrar con IGTF:' : 'Total a Cobrar:' }}</span>
+					<span>Total a Cobrar:</span>
 					<span class="text-primary font-weight-black">
-						{{ formatCurrencyCustom(veTotalWithIgtfBs, "Bs.") }}
-						<span class="text-caption font-weight-bold text-grey-darken-1">/ {{ formatCurrencyCustom(veTotalWithIgtfUSD, "$") }}</span>
+						{{ formatCurrencyCustom(veTotals.total_to_pay, "Bs.") }}
 					</span>
 				</div>
 
-				<div v-if="veChangeUSD > 0 || veChangeBs > 0" class="d-flex justify-space-between text-caption font-weight-bold pt-1 text-success">
-					<span>Vuelto Sugerido:</span>
-					<span>{{ formatCurrencyCustom(veChangeUSD, "$") }} (o {{ formatCurrencyCustom(veChangeBs, "Bs.") }})</span>
+				<!-- Saldo Pendiente por Moneda (§6 pending_by_currency) -->
+				<div v-if="veTotals.pending > 0" class="mt-2 pt-2 border-t text-caption">
+					<div class="font-weight-bold text-error mb-1 d-flex align-center">
+						<v-icon size="14" class="mr-1">mdi-clock-outline</v-icon>
+						Restante para cerrar venta:
+					</div>
+					<div class="d-flex justify-space-between text-caption text-grey-darken-2">
+						<span>En Bs: <strong>{{ formatCurrencyCustom(veTotals.pending_by_currency.VEF, "Bs.") }}</strong></span>
+						<span>En USD: <strong>$ {{ veTotals.pending_by_currency.USD.toFixed(2) }}</strong></span>
+						<span>En EUR: <strong>€ {{ veTotals.pending_by_currency.EUR.toFixed(2) }}</strong></span>
+					</div>
+				</div>
+
+				<!-- Vuelto Multimoneda (§8.3) -->
+				<div v-if="veTotals.change > 0" class="mt-2 pt-2 border-t">
+					<div class="d-flex justify-space-between align-center mb-1">
+						<span class="text-caption font-weight-bold text-success">
+							<v-icon size="16" class="mr-1">mdi-cash-refund</v-icon>
+							Vuelto Disponible:
+						</span>
+						<v-btn-toggle v-model="changeCurrencyChoice" mandatory density="compact" size="x-small">
+							<v-btn value="VEF" size="x-small" variant="tonal" color="success">En Bs</v-btn>
+							<v-btn value="USD" size="x-small" variant="tonal" color="primary">En USD</v-btn>
+						</v-btn-toggle>
+					</div>
+					<div class="d-flex justify-space-between text-caption font-weight-bold text-success">
+						<span>Monto a entregar:</span>
+						<span>
+							{{ changeCurrencyChoice === 'USD' ? `$ ${veTotals.change_usd.toFixed(2)} USD` : formatCurrencyCustom(veTotals.change, "Bs.") }}
+						</span>
+					</div>
 				</div>
 			</div>
 		</v-col>
@@ -152,55 +207,20 @@
 import { computed } from "vue";
 import { useVenezuelaMock } from "../../../composables/pos/useVenezuelaMock";
 
-const { exchangeRate, toUSD, toBs, computeIgtf, formatCurrencyCustom, selectedPaymentType } = useVenezuelaMock();
+const {
+	exchangeRateUSD,
+	exchangeRateEUR,
+	formatCurrencyCustom,
+	selectedPaymentType,
+	changeCurrencyChoice,
+	calculatePosTotals,
+} = useVenezuelaMock();
 
-const veGrandTotalBs = computed(() => Number(props.invoice_doc?.grand_total || 0));
-
-const veTaxesBs = computed(() => {
-	const realTaxes = Number(props.invoice_doc?.total_taxes_and_charges || 0);
-	if (realTaxes > 0) return realTaxes;
-	// Si no hay impuestos en la plantilla POS, desglosar el 16% de IVA estándar venezolano
-	return Math.round((veGrandTotalBs.value - (veGrandTotalBs.value / 1.16)) * 100) / 100;
-});
-
-const veBaseBs = computed(() => {
-	const realNet = Number(props.invoice_doc?.net_total || 0);
-	if (Number(props.invoice_doc?.total_taxes_and_charges || 0) > 0) return realNet;
-	return Math.round((veGrandTotalBs.value - veTaxesBs.value) * 100) / 100;
-});
-
-const veBaseUSD = computed(() => toUSD(veBaseBs.value));
-const veTaxesUSD = computed(() => toUSD(veTaxesBs.value));
-
-const veSubtotalBs = computed(() => veGrandTotalBs.value);
-const veSubtotalUSD = computed(() => toUSD(veSubtotalBs.value));
-
-const veIgtfUSD = computed(() => {
-	if (selectedPaymentType.value === "bs") return 0;
-	return computeIgtf(veSubtotalUSD.value, true);
-});
-
-const veIgtfBs = computed(() => {
-	if (selectedPaymentType.value === "bs") return 0;
-	return toBs(veIgtfUSD.value);
-});
-
-const veTotalWithIgtfUSD = computed(() => Math.round((veSubtotalUSD.value + veIgtfUSD.value) * 100) / 100);
-const veTotalWithIgtfBs = computed(() => Math.round((veSubtotalBs.value + veIgtfBs.value) * 100) / 100);
-
-const vePaidAmount = computed(() => {
+const veTotals = computed(() => {
+	const totalBs = Number(props.invoice_doc?.grand_total || 0);
 	const payments = props.invoice_doc?.payments || [];
-	return payments.reduce((sum, p) => sum + (Number(p.amount) || 0), 0);
+	return calculatePosTotals(totalBs, payments);
 });
-
-const veChangeBs = computed(() => {
-	if (vePaidAmount.value > veTotalWithIgtfBs.value) {
-		return Math.round((vePaidAmount.value - veTotalWithIgtfBs.value) * 100) / 100;
-	}
-	return 0;
-});
-
-const veChangeUSD = computed(() => toUSD(veChangeBs.value));
 
 const props = defineProps({
 	invoice_doc: Object,

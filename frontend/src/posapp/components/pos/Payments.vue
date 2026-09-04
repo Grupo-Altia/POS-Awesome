@@ -1,4 +1,4 @@
-﻿<!-- eslint-disable vue/multi-word-component-names -->
+<!-- eslint-disable vue/multi-word-component-names -->
 <template>
 	<div
 		ref="paymentRoot"
@@ -69,6 +69,7 @@
 							<h3 class="payment-section__title">{{ __("Payment Methods") }}</h3>
 						</div>
 						<PaymentMethods
+							:invoice-doc="invoice_doc"
 							:payments="visiblePaymentMethods"
 							:currency="invoice_doc.currency"
 							:isReturn="invoice_doc.is_return"
@@ -1249,19 +1250,35 @@ const finishSubmissionNavigation = (clearInvoice = false) => {
 
 const buildProfilePaymentLines = () => {
 	const profilePayments = Array.isArray(pos_profile.value?.payments) ? pos_profile.value.payments : [];
+	const hasExplicitEfectivo = profilePayments.some(
+		(p) => p.mode_of_payment === "Efectivo" || p.mode_of_payment?.toLowerCase() === "efectivo",
+	);
 
 	return profilePayments
 		.filter((payment) => payment?.mode_of_payment)
-		.map((payment, index) => ({
-			mode_of_payment: payment.mode_of_payment,
-			amount: 0,
-			base_amount: 0,
-			account: payment.account,
-			type: payment.type,
-			default: payment.default === 1 || payment.default === true || index === 0 ? 1 : 0,
-			posa_default_payment_currency: payment.posa_default_payment_currency,
-			account_currency: payment.account_currency,
-		}));
+		.map((payment, index) => {
+			let isDefault = 0;
+			if (hasExplicitEfectivo) {
+				isDefault =
+					payment.mode_of_payment === "Efectivo" ||
+					payment.mode_of_payment?.toLowerCase() === "efectivo"
+						? 1
+						: 0;
+			} else {
+				isDefault = payment.default === 1 || payment.default === true || index === 0 ? 1 : 0;
+			}
+
+			return {
+				mode_of_payment: payment.mode_of_payment,
+				amount: 0,
+				base_amount: 0,
+				account: payment.account,
+				type: payment.type,
+				default: isDefault,
+				posa_default_payment_currency: payment.posa_default_payment_currency,
+				account_currency: payment.account_currency,
+			};
+		});
 };
 
 const paymentCurrencyContext = (doc = invoice_doc.value) => ({
@@ -2091,6 +2108,8 @@ watch(diff_payment, (newVal) => {
 			paid_change.value = changeDue;
 		}
 	} else {
+		paid_change.value = 0;
+		credit_change.value = 0;
 		updateCreditChange(0);
 	}
 

@@ -94,7 +94,23 @@ export const resolvePreferredPaymentLine = (
 		return null;
 	}
 
+	// Venezuelan context preference: "Efectivo" (Bs) is the primary default method
+	const bsCash = payments.find(
+		(payment) =>
+			payment.mode_of_payment === "Efectivo" ||
+			payment.mode_of_payment?.toLowerCase() === "efectivo",
+	);
+	if (bsCash) {
+		return bsCash;
+	}
+
 	return (
+		payments.find(
+			(payment) =>
+				(payment.default === 1 || payment.default === true) &&
+				!String(payment.mode_of_payment).toLowerCase().includes("usd") &&
+				!String(payment.mode_of_payment).toLowerCase().includes("eur"),
+		) ||
 		payments.find(
 			(payment) => payment.default === 1 || payment.default === true,
 		) ||

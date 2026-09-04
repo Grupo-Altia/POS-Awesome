@@ -130,10 +130,16 @@
 						<strong class="summary-hero__amount">
 							{{ currencySymbol(displayCurrency) }}{{ formatCurrency(subtotal) }}
 						</strong>
-						<div class="text-subtitle-2 font-weight-bold text-success mt-1 d-flex align-center">
-							<v-icon size="16" class="mr-1">mdi-currency-usd</v-icon>
-							<span>≈ {{ formatCurrencyCustom(toUSD(subtotal), "$") }} USD</span>
-							<span class="text-caption text-grey ml-1 font-weight-regular">(Tasa: {{ exchangeRate.toFixed(2) }})</span>
+						<div class="text-caption font-weight-bold text-success mt-1 d-flex align-center flex-wrap ga-2">
+							<span class="d-flex align-center">
+								<v-icon size="14" class="mr-0-5">mdi-currency-usd</v-icon>
+								≈ ${{ toUSD(subtotal).toFixed(2) }}
+							</span>
+							<span class="d-flex align-center text-info">
+								<v-icon size="14" class="mr-0-5">mdi-currency-eur</v-icon>
+								≈ €{{ toEUR(subtotal).toFixed(2) }}
+							</span>
+							<span class="text-caption text-grey font-weight-regular">(Tasas: ${{ exchangeRateUSD.toFixed(2) }} | €{{ exchangeRateEUR.toFixed(2) }})</span>
 						</div>
 						<div class="summary-hero__meta">
 							<span
@@ -325,7 +331,7 @@ import ParkedOrdersList from "./ParkedOrdersList.vue";
 import DocumentSourceSelector from "../shared/DocumentSourceSelector.vue";
 import { useVenezuelaMock } from "../../../composables/pos/useVenezuelaMock";
 
-const { exchangeRate, toUSD, formatCurrencyCustom } = useVenezuelaMock();
+const { exchangeRateUSD, exchangeRateEUR, toUSD, toEUR, formatCurrencyCustom } = useVenezuelaMock();
 
 defineOptions({
 	name: "InvoiceSummary",

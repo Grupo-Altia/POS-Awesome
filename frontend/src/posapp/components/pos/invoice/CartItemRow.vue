@@ -1039,6 +1039,34 @@ td {
 	transition: none !important;
 }
 
+.posa-cart-item-row--keyboard-active .amount-value {
+	color: #ffffff !important;
+}
+
+.posa-cart-item-row--keyboard-active .currency-symbol {
+	color: #93c5fd !important;
+}
+
+.posa-cart-item-row--keyboard-active .posa-cart-table__editor-display {
+	background: #ffffff !important;
+	border: 1px solid #94a3b8 !important;
+	color: #0f172a !important;
+}
+
+.posa-cart-item-row--keyboard-active .posa-cart-table__editor-display .amount-value {
+	color: #0f172a !important;
+	font-weight: 600 !important;
+}
+
+.posa-cart-item-row--keyboard-active .posa-cart-table__editor-display .currency-symbol {
+	color: #475569 !important;
+}
+
+.posa-cart-item-row--keyboard-active .v-btn,
+.posa-cart-item-row--keyboard-active .v-icon {
+	color: #ffffff !important;
+}
+
 .posa-cart-item-row--keyboard-row {
 	outline: 3px solid var(--pos-primary);
 	outline-offset: -3px;

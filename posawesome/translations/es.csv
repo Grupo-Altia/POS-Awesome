@@ -399,7 +399,7 @@ Please set Default Payable Account in Company {0},Por favor configure Cuenta Pag
 Please set default account for Mode of Payment {0} in company {1},Por favor configure cuenta predeterminada para Metodo de Pago {0} en empresa {1}
 Please try again or enter the item manually.,Por favor intente de nuevo o ingrese el articulo manualmente.
 Popup blocked. Please allow popups.,Ventana emergente bloqueada.
-Posting,Publicacion
+Posting,Fecha de Emisión
 Posting and Price List,Publicacion y Lista de Precios
 Previous unit of measure,Unidad de medida anterior
 Price List Rate,Tasa de Lista de Precios
@@ -565,7 +565,7 @@ Tax,Impuesto
 Tax / Charges Report,Informe de Impuestos/Cargos
 Tax Heads,Cabeceras de Impuestos
 Taxable Amount,Monto Imponible
-Tendered,Ofrecido
+Tendered,Monto Recibido
 The amount paid is not complete,El monto pagado no esta completo
 The invoice stayed in draft. Please review and submit it manually.,La factura permanecio en borrador. Reviselay envie manualmente.
 The maximum discount allowed is,El descuento maximo permitido es
@@ -790,7 +790,7 @@ Category-wise Margin,Margen por Categoría
 Certificate is missing or not trusted. QZ may show confirmation dialogs.,El certificado falta o no es de confianza. QZ puede mostrar diálogos de confirmación.
 Certificate is trusted. Silent QZ printing is active.,El certificado es de confianza. La impresión silenciosa de QZ está activa.
 Change Price,Cambiar Precio
-Change Return,Cambiar Devolución
+Change Return,Vuelto Entregado
 Change Returned,Cambio Devuelto
 Charge Heads,Cabeceras de Cargo
 Charges not found,Cargos no encontrados
@@ -1883,3 +1883,9 @@ Write off amount exceeds the allowed limit ({0}). Please add payment for the rem
 "Select Columns to Display","Seleccionar Columnas a Mostrar"
 "Search items or barcode","Buscar artículos o código de barras"
 "Close column selector","Cerrar selector de columnas"
+"Store as Credit?","¿Guardar como Saldo a Favor?"
+"Customer Credit Return Active","Devolución como Saldo a Favor Activa"
+"This return will be saved as customer credit instead of cashback.","Esta devolución se registrará como saldo a favor en cuenta corriente del cliente en lugar de entrega en efectivo."
+"Cashback Active","Reembolso en Efectivo/Banco Activo"
+"Return value will be settled back through payment methods.","El monto de la devolución se reintegrará a través de los medios de pago seleccionados."
+"Cannot refund {0} for this return: only {1} was paid on the original invoice. Turn on \"Store as Credit?\" to record it as a credit note that reduces the customer's balance.","No se puede reembolsar {0} para esta devolución: solo se pagaron {1} en la factura original. Active ¿Guardar como Saldo a Favor? para registrarlo como nota de crédito."
