@@ -1,4 +1,4 @@
-﻿<template>
+<template>
 	<v-dialog
 		v-model="visible"
 		@update:model-value="handleDialogModelUpdate"
@@ -93,8 +93,8 @@ const __ = (window as any).__ || ((s: string) => s);
 
 watch(
 	() => updateStore.shouldPrompt,
-	(shouldShow) => {
-		visible.value = shouldShow;
+	() => {
+		visible.value = false;
 	},
 	{ immediate: true },
 );
@@ -117,7 +117,12 @@ function handleDialogModelUpdate(nextVisible: boolean) {
 }
 
 function reloadNow() {
-	updateStore.reloadNow();
+	try {
+		updateStore.reloadNow();
+	} catch (e) {
+		console.warn("Service worker reload failed", e);
+	}
+	window.location.reload();
 }
 </script>
 
