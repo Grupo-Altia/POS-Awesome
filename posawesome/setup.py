@@ -24,11 +24,17 @@ from frappe.utils.password import update_password
 
 
 def set_data(
-    company_name: str = "Galanet Solution C.A.",
+    company_name: str | None = None,
     profile_name: str = "GIO",
     cashier_email: str = "cajero.pos@galanet.com",
 ) -> None:
     """Punto de entrada principal para el aprovisionamiento del entorno POS."""
+    if not company_name:
+        company_name = (
+            frappe.db.get_single_value("Global Defaults", "default_company")
+            or frappe.db.get_value("Company", {}, "name")
+            or "Galanet Solution C.A."
+        )
     print(f"\n=== INICIANDO SETUP DE POS AWESOME PARA {company_name} ===")
 
     try:
@@ -91,22 +97,38 @@ def setup_payment_methods(company_name: str = "Galanet Solution C.A.") -> None:
         "Cashea": "1101002 - Caja Tesorería Bolívares - Galanet",
     }
 
+    fallback_cash: str | None = frappe.db.get_value(
+        "Account",
+        {"company": company_name, "account_type": "Cash", "is_group": 0},
+        "name",
+    )
+    fallback_bank: str | None = frappe.db.get_value(
+        "Account",
+        {"company": company_name, "account_type": "Bank", "is_group": 0},
+        "name",
+    )
+
     for mode_name, acc in mode_account_map.items():
+        actual_acc: str | None = acc if frappe.db.exists("Account", acc) else (
+            fallback_cash if "Efectivo" in mode_name else (fallback_bank or fallback_cash)
+        )
+
         if not frappe.db.exists("Mode of Payment", mode_name):
             m: Any = frappe.new_doc("Mode of Payment")
             m.mode_of_payment = mode_name
             m.type = "Cash" if "Efectivo" in mode_name else "Bank"
             m.enabled = 1
-            m.append("accounts", {"company": company_name, "default_account": acc})
+            if actual_acc:
+                m.append("accounts", {"company": company_name, "default_account": actual_acc})
             m.insert(ignore_permissions=True)
             print(f"✓ Modo de pago creado: {mode_name}")
         else:
             m = frappe.get_doc("Mode of Payment", mode_name)
             has_company: bool = any(a.company == company_name for a in m.accounts)
-            if not has_company:
-                m.append("accounts", {"company": company_name, "default_account": acc})
+            if not has_company and actual_acc:
+                m.append("accounts", {"company": company_name, "default_account": actual_acc})
                 m.save(ignore_permissions=True)
-                print(f"✓ Cuenta asignada a modo de pago: {mode_name} -> {acc}")
+                print(f"✓ Cuenta asignada a modo de pago: {mode_name} -> {actual_acc}")
 
 
 def configure_pos_profile(
