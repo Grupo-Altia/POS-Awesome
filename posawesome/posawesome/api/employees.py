@@ -222,27 +222,16 @@ def _get_pos_supervisor_users(users: list[str]) -> set[str]:
     if not users:
         return set()
 
-    try:
-        rows = frappe.get_all(
-            "Has Role",
-            filters={
-                "parent": ["in", users],
-                "parenttype": "User",
-                "role": POS_SUPERVISOR_ROLE,
-            },
-            fields=["parent"],
-            ignore_permissions=True,
-        )
-        return {row.get("parent") for row in rows if row.get("parent")}
-    except Exception:
-        if hasattr(frappe, "log_error"):
-            frappe.log_error(
-                frappe.get_traceback(),
-                "POS Awesome: failed to batch-load cashier supervisor roles",
-            )
-        return {
-            user for user in users if POS_SUPERVISOR_ROLE in _get_roles_for_user(user)
-        }
+    supervisors = set()
+    for user in users:
+        try:
+            if user == "Administrator" or user_can_manage_pos(user):
+                supervisors.add(user)
+        except Exception:
+            if POS_SUPERVISOR_ROLE in _get_roles_for_user(user):
+                supervisors.add(user)
+
+    return supervisors
 
 
 def _has_legacy_supervisor_field() -> bool:

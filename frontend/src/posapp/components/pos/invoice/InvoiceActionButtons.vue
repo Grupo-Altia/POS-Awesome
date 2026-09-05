@@ -34,7 +34,7 @@
 			{{ __("Invoices") }}
 		</v-btn>
 		<v-btn
-			v-if="pos_profile.posa_allow_return == 1"
+			v-if="canPerformReturns"
 			variant="tonal"
 			prepend-icon="mdi-backup-restore"
 			class="counter-grid-action"
@@ -207,7 +207,7 @@
 			</v-btn>
 		</v-col>
 
-		<v-col cols="12" sm="6" v-if="pos_profile.posa_allow_return == 1">
+		<v-col cols="12" sm="6" v-if="canPerformReturns">
 			<v-btn
 				block
 				color="secondary"
@@ -311,6 +311,9 @@ defineEmits([
 ]);
 
 const __ = window.__;
+import { useEmployeeStore } from "../../../stores/employeeStore";
+
+const employeeStore = useEmployeeStore();
 const isCounterGrid = computed(() => props.presentation === "counter-grid");
 const showCustomerDisplayButton = computed(() =>
 	parseBooleanSetting(props.pos_profile?.posa_enable_customer_display),
@@ -322,6 +325,18 @@ const showMoreActions = computed(
 		Boolean(props.pos_profile?.posa_allow_print_draft_invoices) ||
 		showCustomerDisplayButton.value,
 );
+
+const canPerformReturns = computed(() => {
+	if (props.pos_profile?.posa_allow_return != 1) return false;
+	if (
+		employeeStore.terminalEmployees &&
+		employeeStore.terminalEmployees.length > 1 &&
+		!employeeStore.currentCashier?.is_supervisor
+	) {
+		return false;
+	}
+	return true;
+});
 </script>
 
 <style scoped>

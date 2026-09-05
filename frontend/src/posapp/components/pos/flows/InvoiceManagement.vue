@@ -338,7 +338,7 @@
 											@click="shareInvoice(item)"
 										/>
 										<v-btn
-											v-if="posProfile?.posa_allow_return == 1"
+											v-if="canPerformReturns"
 											icon="mdi-backup-restore"
 											variant="text"
 											size="small"
@@ -501,7 +501,7 @@
 											@click="shareInvoice(invoice)"
 										/>
 										<v-btn
-											v-if="posProfile?.posa_allow_return == 1"
+											v-if="canPerformReturns"
 											icon="mdi-backup-restore"
 											size="small"
 											variant="text"
@@ -2075,6 +2075,17 @@ export default {
 		],
 	}),
 	computed: {
+		canPerformReturns() {
+			if (this.posProfile?.posa_allow_return != 1) return false;
+			if (
+				this.employeeStore?.terminalEmployees &&
+				this.employeeStore?.terminalEmployees.length > 1 &&
+				!this.currentCashier?.is_supervisor
+			) {
+				return false;
+			}
+			return true;
+		},
 		currentInvoiceDoctype() {
 			return this.posProfile?.create_pos_invoice_instead_of_sales_invoice
 				? "POS Invoice"
