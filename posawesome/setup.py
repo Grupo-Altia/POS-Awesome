@@ -137,6 +137,46 @@ def configure_pos_profile(
     company_name: str = "Galanet Solution C.A.",
 ) -> None:
     """Configura los permisos y modos de pago dentro del perfil de punto de venta."""
+    write_off_account: str | None = (
+        frappe.db.get_value("Company", company_name, "write_off_account")
+        or frappe.db.get_value(
+            "Account",
+            {"company": company_name, "account_type": "Expense Account", "is_group": 0},
+            "name",
+        )
+        or frappe.db.get_value(
+            "Account",
+            {"company": company_name, "root_type": "Expense", "is_group": 0},
+            "name",
+        )
+        or frappe.db.get_value(
+            "Account",
+            {"company": company_name, "is_group": 0},
+            "name",
+        )
+    )
+    cost_center: str | None = (
+        frappe.db.get_value("Company", company_name, "cost_center")
+        or frappe.db.get_value(
+            "Cost Center",
+            {"company": company_name, "is_group": 0},
+            "name",
+        )
+        or frappe.db.get_value("Cost Center", {"is_group": 0}, "name")
+    )
+    income_account: str | None = (
+        frappe.db.get_value("Company", company_name, "default_income_account")
+        or frappe.db.get_value(
+            "Account",
+            {"company": company_name, "root_type": "Income", "is_group": 0},
+            "name",
+        )
+    )
+    expense_account: str | None = (
+        frappe.db.get_value("Company", company_name, "default_expense_account")
+        or write_off_account
+    )
+
     if not frappe.db.exists("POS Profile", profile_name):
         warehouse: str | None = (
             frappe.db.get_value("Warehouse", {"company": company_name, "is_group": 0}, "name")
@@ -159,9 +199,30 @@ def configure_pos_profile(
         profile.customer = customer_id
         profile.selling_price_list = price_list
         profile.currency = currency
+        profile.write_off_account = write_off_account
+        profile.write_off_cost_center = cost_center
+        profile.cost_center = cost_center
+        profile.write_off_limit = 100.0
+        if income_account:
+            profile.income_account = income_account
+        if expense_account:
+            profile.expense_account = expense_account
         print(f"✓ Creando nuevo Perfil POS: {profile_name}")
     else:
         profile: Any = frappe.get_doc("POS Profile", profile_name)
+        if not getattr(profile, "write_off_account", None) and write_off_account:
+            profile.write_off_account = write_off_account
+        if not getattr(profile, "write_off_cost_center", None) and cost_center:
+            profile.write_off_cost_center = cost_center
+        if not getattr(profile, "cost_center", None) and cost_center:
+            profile.cost_center = cost_center
+        if not getattr(profile, "income_account", None) and income_account:
+            profile.income_account = income_account
+        if not getattr(profile, "expense_account", None) and expense_account:
+            profile.expense_account = expense_account
+        if not getattr(profile, "write_off_limit", None):
+            profile.write_off_limit = 100.0
+
     profile.customer = customer_id
     profile.posa_allow_multi_currency = 1
     profile.posa_allow_return = 1
@@ -240,7 +301,13 @@ def setup_cashier_user(
             existing_users: set[str] = {u.user for u in profile.applicable_for_users}
             for u in [cashier_email, "Administrator"]:
                 if frappe.db.exists("User", u) and u not in existing_users:
-                    profile.append("applicable_for_users", {"user": u, "default": 1})
+                    has_default = frappe.db.sql(
+                        """select pfu.name from `tabPOS Profile User` pfu, `tabPOS Profile` pf
+                           where pf.name = pfu.parent and pfu.user = %s and pf.company = %s
+                           and pfu.default = 1 and pf.disabled = 0 and pf.name != %s""",
+                        (u, profile.company, profile_name),
+                    )
+                    profile.append("applicable_for_users", {"user": u, "default": 0 if has_default else 1})
                     existing_users.add(u)
                     print(f"✓ Usuario {u} vinculado al Perfil POS {profile_name}.")
             profile.save(ignore_permissions=True)
