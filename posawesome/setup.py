@@ -25,8 +25,8 @@ from frappe.utils.password import update_password
 
 def set_data(
     company_name: str | None = None,
-    profile_name: str = "GIO",
-    cashier_email: str = "cajero.pos@galanet.com",
+    profile_name: str = "Caja Principal",
+    cashier_email: str = "cajero.pos@gmail.com",
 ) -> None:
     """Punto de entrada principal para el aprovisionamiento del entorno POS."""
     if not company_name:
@@ -132,16 +132,36 @@ def setup_payment_methods(company_name: str = "Galanet Solution C.A.") -> None:
 
 
 def configure_pos_profile(
-    profile_name: str = "GIO",
+    profile_name: str = "Caja Principal",
     customer_id: str = "CUST-2026-00081",
     company_name: str = "Galanet Solution C.A.",
 ) -> None:
     """Configura los permisos y modos de pago dentro del perfil de punto de venta."""
     if not frappe.db.exists("POS Profile", profile_name):
-        print(f"✗ Perfil POS '{profile_name}' no existe.")
-        return
+        warehouse: str | None = (
+            frappe.db.get_value("Warehouse", {"company": company_name, "is_group": 0}, "name")
+            or frappe.db.get_value("Warehouse", {"is_group": 0}, "name")
+        )
+        price_list: str | None = (
+            frappe.db.get_value("Price List", {"selling": 1}, "name")
+            or frappe.db.get_value("Price List", {}, "name")
+            or "Standard Selling"
+        )
+        currency: str = (
+            frappe.db.get_value("Company", company_name, "default_currency")
+            or "VED"
+        )
 
-    profile: Any = frappe.get_doc("POS Profile", profile_name)
+        profile = frappe.new_doc("POS Profile")
+        profile.name = profile_name
+        profile.company = company_name
+        profile.warehouse = warehouse
+        profile.customer = customer_id
+        profile.selling_price_list = price_list
+        profile.currency = currency
+        print(f"✓ Creando nuevo Perfil POS: {profile_name}")
+    else:
+        profile: Any = frappe.get_doc("POS Profile", profile_name)
     profile.customer = customer_id
     profile.posa_allow_multi_currency = 1
     profile.posa_allow_return = 1
@@ -184,8 +204,8 @@ def configure_pos_profile(
 
 
 def setup_cashier_user(
-    cashier_email: str = "cajero.pos@galanet.com",
-    profile_name: str = "GIO",
+    cashier_email: str = "cajero.pos@gmail.com",
+    profile_name: str = "Caja Principal",
 ) -> None:
     """Crea el usuario cajero y asigna el PIN 1234 para terminales compartidos."""
     if not frappe.db.exists("User", cashier_email):
@@ -213,18 +233,20 @@ def setup_cashier_user(
             set_encrypted_password("User", u, "1234", fieldname="posa_pos_pin")
             print(f"✓ PIN de cajero '1234' configurado para: {u}")
 
-    # Vincular en tabla de usuarios del perfil POS
+    # Vincular en tabla de usuarios del perfil POS (Administrator y Cajero)
     if frappe.db.exists("POS Profile", profile_name):
         profile: Any = frappe.get_doc("POS Profile", profile_name)
         if profile.meta.has_field("applicable_for_users"):
             existing_users: set[str] = {u.user for u in profile.applicable_for_users}
-            if cashier_email not in existing_users:
-                profile.append("applicable_for_users", {"user": cashier_email, "default": 1})
-                profile.save(ignore_permissions=True)
-                print(f"✓ Cajero {cashier_email} vinculado al Perfil POS {profile_name}.")
+            for u in [cashier_email, "Administrator"]:
+                if frappe.db.exists("User", u) and u not in existing_users:
+                    profile.append("applicable_for_users", {"user": u, "default": 1})
+                    existing_users.add(u)
+                    print(f"✓ Usuario {u} vinculado al Perfil POS {profile_name}.")
+            profile.save(ignore_permissions=True)
 
 
-def setup_retail_demo_items(profile_name: str = "GIO") -> None:
+def setup_retail_demo_items(profile_name: str = "Caja Principal") -> None:
     """Carga artículos de prueba de retail y fija sus precios en USD."""
     print("\n--- Artículos de Prueba para Retail ---")
     retail_items: list[dict[str, Any]] = [
